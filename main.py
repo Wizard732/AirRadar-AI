@@ -30,6 +30,7 @@ import config
 from ai_summarizer import SummarizerProtocol, make_summarizer
 from dedup import DedupCache
 from fast_filter import matches_keywords
+from health_server import start_health_server
 from publisher import Publisher
 from sticker import get_sticker_header
 
@@ -73,6 +74,11 @@ async def run() -> None:
         settings.llm_backend,
         settings.groq_model if settings.llm_backend == "groq" else settings.ollama_model,
     )
+
+    # Health-сервер для PaaS-платформ (Koyeb и др.): открывает HTTP-порт, чтобы
+    # платформа видела живой сервис. На обычном VPS/компе просто висит в фоне
+    # и не мешает. Порт берётся из переменной PORT (стандарт PaaS) или 8080.
+    await start_health_server()
     publisher = Publisher(
         bot_token=settings.bot_token,
         target_channel=settings.target_channel,

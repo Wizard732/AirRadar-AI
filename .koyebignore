@@ -1,0 +1,17 @@
+# Файлы, которые НЕ нужно отправлять в образ Koyeb
+# (секреты и локальные артефакты)
+.env
+.env.example
+*.session
+*.session-journal
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.git/
+.gitignore
+.zcode/
+*.md
+run.bat
+install.sh
+deploy.sh
