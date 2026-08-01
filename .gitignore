@@ -1,0 +1,21 @@
+# Секреты — НИКОГДА не коммитить
+.env
+
+# Telethon-сессии (содержат авторизацию User API)
+*.session
+*.session-journal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Служебная папка ZCode-клиента (планы сессий и т.п.)
+.zcode/
