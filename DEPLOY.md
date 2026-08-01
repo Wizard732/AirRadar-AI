@@ -1,80 +1,142 @@
 # Деплой AirRadar AI на VPS (бесплатно, 24/7)
 
-Полный гайд: регистрация бесплатного VPS → установка → автозапуск.
-
-## Выбор ИИ-бэкенда (важно — определяет требования к серверу)
-
-Проект поддерживает **два бэкенда** сжатия текста, переключается одной строкой
-в `.env` (`LLM_BACKEND=...`). Оба используют один и тот же системный промпт.
-
-| | **Groq (облако)** — рекомендуется для VPS 24/7 | Ollama (локально) |
-|---|---|---|
-| `LLM_BACKEND` | `groq` | `ollama` |
-| RAM на VPS | **от 1 ГБ** ✅ | 4–8 ГБ (только Oracle ARM free) |
-| Скорость ответа | ~0.2 сек | 1–3 сек |
-| Бесплатно | да, ключ на console.groq.com | да |
-| Нагрузка на сервер | минимальная | высокая (модель в RAM) |
-| Подходит любой VPS | **да** (GCP/AWS/Azure/Oracle x86) | нет (нужна ёмкость RAM) |
-
-**Рекомендация:** для 24/7 на дешёвом/бесплатном VPS используй **Groq**.
-Ollama оставь для запуска на своём компе или мощном сервере.
-
-> 🔒 **Приватность (Groq):** текст постов уходит на серверы Groq. Это текст
-> публичных каналов угроз (не личные секреты), что приемлемо. Если данные
-> критичны — используй локальную Ollama.
+Бот живёт на сервере и работает круглосуточно. Основной путь —
+**Google Cloud e2-micro + Groq** (бесплатно навсегда, не засыпает, не грузит
+сервер тяжёлой нейросетью).
 
 ---
 
-## Быстрый путь: VPS + Groq (любой сервер от 1 ГБ RAM)
+## ИИ-бэкенд: почему Groq
 
-Подойдёт **любой** бесплатный/дешёвый VPS: Google Cloud e2-micro, AWS t2.micro,
-Azure B1s, Oracle x86, или твой существующий сервер. Главное — Ubuntu/Debian
-и 1 ГБ RAM.
+Проект поддерживает два бэкенда сжатия текста (переключается `LLM_BACKEND` в
+`.env`), но для VPS рекомендуется **Groq** — облачный API, который не требует
+RAM под модель и отвечает за ~0.2 сек. Ollama (локальная) оставлена для запуска
+на мощном компе/сервере, но на e2-micro (1 ГБ RAM) она не запустится.
 
-### 1. Получи бесплатный Groq API ключ
-1. Зайди на **https://console.groq.com/keys** (вход через Google/GitHub).
-2. **Create API Key** → скопируй ключ (начинается с `gsk_...`).
-3. Бесплатный лимит: ~14 400 запросов/день (с запасом для мониторинга каналов).
+| | Groq (облако) — рекомендуется | Ollama (локально) |
+|---|---|---|
+| `LLM_BACKEND` | `groq` | `ollama` |
+| RAM на VPS | от 1 ГБ ✅ | 4–8 ГБ |
+| Бесплатно | да (ключ console.groq.com) | да |
 
-### 2. Создай VPS и подключись
-- Запусти инстанс Ubuntu 22.04/24.04 (1 ГБ RAM достаточно).
-- Скачай SSH-ключ, подключись: `ssh -i ключ ubuntu@<IP>`
+---
 
-### 3. Установи проект (без Ollama)
+# Путь 1 (рекомендуемый): Google Cloud e2-micro + Groq
+
+Бесплатный микро-инстанс навсегда. Не «засыпает». Хватит 1 ГБ RAM, потому что
+ИИ работает в облаке Groq, а не на сервере.
+
+## Шаг 1. Регистрация Google Cloud
+
+1. Перейди на https://cloud.google.com/free → **Get started for free**.
+2. Войди через Google-аккаунт.
+3. Потребуется указать **банковскую карту** — для верификации.
+   **Деньги НЕ спишут**: будет временный холд ~$1, который сразу вернётся.
+   Free tier (e2-micro в регионе US) остаётся бесплатным навсегда.
+4. Выбери страну, согласись с условиями. Аккаунт готов.
+
+## Шаг 2. Создание сервера (VM Instance)
+
+1. Открой консоль: https://console.cloud.google.com/
+2. Слева в меню: **☰ → Compute Engine → VM Instances → Create VM instance**.
+   (При первом заходе Compute Engine предложит включить — согласись, ~1 мин).
+3. Заполни поля:
+   - **Name:** `airradar`
+   - **Region:** один из бесплатных: `us-west1`, `us-central1` или `us-east1`
+     (зона — любая, например `us-central1-a`)
+   - **Machine configuration:** General-purpose → Series **E2** →
+     Machine type **e2-micro** (2 vCPU, 1 ГБ RAM, 30 ГБ диск — входит в free)
+   - **Boot disk:** нажми Change → **Ubuntu 22.04 LTS** (или 24.04),
+     тип Balanced, 30 ГБ
+   - **Firewall:** поставь галочку **Allow HTTP/HTTPS traffic** (для надёжности)
+4. В разделе **Identity and API access → Access scopes** оставь по умолчанию.
+5. Раздел **SSH keys** (в самом низу, «Advanced» → «Security» → «SSH Keys»):
+   - **ПРОЩЕ** не класть свой ключ, а после создания нажать **«Connect → Open
+     in browser window»** (браузерный SSH работает сразу, без ключей).
+6. Нажми **Create**. Через ~30 сек сервер готов. Скопируй его
+   **External IP** (в колонке IP-адресов).
+
+## Шаг 3. Подключение по SSH
+
+**Вариант A (проще):** в консоли GCP нажми **Connect → Open in browser window**
+на карточке инстанса. Откроется терминал прямо в браузере. Пользователь —
+твой логин GCP (виден в строке приглашения, например `wizard_gmail_com`).
+
+**Вариант B (через gcloud):** если установлен Google Cloud SDK:
 ```bash
+gcloud compute ssh airradar --zone=us-central1-a
+```
+
+Дальше все команды выполняй **на сервере** в этом терминале.
+
+## Шаг 4. Установка проекта (без Ollama)
+
+```bash
+# Системные пакеты
 sudo apt update && sudo apt install -y python3 python3-venv git
+
+# Клонировать репозиторий
 git clone https://github.com/Wizard732/AirRadar-AI.git
 cd AirRadar-AI
+
+# Виртуальное окружение + зависимости (Telethon, aiohttp, dotenv)
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
-Обрати внимание: **Ollama не нужна**, модель не скачивается.
 
-### 4. Настрой `.env`
+## Шаг 5. Получи бесплатный ключ Groq
+
+1. Открой https://console.groq.com/keys (вход через Google/GitHub).
+2. **Create API Key** → скопируй ключ (начинается с `gsk_...`).
+3. Бесплатный лимит: ~14 400 запросов/день — с огромным запасом.
+
+## Шаг 6. Создай `.env`
+
+На сервере:
 ```bash
 nano .env
 ```
-Вставь свои значения, **важные строки для Groq**:
+Вставь (заполни `GROQ_API_KEY` и проверь остальное):
 ```
+TG_API_ID=39886153
+TG_API_HASH=4a35674168077b76ceaf6d3a2bffb1b6
+SESSION_NAME=airradar
+BOT_TOKEN=8560184184:AAHc1eIDI_0zbIxyJpyBsKugxNH6X-9soqI
+TARGET_CHANNEL=@AirRadarAI
+SOURCE_CHANNELS=@rozvidkaneba,@KievskiyVanek,@poznyakyosokorkykharkivskiy,@truexakyiv,@raketa_trevoga,@kiev_levyy_bereg,-1003979438669
 LLM_BACKEND=groq
-GROQ_API_KEY=gsk_твой_ключ_из_шага_1
+GROQ_API_KEY=gsk_сюда_твой_ключ
+GROQ_URL=https://api.groq.com/openai
 GROQ_MODEL=llama-3.1-8b-instant
-# остальные как на компе (TG_API_ID, BOT_TOKEN, SOURCE_CHANNELS, ...)
+LOG_LEVEL=INFO
+DEDUP_TTL=60
+HTTP_TIMEOUT=30
+HEALTHCHECK_INTERVAL=300
 ```
+Сохранить: **Ctrl+O**, Enter, **Ctrl+X**.
 
-### 5. Первый запуск и вход в Telegram
+## Шаг 7. Первый запуск — вход в Telegram
+
+> ⚠️ **Перед этим ОСТАНОВИ бота на компе** (Ctrl+C в PowerShell). Две сессии
+> одного аккаунта с разных IP = риск бана Telegram.
+
 ```bash
 .venv/bin/python main.py
 ```
-Введи номер телефона + код → создастся `airradar.session` → **Ctrl+C**.
+Telethon спросит:
+- **Phone:** `+380501760096` (твой номер — НЕ bot token!)
+- **Code:** код из SMS/TG
+- **Password:** твой 2FA-пароль (если включён)
 
-> ⚠️ **Перед деплоем на VPS останови бота на компе.** Две одновременные сессии
-> одного аккаунта с разных IP — риск бана Telegram.
+После строки `Подключено как @wzrdd2... Слушаю каналы…` → **Ctrl+C**.
+Создастся файл `airradar.session`.
 
-### 6. Автозапуск 24/7 через systemd
+## Шаг 8. Автозапуск 24/7 (systemd)
+
 ```bash
-sudo cp deploy/airradar.service /etc/systemd/system/ 2>/dev/null || \
-sudo tee /etc/systemd/system/airradar.service > /dev/null <<'UNIT'
+WHOAMI=$(whoami)
+WORKDIR=$(pwd)
+sudo tee /etc/systemd/system/airradar.service > /dev/null <<EOF
 [Unit]
 Description=AirRadar AI — Telegram threat monitor
 After=network-online.target
@@ -82,9 +144,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=ubuntu
-WorkingDirectory=/home/ubuntu/AirRadar-AI
-ExecStart=/home/ubuntu/AirRadar-AI/.venv/bin/python main.py
+User=$WHOAMI
+WorkingDirectory=$WORKDIR
+ExecStart=$WORKDIR/.venv/bin/python main.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -92,63 +154,44 @@ StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-UNIT
+EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now airradar
-sudo journalctl -u airradar -f
 ```
+
+Проверка:
+```bash
+sudo systemctl status airradar          # должно быть active (running)
+sudo journalctl -u airradar -f          # логи в реальном времени (Ctrl+C — выйти)
+```
+
+🎉 **Готово.** Бот работает 24/7, перезапускается при сбое, стартует после
+перезагрузки сервера. Комп можно выключать.
 
 ---
 
-## Альтернатива: VPS + локальная Ollama (нужен Oracle ARM, 24 ГБ RAM)
+# Путь 2 (альтернатива): Oracle Cloud ARM + локальная Ollama
 
-Если хочешь, чтобы ИИ работал **полностью локально** (без отправки текста в
-облако) — нужен сервер с 4–8 ГБ RAM. Единственный бесплатный вариант —
-**Oracle Cloud Free Tier (ARM Ampere A1)**: 4 ядра + 24 ГБ RAM навсегда.
-
-### 1. Регистрация Oracle Cloud
-1. https://www.oracle.com/cloud/free/ → **Start for free**.
-2. Нужна карта для **верификации** (деньги **не списывают**).
-3. Если регион пишет *«Out of capacity»* — смени регион (Frankfurt, Phoenix,
-   Stockholm) или повтори через пару часов.
-
-### 2. Создай инстанс
-- **Shape:** Ampere `VM.Standard.A1.Flex` → 4 OCPU + 24 GB RAM.
-- **Image:** Ubuntu 22.04/24.04.
-- **SSH keys:** обязательно скачай private key (.key).
-- **Networking:** галочка «Assign a public IPv4 address».
-
-### 3. Установка одной командой
-```bash
-sudo apt update && sudo apt upgrade -y
-git clone https://github.com/Wizard732/AirRadar-AI.git
-cd AirRadar-AI
-sudo bash install.sh   # ставит Python + Ollama + модель + systemd (~10 мин)
-```
-
-### 4. `.env`, вход в Telegram, автозапуск
-```bash
-nano .env               # LLM_BACKEND=ollama (уже по умолчанию)
-.venv/bin/python main.py # телефон + код → Ctrl+C
-sudo systemctl enable --now airradar
-sudo journalctl -u airradar -f
-```
+Если нужна полностью локальная обработка (без отправки текста в облако Groq) —
+подойдёт Oracle Cloud ARM Ampere A1 (4 OCPU, 24 ГБ RAM бесплатно). Там
+запускается локальная Ollama через `install.sh`. См. историю git этого файла
+или используй `LLM_BACKEND=ollama`.
 
 ---
 
-## Обновление кода (для любого бэкенда)
+# Обновление кода
 
 После `git push` с компа — на сервере:
 ```bash
-cd AirRadar-AI && sudo bash deploy.sh
+cd ~/AirRadar-AI && sudo bash deploy.sh
 ```
-`deploy.sh` сделает `git pull`, обновит зависимости (если надо) и перезапустит
-сервис. `.env` и `airradar.session` не трогаются.
+`deploy.sh` сделает `git pull`, обновит зависимости и перезапустит сервис.
+`.env` и `airradar.session` не трогаются.
 
 ---
 
-## Шпаргалка команд
+# Шпаргалка команд
 
 | Действие | Команда |
 |----------|---------|
@@ -156,42 +199,43 @@ cd AirRadar-AI && sudo bash deploy.sh
 | Логи в реальном времени | `sudo journalctl -u airradar -f` |
 | Перезапустить | `sudo systemctl restart airradar` |
 | Остановить | `sudo systemctl stop airradar` |
-| Обновить код | `cd AirRadar-AI && sudo bash deploy.sh` |
+| Обновить код | `cd ~/AirRadar-AI && sudo bash deploy.sh` |
 | (только Ollama) Статус Ollama | `sudo systemctl status ollama` |
 
 ---
 
-## Troubleshooting
+# Troubleshooting
 
 **Бот не публикует, в логе `CHAT_WRITE_FORBIDDEN`**
 Бот @AirRadar_AI_bot не админ в целевом канале. Добавь его админом с правом
-публикации постов.
+публикации постов в @AirRadarAI.
 
 **Groq: `HTTP 401` / `invalid api key`**
 Неверно `GROQ_API_KEY` в `.env`. Перепроверь ключ (начинается с `gsk_`).
 
 **Groq: `HTTP 429` (rate limit)**
-Превышен лимит запросов/токенов. Увеличь `DEDUP_TTL` в `.env` (чтобы повторы
-не гоняли API), либо переключись на `LLM_BACKEND=ollama` временно.
+Превышен лимит запросов/токенов. Увеличь `DEDUP_TTL` в `.env`.
 
 **Groq: `model_not_found`**
-Устаревшее имя модели в `GROQ_MODEL`. Актуальный список:
-https://console.groq.com/docs/models — впиши существующее (например
-`llama-3.1-8b-instant` или `qwen-2.5-...`).
+Устаревшее имя модели. Актуальный список: https://console.groq.com/docs/models.
 
 **Бот не ловит сообщения из приватного канала**
 В логе при старте должно быть `Доступно каналов: N/N` с этим каналом в списке.
-Убедись, что аккаунт там подписчик.
 
 **Telegram-сессия сломалась (частые разлогины)**
 Сессия используется с двух IP сразу (комп + сервер). Останови бота на компе,
-на сервере удали `airradar.session` и пройди вход заново.
+на сервере удали `airradar.session` и пройди вход заново (Шаг 7).
+
+**GCP: превысил лимиты free tier (списали деньги)**
+Проверь, что регион — `us-west1`/`us-central1`/`us-east1`, а тип машины —
+именно `e2-micro` (не `e2-small`). Только `e2-micro` в этих регионах бесплатен.
 
 ---
 
-## Безопасность на VPS
+# Безопасность на VPS
 
 - Не клади `.env` и `airradar.session` в git (уже в `.gitignore`).
-- Поставь firewall: `sudo ufw allow OpenSSH && sudo ufw enable`.
-- (Только Ollama) Не открывай порт 11434 наружу — держи на `localhost`.
+- Поставь firewall: `sudo apt install -y ufw && sudo ufw allow OpenSSH && sudo ufw enable`.
 - Периодически: `sudo apt update && sudo apt upgrade -y`.
+- Регулярно проверяй биллинг GCP: https://console.cloud.google.com/billing
+  (должно быть $0 при соблюдении free tier).
