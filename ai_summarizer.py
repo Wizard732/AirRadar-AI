@@ -138,3 +138,158 @@ class AISummarizer:
         except Exception as exc:  # pragma: no cover
             logger.warning("Healthcheck Ollama: неожиданная ошибка (%s)", exc)
             return False
+
+
+# ============================================================
+#  Groq Cloud API — облачная альтернатива Ollama (для VPS 24/7).
+#  Использует OpenAI-совместимый /openai/v1/chat/completions.
+#  Та же семантика fallback: при ошибке возвращает оригинал.
+# ============================================================
+
+# Минимальный «интерфейс» summarizer-а: и Ollama, и Groq реализуют его.
+class SummarizerProtocol:
+    """Условный интерфейс: summarize(text) -> str, healthcheck() -> bool."""
+
+    async def summarize(self, text: str) -> str:  # pragma: no cover
+        raise NotImplementedError
+
+    async def healthcheck(self) -> bool:  # pragma: no cover
+        raise NotImplementedError
+
+    async def aclose(self) -> None:  # pragma: no cover
+        pass
+
+
+class GroqSummarizer(SummarizerProtocol):
+    """Сжатие через Groq Cloud API (OpenAI-совместимый chat completions).
+
+    Идеально для VPS 24/7: не требует RAM под модель (вся инференция в облаке),
+    отвечает за ~0.2–0.5 сек. Бесплатный tier: ~14 400 запросов/день.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        timeout: int,
+        base_url: str = "https://api.groq.com/openai",
+        session: aiohttp.ClientSession | None = None,
+    ) -> None:
+        self._url = f"{base_url.rstrip('/')}/v1/chat/completions"
+        self._model = model
+        self._timeout = aiohttp.ClientTimeout(total=timeout)
+        self._headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        self._session = session
+        self._owns_session = session is None
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(timeout=self._timeout)
+            self._owns_session = True
+        return self._session
+
+    async def aclose(self) -> None:
+        if self._owns_session and self._session is not None and not self._session.closed:
+            await self._session.close()
+
+    async def summarize(self, text: str) -> str:
+        """Сжать текст через Groq. При ошибке — fallback на оригинал."""
+        text = text.strip()
+        if not text:
+            return text
+
+        # OpenAI-совместимый формат: system prompt + user (исходный текст).
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            "temperature": 0.2,   # минимум фантазии — только факты
+            "max_tokens": 80,     # жёсткий лимит на короткую выжимку
+            "stream": False,
+        }
+
+        try:
+            session = await self._get_session()
+            async with session.post(self._url, json=payload, headers=self._headers) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    logger.warning(
+                        "Groq HTTP %s, fallback на оригинал. body=%s",
+                        resp.status, body[:300],
+                    )
+                    return text
+
+                data = await resp.json()
+                # Стандартный OpenAI-формат ответа.
+                choices = data.get("choices") or []
+                summary = ""
+                if choices:
+                    summary = (choices[0].get("message", {}).get("content") or "").strip()
+                if not summary:
+                    logger.warning("Groq вернул пустой ответ, fallback на оригинал.")
+                    return text
+
+                logger.debug("Groq OK: %d -> %d chars", len(text), len(summary))
+                return summary
+
+        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
+            logger.warning("Groq недоступен (%s), fallback на оригинал.", exc)
+            return text
+        except Exception as exc:
+            logger.exception("Неожиданная ошибка Groq, fallback на оригинал: %s", exc)
+            return text
+
+    async def healthcheck(self) -> bool:
+        """Проверка доступности Groq лёгким запросом к /models (GET, без токенов)."""
+        try:
+            session = await self._get_session()
+            models_url = self._url.rsplit("/", 1)[0] + "/models"
+            async with session.get(models_url, headers=self._headers) as resp:
+                ok = resp.status == 200
+                if not ok:
+                    logger.warning("Healthcheck Groq: HTTP %s", resp.status)
+                return ok
+        except aiohttp.ClientError as exc:
+            logger.warning("Healthcheck Groq: сеть недоступна (%s)", exc)
+            return False
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Healthcheck Groq: неожиданная ошибка (%s)", exc)
+            return False
+
+
+def make_summarizer(backend: str, settings: Any, session: aiohttp.ClientSession) -> SummarizerProtocol:
+    """Фабрика summarizer-а по настройкам.
+
+    backend == 'ollama' → локальная Ollama (тяжёлая, нужна RAM под модель).
+    backend == 'groq'   → облачный Groq API (лёгкий, для VPS 24/7).
+    Любое другое значение → ошибка с понятным сообщением.
+    """
+    backend = (backend or "").strip().lower()
+    if backend == "ollama":
+        return AISummarizer(
+            base_url=settings.ollama_url,
+            model=settings.ollama_model,
+            timeout=settings.http_timeout,
+            session=session,
+        )
+    if backend == "groq":
+        if not settings.groq_api_key:
+            raise RuntimeError(
+                "LLM_BACKEND=groq, но GROQ_API_KEY пуст. Получи ключ на "
+                "https://console.groq.com/keys и впиши в .env."
+            )
+        return GroqSummarizer(
+            api_key=settings.groq_api_key,
+            model=settings.groq_model,
+            timeout=settings.http_timeout,
+            base_url=settings.groq_url,
+            session=session,
+        )
+    raise RuntimeError(
+        f"Неизвестный LLM_BACKEND={backend!r}. Допустимо: 'ollama' или 'groq'."
+    )

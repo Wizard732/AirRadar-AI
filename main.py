@@ -27,7 +27,7 @@ from telethon import TelegramClient, events
 from telethon.tl.custom import Message
 
 import config
-from ai_summarizer import AISummarizer
+from ai_summarizer import SummarizerProtocol, make_summarizer
 from dedup import DedupCache
 from fast_filter import matches_keywords
 from publisher import Publisher
@@ -60,16 +60,18 @@ async def run() -> None:
     logger.info("Целевой канал: %s", settings.target_channel)
     logger.info("Ollama: %s (model=%s)", settings.ollama_url, settings.ollama_model)
 
-    # --- единый HTTP-слой на всё приложение (Ollama + Bot API) ---
+    # --- единый HTTP-слой на всё приложение (LLM + Bot API) ---
     http_session = aiohttp.ClientSession(
         timeout=aiohttp.ClientTimeout(total=settings.http_timeout)
     )
 
-    summarizer = AISummarizer(
-        base_url=settings.ollama_url,
-        model=settings.ollama_model,
-        timeout=settings.http_timeout,
-        session=http_session,
+    # Фабрика выбирает бэкенд ИИ по LLM_BACKEND: 'ollama' (локально) или
+    # 'groq' (облако, для VPS 24/7). Оба используют один системный промпт.
+    summarizer = make_summarizer(settings.llm_backend, settings, http_session)
+    logger.info(
+        "LLM-бэкенд: %s (%s)",
+        settings.llm_backend,
+        settings.groq_model if settings.llm_backend == "groq" else settings.ollama_model,
     )
     publisher = Publisher(
         bot_token=settings.bot_token,
@@ -212,7 +214,7 @@ async def run() -> None:
 
 async def _process_message(
     event: events.NewMessage.Event,  # noqa: ANN001
-    summarizer: AISummarizer,
+    summarizer: SummarizerProtocol,
     publisher: Publisher,
     dedup: DedupCache,
 ) -> None:

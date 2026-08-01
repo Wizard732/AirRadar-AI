@@ -49,9 +49,17 @@ class Settings:
     bot_token: str
     target_channel: str
 
-    # Локальный ИИ
+    # Локальный ИИ (бэкенд по умолчанию, тяжелый — нужна RAM под модель)
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"
+
+    # Облачный ИИ Groq (лёгкий, для VPS 24/7 — не грузит сервер)
+    groq_api_key: str = ""
+    groq_url: str = "https://api.groq.com/openai"
+    groq_model: str = "llama-3.1-8b-instant"
+
+    # Какой бэкенд использовать: 'ollama' (по умолчанию) или 'groq'
+    llm_backend: str = "ollama"
 
     # Рантайм
     log_level: str = "INFO"
@@ -92,6 +100,10 @@ def load_settings() -> Settings:
         source_channels=source_channels,
         ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
         ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
+        groq_api_key=os.getenv("GROQ_API_KEY", ""),
+        groq_url=os.getenv("GROQ_URL", "https://api.groq.com/openai"),
+        groq_model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+        llm_backend=os.getenv("LLM_BACKEND", "ollama").strip().lower(),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         dedup_ttl=int(os.getenv("DEDUP_TTL", "60")),
         http_timeout=int(os.getenv("HTTP_TIMEOUT", "30")),
