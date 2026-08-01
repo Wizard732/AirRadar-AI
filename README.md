@@ -79,3 +79,16 @@ python main.py
 Уровень задаётся в `LOG_LEVEL` (`DEBUG`/`INFO`/`WARNING`/`ERROR`). На `DEBUG`
 видны хеши дедупликации и ответы Ollama; Telethon приглушен до `WARNING`,
 кроме режима `DEBUG`.
+
+## Деплой на VPS (бесплатно, 24/7)
+
+Хочешь, чтобы бот работал постоянно на сервере? Есть готовый гайд и скрипты
+автоматического деплоя на бесплатный Oracle Cloud ARM (тянет локальную
+Ollama + автозапуск через systemd):
+
+👉 **[DEPLOY.md](DEPLOY.md)** — полный гайд: регистрация Oracle → установка →
+автозапуск.
+
+Кратко: `sudo bash install.sh` ставит всё необходимое (Python, Ollama, модель,
+systemd-юнит); `sudo bash deploy.sh` обновляет код после `git push`.
+
