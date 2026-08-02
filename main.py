@@ -78,10 +78,10 @@ async def run() -> None:
         settings.groq_model if settings.llm_backend == "groq" else settings.ollama_model,
     )
 
-    # Health-сервер для PaaS-платформ (Koyeb и др.): открывает HTTP-порт, чтобы
-    # платформа видела живой сервис. На обычном VPS/компе просто висит в фоне
-    # и не мешает. Порт берётся из переменной PORT (стандарт PaaS) или 8080.
-    # Ссылку на task сохраняем, чтобы asyncio его не «потерял» (warning о pending).
+    # HTTP-сервер: health-check + API для карты угроз (/api/threats).
+    # set_db передаёт Database, чтобы API могло отдавать активные угрозы.
+    from health_server import set_db
+    set_db(db)
     _health_task = await start_health_server()
     publisher = Publisher(
         bot_token=settings.bot_token,
