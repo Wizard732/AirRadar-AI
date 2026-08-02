@@ -35,6 +35,8 @@ class Database:
         # без блокировки).
         self._lock = threading.Lock()
         self._conn: sqlite3.Connection | None = None
+        # Окно дедупликации (сек) для is_duplicate_persistent. По умолчанию 1 час.
+        self._dedup_window = 3600
         self._connect()
         self._init_schema()
 
@@ -76,6 +78,17 @@ class Database:
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_region ON threats(region)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_ts ON threats(ts)")
+            # Журнал дедупликации: отпечатки текстов для отсева повторов
+            # между каналами (переживает рестарт, окно до часа и больше).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS seen_hashes (
+                    fp    TEXT PRIMARY KEY,   -- sha256 нормализованного текста
+                    ts    INTEGER NOT NULL    -- когда впервые увиден
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_seen_ts ON seen_hashes(ts)")
             self._conn.commit()
         logger.debug("БД инициализирована: %s", self._path)
 
@@ -131,6 +144,44 @@ class Database:
                 self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось закрыть тревогу: %s", exc)
+
+    # ------------------------------------------------------------------
+    #  Персистентная дедупликация (отсев повторов между каналами)
+    # ------------------------------------------------------------------
+    def is_duplicate_persistent(self, fingerprint: str) -> bool:
+        """Проверить+запомнить отпечаток в SQLite. True = уже видели.
+
+        В отличие от in-memory кеша, переживает рестарт бота и хранит
+        отпечатки дольше (часы), что важно: каналы репостят друг друга
+        с разницей до получаса.
+        """
+        try:
+            now = int(time.time())
+            with self._lock:
+                assert self._conn is not None
+                # Убираем протухшие (старше окна дедупликации).
+                cutoff = now - self._dedup_window
+                self._conn.execute("DELETE FROM seen_hashes WHERE ts < ?", (cutoff,))
+                # Есть ли отпечаток?
+                row = self._conn.execute(
+                    "SELECT 1 FROM seen_hashes WHERE fp = ?", (fingerprint,)
+                ).fetchone()
+                if row is not None:
+                    return True  # уже видели — дубликат
+                # Запоминаем.
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO seen_hashes (fp, ts) VALUES (?, ?)",
+                    (fingerprint, now),
+                )
+                self._conn.commit()
+                return False
+        except sqlite3.Error as exc:
+            logger.warning("Дедупликация (БД): ошибка %s — пропускаем проверку", exc)
+            return False  # при ошибке БД лучше пропустить, чем блокировать
+
+    def set_dedup_window(self, seconds: int) -> None:
+        """Установить окно дедупликации (сек). По умолчанию 1 час."""
+        self._dedup_window = seconds
 
     # ------------------------------------------------------------------
     #  Чтение: статистика и ETA

@@ -88,11 +88,13 @@ async def run() -> None:
         timeout=settings.http_timeout,
         session=http_session,
     )
-    dedup = DedupCache(ttl=settings.dedup_ttl)
-
     # --- SQLite-журнал угроз/тревог (фундамент статистики и ETA) ---
     db = Database(settings.db_path)
     logger.info("БД журнала: %s", settings.db_path)
+
+    # Дедупликация: гибрид in-memory + SQLite. Переживает рестарт и ловит
+    # поздние репосты между каналами (окно в БД — до 1 часа).
+    dedup = DedupCache(ttl=settings.dedup_ttl, db=db)
 
     # --- второй клиент: бот @AirRadar_AI_bot (Bot API) для интерактивного меню ---
     # Читает /start и нажатия inline-кнопок в личке. Публикацией в канал

@@ -27,25 +27,38 @@ def _fingerprint(text: str) -> str:
 
 
 class DedupCache:
-    """Простой TTL-кеш «видели ли мы уже такое сообщение».
+    """Гибридный кеш дедупликации: in-memory + опционально SQLite.
+
+    In-memory даёт мгновенную проверку (без I/O). SQLite добавляет
+    персистентность — повтор, репостнутый в другом канале через 40 минут
+    или после рестарта бота, тоже будет отсечён.
 
     Не thread-safe, но безопасен в рамках одного asyncio event loop,
     чего достаточно для данного приложения.
     """
 
-    def __init__(self, ttl: int) -> None:
-        # ttl в секундах; запись хранит время последнего «увиденного» момента.
+    def __init__(self, ttl: int, db=None) -> None:
+        # ttl в секундах для in-memory слоя (короткое окно, быстрый ответ).
         self._ttl = ttl
         self._seen: dict[str, float] = {}
+        # Опциональная ссылка на Database для персистентной проверки.
+        self._db = db
+        if db is not None:
+            # SQLite-окно делаем больше in-memory — чтобы ловить поздние репосты.
+            db.set_dedup_window(max(ttl, 3600))
 
     def is_duplicate(self, text: str) -> bool:
-        """Вернуть True, если такое сообщение уже приходило за окно TTL.
+        """Вернуть True, если такое сообщение уже приходило.
 
-        Побочно подчищает протухшие записи, чтобы кеш не рос бесконечно.
+        Проверка двухуровневая:
+          1) быстрый in-memory кеш (мгновенно);
+          2) SQLite (если передан db) — для повторов между каналами и
+             после рестарта.
         """
         fp = _fingerprint(text)
         now = time.monotonic()
 
+        # --- слой 1: in-memory ---
         # Ленивая сборка мусора: выкинем всё, что старше ttl.
         expired = [key for key, ts in self._seen.items() if now - ts > self._ttl]
         for key in expired:
@@ -55,6 +68,13 @@ class DedupCache:
             # Обновим временную метку — «продлеваем» окно для активных дублей.
             self._seen[fp] = now
             return True
+
+        # --- слой 2: SQLite (персистентный) ---
+        if self._db is not None:
+            if self._db.is_duplicate_persistent(fp):
+                # Запомним и в памяти, чтобы следующий раз не лезть в БД.
+                self._seen[fp] = now
+                return True
 
         self._seen[fp] = now
         return False
