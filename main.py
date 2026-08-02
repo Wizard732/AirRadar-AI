@@ -28,11 +28,14 @@ from telethon.tl.custom import Message
 
 import config
 from ai_summarizer import SummarizerProtocol, make_summarizer
+from bot_ui import register_handlers
+from database import Database
 from dedup import DedupCache
 from fast_filter import matches_keywords
 from health_server import start_health_server
 from publisher import Publisher
-from sticker import get_sticker_header
+from regions import detect_region
+from sticker import classify_threat, get_sticker_header
 
 logger = logging.getLogger("airradar")
 
@@ -86,6 +89,28 @@ async def run() -> None:
         session=http_session,
     )
     dedup = DedupCache(ttl=settings.dedup_ttl)
+
+    # --- SQLite-журнал угроз/тревог (фундамент статистики и ETA) ---
+    db = Database(settings.db_path)
+    logger.info("БД журнала: %s", settings.db_path)
+
+    # --- второй клиент: бот @AirRadar_AI_bot (Bot API) для интерактивного меню ---
+    # Читает /start и нажатия inline-кнопок в личке. Публикацией в канал
+    # по-прежнему занимается Publisher (HTTP), а здесь — приём команд.
+    bot_client: TelegramClient | None = None
+    if settings.bot_token and settings.admin_id:
+        bot_client = TelegramClient(
+            f"{settings.session_name}_bot",
+            settings.tg_api_id,
+            settings.tg_api_hash,
+        )
+        register_handlers(bot_client, db, settings.admin_id)
+        logger.info(
+            "Интерактивное меню бота включено (admin_id=%s). Напиши боту /start в личку.",
+            settings.admin_id,
+        )
+    else:
+        logger.info("Меню бота отключено (ADMIN_ID не задан) — только публикация.")
 
     # --- Telethon-клиент (User API) для чтения исходных каналов ---
     client = TelegramClient(
@@ -158,7 +183,7 @@ async def run() -> None:
     # Обработчик новых сообщений из всех исходных каналов.
     @client.on(events.NewMessage(chats=resolved_chats))
     async def handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
-        await _process_message(event, summarizer, publisher, dedup)
+        await _process_message(event, summarizer, publisher, dedup, db)
 
     # --- фоновый healthcheck Ollama ---
     health_task = asyncio.create_task(
@@ -197,6 +222,12 @@ async def run() -> None:
             "'Please enter your phone' введи свой НОМЕР ТЕЛЕФОНА (например +380...)."
         )
 
+    # Стартуем бота-меню в фоне (неблокирующе). Он принимает /start и кнопки.
+    if bot_client is not None:
+        await bot_client.start(bot_token=settings.bot_token)
+        bot_me = await bot_client.get_me()
+        logger.info("Бот меню подключён как @%s. Напиши ему /start в личку.", bot_me.username)
+
     try:
         await stop_event.wait()
     except KeyboardInterrupt:
@@ -211,10 +242,13 @@ async def run() -> None:
             pass
 
         logger.info("Отключаю Telethon и закрываю сессии…")
+        if bot_client is not None:
+            await bot_client.disconnect()
         await client.disconnect()
         await summarizer.aclose()
         await publisher.aclose()
         await http_session.close()
+        db.close()
         logger.info("AirRadar AI остановлен.")
 
 
@@ -223,6 +257,7 @@ async def _process_message(
     summarizer: SummarizerProtocol,
     publisher: Publisher,
     dedup: DedupCache,
+    db: Database,
 ) -> None:
     """Полный конвейер обработки одного входящего сообщения.
 
@@ -251,9 +286,30 @@ async def _process_message(
         summary = await summarizer.summarize(text)
         # 4) Эмодзи-заголовок по типу угрозы.
         header = get_sticker_header(text)
+        threat_type = classify_threat(text)
         # 5) Сборка и публикация.
         final_text = f"{header}\n{summary}".strip()
         await publisher.send(final_text)
+
+        # 6) Запись в журнал БД (для статистики и ETA). Регион может быть
+        #    не определён — тогда пишем в «неизвестный», чтобы счётчики росли.
+        regions = detect_region(text)
+        regions_to_log = regions or ["unknown"]
+        for slug in regions_to_log:
+            db.add_threat(
+                threat_type=threat_type,
+                region=slug,
+                text=summary,
+                source=str(source),
+            )
+        # Тревоги: «отбой» закрывает активную тревогу во всех затронутых регионах,
+        # прочие угрозы — открывают (если ещё не открыта).
+        if threat_type == "stand_down":
+            for slug in regions or []:
+                db.alert_end(slug)
+        else:
+            for slug in regions or []:
+                db.alert_start(slug)
     except Exception as exc:  # pragma: no cover — страховка конвейера
         logger.exception("Сбой обработки сообщения (пропускаем): %s", exc)
 

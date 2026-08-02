@@ -68,3 +68,19 @@ def get_sticker_header(text: str) -> str:
         if any(kw in lowered for kw in keywords):
             return header
     return _DEFAULT_HEADER
+
+
+def classify_threat(text: str) -> str:
+    """Вернуть slug типа угрозы для БД: missile|uav|explosion|stand_down|other.
+
+    Использует те же категории и приоритет, что и get_sticker_header, но
+    возвращает ключ категории (а не человекочитаемый заголовок). Нужно для
+    журнала угроз в database.py и расчёта ETA в eta.py.
+    """
+    if not text:
+        return "other"
+    lowered = text.lower()
+    for _key, keywords, _header in _CATEGORIES:
+        if any(kw in lowered for kw in keywords):
+            return _key
+    return "other"

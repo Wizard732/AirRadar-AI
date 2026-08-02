@@ -45,9 +45,16 @@ class Settings:
     tg_api_hash: str
     session_name: str
 
-    # Telegram Bot API (публикация)
+    # Telegram Bot API (публикация + интерактивное меню)
     bot_token: str
     target_channel: str
+
+    # Telegram user id администратора (кому доступно меню бота в личке).
+    # 0 = меню отключено (бот только публикует).
+    admin_id: int = 0
+
+    # Путь к файлу SQLite-базы (журнал угроз/тревог для статистики и ETA)
+    db_path: str = "airradar.db"
 
     # Локальный ИИ (бэкенд по умолчанию, тяжелый — нужна RAM под модель)
     ollama_url: str = "http://localhost:11434"
@@ -97,6 +104,8 @@ def load_settings() -> Settings:
         session_name=os.getenv("SESSION_NAME", "airradar"),
         bot_token=_require("BOT_TOKEN"),
         target_channel=_require("TARGET_CHANNEL"),
+        admin_id=int(os.getenv("ADMIN_ID", "0")),
+        db_path=os.getenv("DB_PATH", "airradar.db"),
         source_channels=source_channels,
         ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
         ollama_model=os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
