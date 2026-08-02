@@ -82,6 +82,9 @@ class Settings:
     digest_morning_hour: int = 8
     digest_evening_hour: int = 20
 
+    # URL Mini App (Web App). Пусто = кнопка Mini App не показывается.
+    webapp_url: str = ""
+
     # Исходные каналы мониторинга (по умолчанию пусто — проверяется в load_settings)
     source_channels: list[str] = field(default_factory=list)
 
@@ -128,4 +131,5 @@ def load_settings() -> Settings:
         interests_enabled=os.getenv("INTERESTS_ENABLED", "1").strip() not in ("0", "false", "no"),
         digest_morning_hour=int(os.getenv("DIGEST_MORNING_HOUR", "8")),
         digest_evening_hour=int(os.getenv("DIGEST_EVENING_HOUR", "20")),
+        webapp_url=os.getenv("WEBAPP_URL", ""),
     )

@@ -107,13 +107,18 @@ async def run() -> None:
             settings.tg_api_id,
             settings.tg_api_hash,
         )
-        register_handlers(bot_client, db, settings.admin_id)
+        register_handlers(bot_client, db, settings.admin_id, settings.webapp_url)
         # Interests-модуль: команды /add_channel, /my_channels + кнопки тем.
         from interests_ui import register_interests_handlers
         register_interests_handlers(bot_client, db, settings.admin_id)
-        # Админка (5.4): /status, /ban_channel, /unban_channel.
+        # Админка (5.4): /status, /give_admin, /ban_channel.
         from admin_ui import register_admin_handlers
         register_admin_handlers(bot_client, db, settings.admin_id)
+        # Mini App: приём данных из WebApp (set_topic/add_channel/remove_channel).
+        from miniapp_handler import register_miniapp_handlers
+        register_miniapp_handlers(bot_client, db, settings.admin_id)
+        if settings.webapp_url:
+            logger.info("Mini App включён: %s", settings.webapp_url)
         logger.info(
             "Меню бота включено (admin_id=%s): Military + Interests. Напиши /start.",
             settings.admin_id,

@@ -150,6 +150,15 @@ class Database:
                 )
                 """
             )
+            # Супер-админ (ADMIN_ID из .env) может выдавать/забирать админку.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admins (
+                    user_id  INTEGER PRIMARY KEY,
+                    added_by INTEGER
+                )
+                """
+            )
             self._conn.commit()
         logger.debug("БД инициализирована: %s", self._path)
 
@@ -604,6 +613,54 @@ class Database:
         except sqlite3.Error as exc:
             logger.warning("Не удалось получить режим выдачи: %s", exc)
             return "instant"
+
+    # ------------------------------------------------------------------
+    #  Админка: управление администраторами
+    # ------------------------------------------------------------------
+    def add_admin(self, user_id: int, added_by: int) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO admins (user_id, added_by) VALUES (?, ?)",
+                    (user_id, added_by),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось добавить админа: %s", exc)
+
+    def remove_admin(self, user_id: int) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute("DELETE FROM admins WHERE user_id = ?", (user_id,))
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось удалить админа: %s", exc)
+
+    def all_admins(self) -> list[int]:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute("SELECT user_id FROM admins")
+                return [row["user_id"] for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить админов: %s", exc)
+            return []
+
+    def is_admin(self, user_id: int, super_admin_id: int) -> bool:
+        """Супер-админ (из .env) или добавленный через /give_admin."""
+        if user_id == super_admin_id:
+            return True
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT 1 FROM admins WHERE user_id = ?", (user_id,)
+                ).fetchone()
+                return row is not None
+        except sqlite3.Error:
+            return False
 
     # ------------------------------------------------------------------
     #  Админка (5.4): здоровье каналов

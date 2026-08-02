@@ -72,6 +72,19 @@ def _main_menu_kb():
     ]
 
 
+def _main_menu_with_webapp(webapp_url: str):
+    """Главное меню + кнопка-WebApp (Mini App открывается по URL)."""
+    return [
+        [Button.webapp("⚙️ Настройки (Mini App)", url=webapp_url)],
+        [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
+        [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
+        [
+            Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
+            Button.inline("⏱ Текущие угрозы", data=CB_ACTIVE),
+        ],
+    ]
+
+
 def _regions_kb(page: int):
     """Клавиатура выбора области с пагинацией."""
     slugs = all_region_slugs()
@@ -252,21 +265,24 @@ def _region_eta_text(db: Database, slug: str) -> str:
 #  Регистрация обработчиков
 # =====================================================================
 
-def register_handlers(bot: TelegramClient, db: Database, admin_id: int) -> None:
+def register_handlers(bot: TelegramClient, db: Database, admin_id: int, webapp_url: str = "") -> None:
     """Навесить на bot-клиента обработчики /start и нажатий кнопок.
 
-    admin_id: Telegram user id, которому разрешено меню. Сообщения от других
-    пользователей игнорируются (бот приватный).
+    admin_id: Telegram user id, которому разрешено меню.
+    webapp_url: если задан — в меню показывается кнопка Mini App.
     """
 
     def _is_admin(user_id: int) -> bool:
-        return user_id == admin_id
+        return db.is_admin(user_id, admin_id)
+
+    def _menu_kb():
+        return _main_menu_with_webapp(webapp_url) if webapp_url else _main_menu_kb()
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/start"))
     async def _start(event: events.NewMessage.Event) -> None:  # noqa: ANN001
         if not _is_admin(event.sender_id):
             return
-        await event.respond(_main_text(), parse_mode="html", buttons=_main_menu_kb())
+        await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb())
 
     @bot.on(events.CallbackQuery())
     async def _callback(event) -> None:  # noqa: ANN001
@@ -292,13 +308,13 @@ def register_handlers(bot: TelegramClient, db: Database, admin_id: int) -> None:
         try:
             # Маршрутизация по префиксу callback_data.
             if data == CB_MAIN:
-                await _safe_edit(_main_text(), _main_menu_kb())
+                await _safe_edit(_main_text(), _menu_kb())
 
             elif data == CB_STATS_ALL:
-                await _safe_edit(_stats_all_text(db), _main_menu_kb())
+                await _safe_edit(_stats_all_text(db), _menu_kb())
 
             elif data == CB_ACTIVE:
-                await _safe_edit(_active_text(db), _main_menu_kb())
+                await _safe_edit(_active_text(db), _menu_kb())
 
             elif data == CB_INTERESTS:
                 # Переход в меню Interests-модуля (его кнопки определяет interests_ui).

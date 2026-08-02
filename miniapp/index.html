@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>AirRadar AI — Настройки</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #1c1c1e);
+    --text: var(--tg-theme-text-color, #fff);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --accent: var(--tg-theme-button-color, #2ea6ff);
+    --section: var(--tg-theme-secondary-bg-color, #2c2c2e);
+    --destructive: #ff453a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 16px;
+    padding: 12px;
+    padding-bottom: 80px;
+  }
+  h2 {
+    font-size: 14px;
+    color: var(--hint);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 18px 4px 8px;
+  }
+  .card {
+    background: var(--section);
+    border-radius: 12px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    cursor: pointer;
+  }
+  .row:last-child { border-bottom: none; }
+  .row:active { background: rgba(255,255,255,0.04); }
+  .label { flex: 1; font-size: 16px; }
+  .emoji { margin-right: 10px; font-size: 18px; }
+  .mode {
+    font-size: 13px;
+    color: var(--hint);
+    padding: 3px 10px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.08);
+    white-space: nowrap;
+  }
+  .mode.instant { color: #34c759; }
+  .mode.digest { color: #ff9f0a; }
+  .mode.off { color: var(--hint); }
+  .channel {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .channel:last-child { border-bottom: none; }
+  .ch-name { font-family: monospace; font-size: 15px; }
+  .del {
+    color: var(--destructive);
+    font-size: 22px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  .add-input {
+    width: 100%;
+    background: var(--section);
+    border: none;
+    color: var(--text);
+    padding: 14px 16px;
+    font-size: 16px;
+    border-radius: 12px;
+    outline: none;
+  }
+  .add-input::placeholder { color: var(--hint); }
+  .add-btn {
+    display: block;
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 14px;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: 12px;
+    margin-top: 8px;
+    cursor: pointer;
+  }
+  .empty { text-align: center; color: var(--hint); padding: 24px; font-size: 14px; }
+  #status { text-align: center; padding: 8px; font-size: 14px; min-height: 24px; }
+  .saved { color: #34c759; }
+  .error { color: var(--destructive); }
+</style>
+</head>
+<body>
+
+<h2>📰 Темы новостей</h2>
+<p style="color:var(--hint); font-size:13px; margin:0 4px 10px;">Тапай по теме, чтобы переключить режим: мгновенно → дайджест → выкл</p>
+<div id="topics"></div>
+
+<h2>📡 Мои каналы</h2>
+<div id="channels"></div>
+
+<div style="margin-top:12px;">
+  <input type="text" id="newChannel" class="add-input" placeholder="@username канала">
+  <button class="add-btn" onclick="addChannel()">➕ Добавить канал</button>
+</div>
+
+<div id="status"></div>
+
+<script>
+// === Данные тем (дублирует interests_config.py — синхронизировать при изменении) ===
+const TOPICS = [
+  ["crypto", "₿", "Крипта"],
+  ["tech", "💻", "IT и технологии"],
+  ["ai", "🤖", "Искусственный интеллект"],
+  ["auto", "🚗", "Авто"],
+  ["geopolitics", "🌍", "Геополитика"],
+  ["economy", "📊", "Экономика"],
+  ["sport", "⚽", "Спорт"],
+  ["medicine", "⚕️", "Медицина"],
+  ["science", "🔬", "Наука"],
+  ["culture", "🎭", "Культура"],
+  ["society", "👥", "Общество"],
+  ["incidents", "🚨", "Происшествия"],
+  ["war", "🪖", "Война"],
+  ["energy", "⚡", "Энергетика"],
+  ["business", "💼", "Бизнес"]
+];
+
+// Состояние подписок юзера: { slug: 'instant'|'digest' }
+let myTopics = {};
+let myChannels = [];
+
+const tg = window.Telegram.WebApp;
+tg.ready();
+tg.expand();
+
+function showStatus(msg, isError) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = isError ? 'error' : 'saved';
+  if (msg) setTimeout(() => { el.textContent = ''; }, 2500);
+}
+
+// Отправить данные в бот через Telegram WebApp API.
+function sendData(action, payload) {
+  // WebApp.sendData работает только если бот открыл приложение через кнопку
+  // с web_app (не inline). Данные придут как message text боту.
+  const data = JSON.stringify({ action, ...payload });
+  tg.sendData(data);
+}
+
+// Переключение режима темы по тапу: off → instant → digest → off.
+function toggleTopic(slug) {
+  const current = myTopics[slug];
+  let next;
+  if (!current) next = 'instant';
+  else if (current === 'instant') next = 'digest';
+  else next = null; // выкл
+
+  if (next) myTopics[slug] = next;
+  else delete myTopics[slug];
+
+  renderTopics();
+  // Отправляем изменение в бот.
+  sendData('set_topic', { topic: slug, mode: next || 'off' });
+}
+
+function renderTopics() {
+  const container = document.getElementById('topics');
+  container.innerHTML = '';
+  TOPICS.forEach(([slug, emoji, label]) => {
+    const mode = myTopics[slug];
+    const modeText = mode === 'instant' ? '⚡ Мгновенно' : (mode === 'digest' ? '🕗 Дайджест' : '➕ Включить');
+    const modeClass = mode || 'off';
+    const row = document.createElement('div');
+    row.className = 'row card';
+    row.onclick = () => toggleTopic(slug);
+    row.innerHTML = `<span class="label"><span class="emoji">${emoji}</span>${label}</span><span class="mode ${modeClass}">${modeText}</span>`;
+    container.appendChild(row);
+  });
+}
+
+function removeChannel(idx) {
+  const ch = myChannels[idx];
+  myChannels.splice(idx, 1);
+  renderChannels();
+  sendData('remove_channel', { channel: ch });
+}
+
+function addChannel() {
+  const input = document.getElementById('newChannel');
+  const val = input.value.trim();
+  if (!val) return;
+  if (!val.startsWith('@') && !val.startsWith('-100')) {
+    showStatus('Формат: @username', true);
+    return;
+  }
+  if (myChannels.includes(val)) {
+    showStatus('Уже добавлен', true);
+    return;
+  }
+  myChannels.push(val);
+  input.value = '';
+  renderChannels();
+  sendData('add_channel', { channel: val });
+}
+
+function renderChannels() {
+  const container = document.getElementById('channels');
+  container.innerHTML = '';
+  if (myChannels.length === 0) {
+    container.innerHTML = '<div class="card empty">Каналов пока нет. Добавь через поле ниже.</div>';
+    return;
+  }
+  myChannels.forEach((ch, idx) => {
+    const div = document.createElement('div');
+    div.className = 'channel card';
+    div.innerHTML = `<span class="ch-name">${ch}</span><span class="del" onclick="removeChannel(${idx})">✕</span>`;
+    container.appendChild(div);
+  });
+}
+
+// Инициализация. Telegram передаёт initData при открытии.
+// Здесь — рендерим пустое состояние; реальные данные подгрузятся после
+// первого sendData от бота (или через init_data, если бот их отдаёт).
+myChannels = [];
+renderTopics();
+renderChannels();
+showStatus('');
+</script>
+</body>
+</html>
