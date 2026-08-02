@@ -362,11 +362,11 @@ async def _process_message(
     try:
         # 3) Сжатие через LLM (fallback на оригинал — внутри summarizer).
         summary = await summarizer.summarize(text)
-        # 4) Эмодзи-заголовок и тип угрозы.
-        header = get_sticker_header(text)
+        # 4) Тип угрозы (для БД и классификации).
         threat_type = classify_threat(text)
-        # 5) Сборка и публикация в общий канал.
-        final_text = f"{header}\n{summary}".strip()
+        # 5) Обогащённая публикация: критичность + ETA + анализ по архиву.
+        from analytics import build_rich_alert
+        final_text = build_rich_alert(text, summary, str(source), db)
         await publisher.send(final_text)
 
         # 6) Определение регионов и запись в журнал БД.
