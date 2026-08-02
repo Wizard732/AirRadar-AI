@@ -59,20 +59,23 @@ def build_rich_alert(
     """
     threat_type = classify_threat(text)
     regions = detect_region(text)
-    emoji, level, recommendation = SEVERITY.get(threat_type, SEVERITY["other"])
+
+    # Определяем стадию угрозы по контексту: непосредственная (пуски, летит)
+    # или потенциальная (носители в море, возможный пуск). Снижает ложный CRITICAL.
+    stage = _detect_stage(text, threat_type)
+
+    # Выбираем критичность с учётом стадии.
+    emoji, level, recommendation = _severity_for(threat_type, stage)
     title = TYPE_TITLE.get(threat_type, "Загроза")
 
     lines: list[str] = []
-    # Заголовок с критичностью.
     lines.append(f"{emoji} {level}: {title}")
 
-    # Регион/направление (берём первый определённый).
     if regions:
         lines.append(f"📍 Регіон: {region_name(regions[0])}")
 
-    # ETA — для ракет/БПЛА/артиллерии (не для отбоя/тревоги/взрыва).
-    # Сначала пробуем по региону; если данных мало — fallback на типовые ETA.
-    if threat_type in ("missile", "uav", "artillery"):
+    # ETA — только при непосредственной угрозе (пуски/летит), не при потенциале.
+    if threat_type in ("missile", "uav", "artillery") and stage in ("imminent", "unknown"):
         if regions:
             est = estimate_eta(db, regions[0])
             if est["available"] and est["avg_seconds"]:
@@ -83,25 +86,20 @@ def build_rich_alert(
                     f"⏱ ETA: ~{mins} хв (за {est['samples']} істор. пар)  [~{lo} – ~{hi} хв]"
                 )
             else:
-                # Нет истории по региону — даём типовое время по типу оружия.
                 typical = _typical_eta(threat_type)
                 lines.append(f"⏱ Орієнтовний ETA: {typical}")
         else:
-            # Регион не определён — даём типовое время по типу оружия.
             typical = _typical_eta(threat_type)
             lines.append(f"⏱ Орієнтовний ETA: {typical}")
 
-    # Рекомендация (кроме отбоя) — с эмодзи по уровню критичности.
     if threat_type != "stand_down":
-        icon = "🚨" if level in ("CRITICAL",) else "⚠️"
+        icon = "🚨" if level == "CRITICAL" else "⚠️"
         lines.append(f"{icon} {recommendation}")
 
-    # Сжатый текст источника.
     lines.append("")
     lines.append(f"💬 @{source}:" if not str(source).startswith("@") else f"💬 {source}:")
     lines.append(summary[:300])
 
-    # Аналитика по региону — отдельным блоком (если есть данные).
     if regions and threat_type != "stand_down":
         region = regions[0]
         analysis = _build_analysis(db, region, threat_type)
@@ -110,6 +108,46 @@ def build_rich_alert(
             lines.append(analysis)
 
     return "\n".join(lines)[:4000]
+
+
+def _detect_stage(text: str, threat_type: str) -> str:
+    """Определить стадию угрозы по контексту.
+
+    Возвращает 'imminent' (пуски/летит/в направлении), 'potential' (носители
+    в море/возможен пуск/разведка) или 'unknown'. Нужно, чтобы не повышать
+    критичность для предупредительных постов без факта пуска.
+    """
+    lowered = text.lower()
+    # Признаки непосредственной угрозы: пуски, летит, в направлении, курсом.
+    imminent_markers = (
+        "пуск", "пуски", "лет", "курсом", "в направлении", "у напрямку",
+        "рух", "йдé", "сброш", "зафіксован", "в повітр", "вибух", "прильот",
+    )
+    if any(m in lowered for m in imminent_markers):
+        return "imminent"
+    # Признаки потенциальной угрозы (без факта пуска).
+    potential_markers = (
+        "в море", "носител", "можлив", "очікуват", "загроза застосув",
+        "загроза пуску", "підгот", "розгорнут", "маневр", "патрул",
+        "акватор", "піднял", "зліт літ", "зліт міг", "зліт ту",
+        "в повітрі немає", "станом на",
+    )
+    if any(m in lowered for m in potential_markers):
+        return "potential"
+    return "unknown"
+
+
+def _severity_for(threat_type: str, stage: str) -> tuple[str, str, str]:
+    """Критичность с учётом стадии. Потенциальная угроза → на уровень ниже."""
+    base = SEVERITY.get(threat_type, SEVERITY["other"])
+    emoji, level, rec = base
+    if stage == "potential":
+        # Снижаем: CRITICAL -> MODERATE, HIGH -> MODERATE, остальные как есть.
+        if level == "CRITICAL":
+            return ("🟡", "MODERATE", "Попередження: можлива загроза. Бути напоготові.")
+        if level == "HIGH":
+            return ("🟡", "MODERATE", "Попередження: можлива загроза. Бути напоготові.")
+    return base
 
 
 # Типовое время подлёта по типам оружия (если нет истории по региону).
