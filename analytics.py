@@ -82,7 +82,8 @@ def build_rich_alert(
     # ETA — только при непосредственной угрозе (пуски/летит), не при потенциале.
     if threat_type in ("missile", "uav", "artillery") and stage in ("imminent", "unknown"):
         if regions:
-            est = estimate_eta(db, regions[0])
+            # Передаём тип оружия — баллистика и БПЛА считаются раздельно.
+            est = estimate_eta(db, regions[0], weapon_type=threat_type)
             if est["available"] and est["avg_seconds"]:
                 mins = int(est["avg_seconds"] / 60)
                 lo = max(1, mins // 2)
@@ -104,6 +105,12 @@ def build_rich_alert(
     lines.append("")
     lines.append(f"💬 @{source}:" if not str(source).startswith("@") else f"💬 {source}:")
     lines.append(summary[:300])
+
+    # Последствия из текста (если есть) — всегда показываем.
+    casualties = _extract_casualties(text)
+    if casualties:
+        lines.append("")
+        lines.append(casualties)
 
     if regions and threat_type != "stand_down":
         region = regions[0]
@@ -172,9 +179,9 @@ def _severity_for(threat_type: str, stage: str) -> tuple[str, str, str]:
 
 
 # Типовое время подлёта по типам оружия (если нет истории по региону).
-# Основано на общих данных: КАБ долетает быстро, БПЛА — дольше.
+# Основано на физике: баллистика ~3-5 мин, КАБ ~5-10, крылатая ракета ~15-30, БПЛА ~30-60.
 _TYPICAL_ETA = {
-    "missile": "~10–30 хв",
+    "missile": "~5–30 хв (балістика швидше, крилаті — довше)",
     "uav": "~20–60 хв",
     "artillery": "<5 хв",
 }
@@ -208,9 +215,9 @@ def _build_analysis(db: Database, region: str, threat_type: str) -> str:
         has_data = True
         lines.append(f"🎯 Загроз цього типу: {type_count} за весь архів.")
 
-    # ETA по конкретному типу оружия в этом регионе.
+    # ETA по конкретному типу оружия в этом регионе (раздельно: ракеты/БПЛА).
     if threat_type in ("missile", "uav", "artillery"):
-        est = estimate_eta(db, region)
+        est = estimate_eta(db, region, weapon_type=threat_type)
         if est["available"] and est["avg_seconds"]:
             mins = int(est["avg_seconds"] / 60)
             lines.append(f"⏱ Типовий час до удару: ~{mins} хв (за {est['samples']} пар).")
@@ -254,6 +261,42 @@ def _build_analysis(db: Database, region: str, threat_type: str) -> str:
         return ""
     lines.append(f"\n🔑 Джерело: {region_name(region)}")
     return "\n".join(lines)
+
+
+# Маркеры последствий для извлечения из текста (без LLM — быстро и точно).
+_CASUALTY_MARKERS = {
+    "поран": "🩸 Поранені",
+    "ранен": "🩸 Поранені",
+    "загин": "💀 Загиблі",
+    "погиб": "💀 Загиблі",
+    "загіб": "💀 Загиблі",
+    "постраждав": "👥 Постраждалі",
+    "пострада": "👥 Постраждалі",
+    "пошкодж": "🏚 Пошкоджено",
+    "руйнув": "🏚 Руйнування",
+    "знищен": "🔥 Знищено",
+    "горить": "🔥 Пожежа",
+    "пожежа": "🔥 Пожежа",
+    "горанн": "🔥 Пожежа",
+}
+
+
+def _extract_casualties(text: str) -> str:
+    """Быстрое извлечение последствий из текста (без LLM).
+
+    Возвращает строку с найденными маркерами (поранені/загиблі/пошкоджено)
+    или пустую строку, если последствий нет.
+    """
+    lowered = text.lower()
+    found: list[str] = []
+    seen = set()
+    for marker, label in _CASUALTY_MARKERS.items():
+        if marker in lowered and label not in seen:
+            found.append(label)
+            seen.add(label)
+    if not found:
+        return ""
+    return "💔 Наслідки: " + ", ".join(found)
 
 
 def _risk_assessment(threat_type: str, type_count: int, impacts: int) -> str:

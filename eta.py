@@ -42,8 +42,13 @@ LAUNCH_TYPES = ("missile", "uav")
 IMPACT_TYPES = ("explosion",)
 
 
-def estimate_eta(db: Database, region: str) -> dict[str, Any]:
+def estimate_eta(db: Database, region: str, weapon_type: str | None = None) -> dict[str, Any]:
     """Оценка ETA для региона по истории пусков и прилётов.
+
+    weapon_type: если указан ('missile' или 'uav') — считает ETA только для
+    этого типа. Если None — смешанный (старое поведение, менее точно).
+    Баллистика/ракета и БПЛА имеют радикально разную скорость, поэтому
+    раздельный расчёт критичен.
 
     Возвращает словарь:
       {
@@ -59,14 +64,20 @@ def estimate_eta(db: Database, region: str) -> dict[str, Any]:
         if conn is None:
             return {"available": False, "avg_seconds": None, "samples": 0, "last_launch_ts": None}
 
-        # Все «пуски» в регионе за период.
-        launches = conn.execute(
-            "SELECT ts FROM threats WHERE region = ? AND threat_type IN (?, ?) "
-            "AND ts >= ? ORDER BY ts",
-            (region, "missile", "uav", since),
-        ).fetchall()
-        # Все «прилёты» в регионе за период (explosion + other — реальные
-        # прилёты в каналах часто без явного слова «взрыв»).
+        # Пуски: если weapon_type задан — только этот тип; иначе оба (legacy).
+        if weapon_type:
+            launches = conn.execute(
+                "SELECT ts FROM threats WHERE region = ? AND threat_type = ? "
+                "AND ts >= ? ORDER BY ts",
+                (region, weapon_type, since),
+            ).fetchall()
+        else:
+            launches = conn.execute(
+                "SELECT ts FROM threats WHERE region = ? AND threat_type IN (?, ?) "
+                "AND ts >= ? ORDER BY ts",
+                (region, "missile", "uav", since),
+            ).fetchall()
+        # Прилёты (взрывы) — всегда explosion, независимо от типа пуска.
         impact_ph = ",".join("?" * len(IMPACT_TYPES))
         impacts = conn.execute(
             f"SELECT ts FROM threats WHERE region = ? AND threat_type IN ({impact_ph}) "
