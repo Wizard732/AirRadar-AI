@@ -239,7 +239,8 @@ async def run() -> None:
         from digest import digest_scheduler
         digest_task = asyncio.create_task(
             digest_scheduler(bot_client, db,
-                             settings.digest_morning_hour, settings.digest_evening_hour),
+                             settings.digest_morning_hour, settings.digest_evening_hour,
+                             summarizer),
             name="digest-scheduler",
         )
 

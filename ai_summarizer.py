@@ -336,6 +336,34 @@ class GroqSummarizer(SummarizerProtocol):
             return False
 
 
+async def summarize_digest(
+    summarizer: SummarizerProtocol,
+    topic_label: str,
+    posts: list[str],
+) -> str:
+    """Собрать LLM-сводку дайджеста из списка постов (ТЗ 5.2).
+
+    posts: список текстов постов за период. Возвращает сжатую сводку
+    «главное за период» или пустую строку при ошибке/мало данных.
+    """
+    if not posts:
+        return ""
+    # Собираем посты в один текст, нумеруем.
+    numbered = "\n".join(f"{i+1}. {p[:300]}" for i, p in enumerate(posts[:12]))
+    system = (
+        f"Ты — редактор дайджеста новостей по теме «{topic_label}». "
+        f"Составь КРАТКУЮ сводку из переданных постов. "
+        f"ГЛАВНОЕ: объедини ДУБЛИ и похожие новости в ОДИН пункт. "
+        f"Максимум 5 пунктов, каждый — одно предложение. "
+        f"Без эмодзи, ссылок, рекламы. Только текст сводки."
+    )
+    try:
+        return await summarizer.classify(numbered, system, max_tokens=400)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Дайджест-сводка: ошибка LLM: %s", exc)
+        return ""
+
+
 async def ocr_image(
     image_bytes: bytes,
     mime_type: str,

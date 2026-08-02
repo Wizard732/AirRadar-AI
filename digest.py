@@ -25,10 +25,12 @@ DIGEST_WINDOW = 12 * 3600
 MAX_POSTS_PER_TOPIC = 5
 
 
-async def send_digests(bot_client, db: Database, period_name: str) -> int:
+async def send_digests(bot_client, db: Database, period_name: str, summarizer=None) -> int:
     """Собрать и разослать дайджесты всем digest-подписчикам.
 
     period_name: 'Утренний' или 'Вечерний' (для заголовка).
+    summarizer: если передан и постов 3+ — делает LLM-сводку («главное за день»,
+    ТЗ 5.2). Если None/мало постов — просто список (старое поведение).
     Возвращает число отправленных дайджестов.
     """
     topics = db.all_digest_topics()
@@ -36,13 +38,18 @@ async def send_digests(bot_client, db: Database, period_name: str) -> int:
         return 0  # нет digest-подписчиков — делать нечего
 
     since = int(time.time()) - DIGEST_WINDOW
-    # Для каждой темы — собираем посты и рассылаем её digest-подписчикам.
     sent_total = 0
     for topic in topics:
         posts = db.recent_classified_posts(topic, since, limit=MAX_POSTS_PER_TOPIC)
         if not posts:
-            continue  # за период не было постов по теме
-        text = _format_digest(topic_label(topic), period_name, posts)
+            continue
+        # LLM-сводка (кластеризация), если постов достаточно и есть summarizer.
+        summary = ""
+        if summarizer is not None and len(posts) >= 3:
+            from ai_summarizer import summarize_digest
+            texts = [p["text"] for p in posts]
+            summary = await summarize_digest(summarizer, topic_label(topic), texts)
+        text = _format_digest(topic_label(topic), period_name, posts, summary)
         subscribers = db.digest_subscribers_by_topic(topic)
         sent = 0
         for user_id in subscribers:
@@ -52,14 +59,22 @@ async def send_digests(bot_client, db: Database, period_name: str) -> int:
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Дайджест: не отправлено %s: %s", user_id, exc)
         sent_total += sent
-        logger.info("Дайджест %s [%s]: отправлено %d (постов: %d)",
-                    period_name, topic, sent, len(posts))
+        logger.info("Дайджест %s [%s]: отправлено %d (постов: %d, LLM: %s)",
+                    period_name, topic, sent, len(posts), bool(summary))
     return sent_total
 
 
-def _format_digest(label: str, period_name: str, posts: list[dict]) -> str:
-    """Собрать текст дайджеста из списка постов."""
+def _format_digest(label: str, period_name: str, posts: list[dict], summary: str = "") -> str:
+    """Собрать текст дайджеста.
+
+    summary: если передана (LLM-сводка) — идёт вверху как «главное», а посты
+    ниже как подробности. Если нет — просто список постов.
+    """
     lines = [f"📰 {period_name} дайджест: {label}\n"]
+    if summary:
+        lines.append(summary.strip() + "\n")
+        lines.append("—" * 20)
+        lines.append("Подробности:")
     for p in posts:
         ago = int((time.time() - p["ts"]) // 3600)
         ago_str = f"{ago}ч" if ago > 0 else "только что"
@@ -68,10 +83,11 @@ def _format_digest(label: str, period_name: str, posts: list[dict]) -> str:
     return "\n".join(lines)[:3900]
 
 
-async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_hour: int) -> None:
+async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_hour: int, summarizer=None) -> None:
     """Бесконечный цикл: каждые 5 минут проверяет, не час ли дайджеста.
 
     Запускается как asyncio-таска из main.run(). Отменяется при остановке бота.
+    summarizer: для LLM-сводки дайджеста (ТЗ 5.2).
     """
     last_run: set[int] = set()  # часы (UTC), уже отправленные сегодня
     logger.info("Планировщик дайджестов запущен (утро=%d:00, вечер=%d:00 UTC)",
@@ -88,7 +104,7 @@ async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_
             if cur_hour in (morning_hour, evening_hour) and cur_hour not in last_run:
                 period = "Утренний" if cur_hour == morning_hour else "Вечерний"
                 try:
-                    n = await send_digests(bot_client, db, period)
+                    n = await send_digests(bot_client, db, period, summarizer)
                     last_run.add(cur_hour)
                     if n:
                         logger.info("Дайджест «%s» отправлен %d получателям", period, n)
