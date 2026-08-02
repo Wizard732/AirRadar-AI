@@ -107,7 +107,6 @@ def build_rich_alert(
         lines.append(f"{icon} {recommendation}")
 
     lines.append("")
-    lines.append(f"💬 @{source}:" if not str(source).startswith("@") else f"💬 {source}:")
     lines.append(summary[:300])
 
     # Последствия из текста (если есть) — всегда показываем.
@@ -258,7 +257,6 @@ def _build_analysis(db: Database, region: str, threat_type: str) -> str:
 
     if not has_data:
         return ""
-    lines.append(f"\n🔑 Джерело: {region_name(region)}")
     return "\n".join(lines)
 
 

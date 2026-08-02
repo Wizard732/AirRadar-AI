@@ -87,9 +87,21 @@ def daily_forecast(db: Database, region: str) -> str:
     from regions import region_name
 
     name = region_name(region)
-    lines = [f"🌙 Прогноз на ніч для {name}:\n"]
+    lines = [f"🌙 Підсумок дня та прогноз на ніч — {name}:\n"]
 
-    # Активность за последние 3 часа.
+    # === СВОДКА ЗА ДЕНЬ ===
+    day_counts = db.threat_counts(region=region, since=int(time.time()) - 86400)
+    day_total = sum(day_counts.values())
+    lines.append("📅 За сьогодні:")
+    if day_total > 0:
+        from weapon_classes import weapon_label
+        for t, c in sorted(day_counts.items(), key=lambda x: -x[1])[:5]:
+            lines.append(f"  • {t}: {c}")
+    else:
+        lines.append("  Спокійний день, загроз не зафіксовано.")
+    lines.append("")
+
+    # === АКТИВНОСТЬ ПОСЛЕДНИЕ 3 ЧАСА ===
     recent = db.threats_in_last_hours(region, hours=3)
     if recent >= 5:
         lines.append(f"🔴 Висока активність: {recent} загроз за 3 години.")
@@ -98,20 +110,24 @@ def daily_forecast(db: Database, region: str) -> str:
     else:
         lines.append("🟢 Спокій за останні 3 години.")
 
+    # === ПРОГНОЗ НА НОЧЬ ===
+    lines.append("\n📊 Прогноз на ніч:")
     # Исторический вечерний паттерн (18-23 часа).
     pattern = db.hourly_pattern(region)
     evening = sum(pattern[18:24])
     total = sum(pattern)
     if total > 0:
         evening_pct = int(evening * 100 / total)
-        if evening_pct >= 30:
-            lines.append(f"📊 Історично вечір активний у цьому регіоні ({evening_pct}% загроз у 18-23).")
-        elif evening_pct >= 15:
-            lines.append(f"📊 Помірна вечірня активність ({evening_pct}% загроз у 18-23).")
+        night = sum(pattern[0:6])
+        night_pct = int(night * 100 / total)
+        if evening_pct >= 30 or night_pct >= 20:
+            lines.append(f"⚠️ Історично ніч активна ({evening_pct}% загроз ввечері, {night_pct}% вночі).")
+        else:
+            lines.append(f"🟢 Історично ніч спокійна ({night_pct}% загроз вночі).")
 
     # Коридор укрытия на случай тревоги.
     sw = shelter_window(db, region)
     if sw:
         lines.append(f"\n{sw}")
 
-    return "\n".join(lines) if len(lines) > 2 else ""
+    return "\n".join(lines) if len(lines) > 3 else ""

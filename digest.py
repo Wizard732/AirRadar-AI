@@ -111,11 +111,11 @@ async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Сбой дайджеста «%s»: %s", period, exc)
 
-            # Ежедневный прогноз на ночь в 21:00 UTC (отдельный час от дайджестов).
-            if cur_hour == 21 and 21 not in last_run:
+            # Ежедневный прогноз на ночь в 22:00 UTC (отдельный час от дайджестов).
+            if cur_hour == 22 and 22 not in last_run:
                 try:
                     n = await _send_evening_forecasts(bot_client, db)
-                    last_run.add(21)
+                    last_run.add(22)
                     if n:
                         logger.info("Вечерний прогноз отправлен %d получателям", n)
                 except Exception as exc:  # noqa: BLE001
