@@ -23,12 +23,13 @@ from sticker import classify_threat
 
 # Уровни критичности по типу угрозы.
 SEVERITY = {
-    "missile": ("🔴", "CRITICAL", "Немедленно в укрытие! Ракетная угроза."),
-    "uav": ("🟠", "HIGH", "Угроза БПЛА. Зайти в укрытие."),
-    "artillery": ("🔴", "CRITICAL", "Обстрел! Немедленно в укрытие."),
-    "explosion": ("🔴", "CRITICAL", "Взрывы! Оставаться в укрытии."),
+    "missile": ("🔴", "CRITICAL", "НЕМЕДЛЕННО в укрытие! Ракетный удар."),
+    "uav": ("🟠", "HIGH", "Угроза БПЛА. Немедленно в укрытие."),
+    "artillery": ("🔴", "CRITICAL", "Обстрел! НЕМЕДЛЕННО в укрытие."),
+    "explosion": ("🔴", "CRITICAL", "Взрывы! Оставаться в укрытии, не выходить."),
+    "alert": ("🟡", "MODERATE", "Воздушная тревога. Готовиться к укрытию."),
     "stand_down": ("🟢", "ALL CLEAR", "Отбой. Можно выходить."),
-    "other": ("🟡", "MODERATE", "Воздушная тревога. Будьте готовы."),
+    "other": ("🟡", "MODERATE", "Оперативная информация. Будьте начеку."),
 }
 
 # Локализованные названия типов для заголовка.
@@ -37,8 +38,9 @@ TYPE_TITLE = {
     "uav": "БПЛА (Shahed/дрон)",
     "artillery": "Артилерійський обстріл",
     "explosion": "Прильот / вибухи",
+    "alert": "Повітряна тривога",
     "stand_down": "Відбій тривоги",
-    "other": "Повітряна тривога",
+    "other": "Операційна інформація",
 }
 
 
@@ -79,9 +81,10 @@ def build_rich_alert(
                 f"⏱ ETA: ~{mins} хв (за {est['samples']} істор. пар)  [~{lo} – ~{hi} хв]"
             )
 
-    # Рекомендация (кроме отбоя).
+    # Рекомендация (кроме отбоя) — с эмодзи по уровню критичности.
     if threat_type != "stand_down":
-        lines.append(f"⚠️ {recommendation}")
+        icon = "🚨" if level in ("CRITICAL",) else "⚠️"
+        lines.append(f"{icon} {recommendation}")
 
     # Сжатый текст источника.
     lines.append("")
@@ -100,15 +103,34 @@ def build_rich_alert(
 
 
 def _build_analysis(db: Database, region: str, threat_type: str) -> str:
-    """Блок аналитики по региону: история прильотов, ПВО, длительность тревоги."""
+    """Блок аналитики по региону: история прильотов, ПВО, риск-оценка."""
     lines: list[str] = ["📊 Аналіз:"]
     has_data = False
 
+    counts = db.threat_counts(region=region, since=0)
+
     # История прильотов (explosion) в регионе.
-    impacts = db.threat_counts(region=region, since=0).get("explosion", 0)
+    impacts = counts.get("explosion", 0)
     if impacts > 0:
         has_data = True
-        lines.append(f"💥 Тут раніше падало: {impacts} прильотів в архіві.")
+        # Частота: прильоты / всего угроз = доля «долетевших».
+        total = sum(counts.values())
+        if total > 0:
+            pct = int(impacts * 100 / total)
+            lines.append(f"💥 Прильоты в регіоні: {impacts} ({pct}% від усіх загроз).")
+
+    # Кол-во угроз этого типа в регионе.
+    type_count = counts.get(threat_type, 0)
+    if type_count > 0:
+        has_data = True
+        lines.append(f"🎯 Загроз цього типу: {type_count} за весь архів.")
+
+    # ETA по конкретному типу оружия в этом регионе.
+    if threat_type in ("missile", "uav", "artillery"):
+        est = estimate_eta(db, region)
+        if est["available"] and est["avg_seconds"]:
+            mins = int(est["avg_seconds"] / 60)
+            lines.append(f"⏱ Типовий час до удару: ~{mins} хв (за {est['samples']} пар).")
 
     # Типова тривалість тривоги.
     avg = db.avg_alert_duration(region)
@@ -119,13 +141,32 @@ def _build_analysis(db: Database, region: str, threat_type: str) -> str:
         dur = f"~{h} год {m} хв" if h > 0 else f"~{mins} хв"
         lines.append(f"🕐 Типова тривалість тривоги: {dur}")
 
-    # Кол-во угроз этого типа в регионе.
-    type_count = db.threat_counts(region=region, since=0).get(threat_type, 0)
-    if type_count > 0:
+    # Риск-оценка на основе истории.
+    risk = _risk_assessment(threat_type, type_count, impacts)
+    if risk:
         has_data = True
-        lines.append(f"📈 Всього загроз цього типу в регіоні: {type_count}.")
+        lines.append(f"🧠 Оцінка: {risk}")
 
     if not has_data:
         return ""
-    lines.append(f"\n🔑 Джерела архіву: {region_name(region)}")
+    lines.append(f"\n🔑 Джерело: {region_name(region)}")
     return "\n".join(lines)
+
+
+def _risk_assessment(threat_type: str, type_count: int, impacts: int) -> str:
+    """Краткая риск-оценка на основе архивных данных."""
+    if threat_type == "missile":
+        if impacts > 100:
+            return "Високий ризик — регіон часто зазнає ракетних ударів. Укриття обов'язкове."
+        if impacts > 0:
+            return "Підвищений ризик — прильоти фіксувались. Перебувати у укритті."
+        return "Загроза ракетного удару. Дотримуватись протоколу укриття."
+    if threat_type == "uav":
+        if impacts > 100:
+            return "Високий ризик — БПЛА часто долітають. Укриття обов'язкове."
+        if impacts > 0:
+            return "Помірний ризик — фіксувались прильоти БПЛА. Укриття рекомендовано."
+        return "Загроза БПЛА. Бути готовим до укриття."
+    if threat_type == "artillery":
+        return "Прямий ризик обстрілу. НЕМЕДЛЕННО у сховище."
+    return ""
