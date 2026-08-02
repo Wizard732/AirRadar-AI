@@ -36,6 +36,7 @@ def _interests_main_kb() -> list:
     return [
         [Button.inline("📰 Темы и подписки", data=CB_INT_TOPICS)],
         [Button.inline("📡 Мои каналы", data=CB_INT_CHANNELS)],
+        [Button.inline("🔍 Мои интересы", data="interests_list")],
         [Button.inline("🏠 Главное меню", data="main")],
     ]
 
@@ -98,7 +99,46 @@ def register_interests_handlers(bot: TelegramClient, db: Database, admin_id: int
     """Навесить обработчики команд и кнопок Interests-модуля."""
 
     def _is_admin(user_id: int) -> bool:
-        return user_id == admin_id
+        # Супер-админ (из .env) ИЛИ добавленный через /give_admin (из БД).
+        return db.is_admin(user_id, admin_id)
+
+    # --- Семантический поиск: свободные интересы (ТЗ 5.3) ---
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/add_interest\s+(.+)"))
+    async def _add_interest(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        interest = event.pattern_match.group(1).strip()
+        db.add_interest(event.sender_id, interest)
+        await event.respond(
+            f"🔍 Добавлен интерес: <b>{interest}</b>\nБот будет присылать посты по смыслу.",
+            parse_mode="html",
+        )
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/del_interest\s+(.+)"))
+    async def _del_interest(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        interest = event.pattern_match.group(1).strip()
+        db.remove_interest(event.sender_id, interest)
+        await event.respond(f"🗑 Интерес «{interest}» удалён.", parse_mode="html")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/my_interests"))
+    async def _my_interests(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        interests = db.user_interests(event.sender_id)
+        if not interests:
+            await event.respond(
+                "🔍 <b>Мои интересы</b>\n\nПока пусто. Добавь: <code>/add_interest фьюжн-реакторы</code>",
+                parse_mode="html",
+            )
+            return
+        lines = ["🔍 <b>Мои интересы</b>\n"]
+        for i in interests:
+            lines.append(f"• <i>{i}</i>")
+        lines.append("\n/add_interest … — добавить")
+        lines.append("/del_interest … — удалить")
+        await event.respond("\n".join(lines), parse_mode="html")
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/add_channel\s+(\S+)"))
     async def _add_channel(event) -> None:  # noqa: ANN001
@@ -167,6 +207,24 @@ def register_interests_handlers(bot: TelegramClient, db: Database, admin_id: int
                 channels = db.user_channels(event.sender_id)
                 await _safe_edit(
                     _channels_text(channels),
+                    [[Button.inline("⬅️ Назад", data=CB_INT_MAIN)]],
+                )
+
+            elif data == "interests_list":
+                interests = db.user_interests(event.sender_id)
+                if interests:
+                    lines = ["🔍 <b>Мои интересы</b>\n"]
+                    for i in interests:
+                        lines.append(f"• <i>{i}</i>")
+                    lines.append("\n/del_interest … — удалить")
+                else:
+                    lines = [
+                        "🔍 <b>Мои интересы</b>\n",
+                        "Пока пусто. Добавь команду:",
+                        "<code>/add_interest фьюжн-реакторы</code>",
+                    ]
+                await _safe_edit(
+                    "\n".join(lines),
                     [[Button.inline("⬅️ Назад", data=CB_INT_MAIN)]],
                 )
         except Exception as exc:  # noqa: BLE001

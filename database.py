@@ -159,6 +159,17 @@ class Database:
                 )
                 """
             )
+            # Свободные интересы юзера (семантический поиск, ТЗ 5.3).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_interests (
+                    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id  INTEGER NOT NULL,
+                    interest TEXT    NOT NULL,   -- свободный текст: «фьюжн-реакторы»
+                    UNIQUE (user_id, interest)
+                )
+                """
+            )
             self._conn.commit()
         logger.debug("БД инициализирована: %s", self._path)
 
@@ -613,6 +624,56 @@ class Database:
         except sqlite3.Error as exc:
             logger.warning("Не удалось получить режим выдачи: %s", exc)
             return "instant"
+
+    # ------------------------------------------------------------------
+    #  Семантический поиск: свободные интересы (ТЗ 5.3)
+    # ------------------------------------------------------------------
+    def add_interest(self, user_id: int, interest: str) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO user_interests (user_id, interest) VALUES (?, ?)",
+                    (user_id, interest.strip()[:200]),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось добавить интерес: %s", exc)
+
+    def remove_interest(self, user_id: int, interest: str) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "DELETE FROM user_interests WHERE user_id = ? AND interest = ?",
+                    (user_id, interest),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось удалить интерес: %s", exc)
+
+    def user_interests(self, user_id: int) -> list[str]:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT interest FROM user_interests WHERE user_id = ?", (user_id,)
+                )
+                return [row["interest"] for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить интересы: %s", exc)
+            return []
+
+    def all_interests(self) -> list[tuple[int, str]]:
+        """Все интересы всех юзеров: [(user_id, interest), ...]. Для конвейера."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute("SELECT user_id, interest FROM user_interests")
+                return [(row["user_id"], row["interest"]) for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить все интересы: %s", exc)
+            return []
 
     # ------------------------------------------------------------------
     #  Админка: управление администраторами

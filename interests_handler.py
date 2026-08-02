@@ -15,7 +15,12 @@ from ai_summarizer import SummarizerProtocol
 from database import Database
 from dedup import DedupCache
 from fast_filter import clean_signature
-from interests_config import TOPIC_CLASSIFY_PROMPT, TOPIC_SLUGS, topic_label
+from interests_config import (
+    INTEREST_MATCH_PROMPT,
+    TOPIC_CLASSIFY_PROMPT,
+    TOPIC_SLUGS,
+    topic_label,
+)
 
 logger = logging.getLogger("airradar.interests")
 
@@ -64,9 +69,41 @@ async def process_interests_message(
         # 5) Рассылка подписчикам совпавших тем.
         if bot_client is not None:
             await _notify_topic_subscribers(bot_client, db, topics, source, text)
+            # 6) Семантический поиск: проверка свободных интересов юзеров.
+            await _match_free_interests(bot_client, db, summarizer, text)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Interests: сбой обработки (%s): %s", source, exc)
         db.channel_error(str(source), "interests", str(exc))
+
+
+async def _match_free_interests(bot_client, db: Database, summarizer: SummarizerProtocol, text: str) -> None:
+    """Семантический поиск (ТЗ 5.3): для каждого свободного интереса юзеров
+    спрашиваем LLM (zero-shot), подходит ли пост. Если да — шлём в ЛС.
+
+    Best-effort: ошибки LLM/отправки не роняют конвейер. Чтобы не гонять LLM
+    по всем интересам на каждый пост, бьём текст по 300 символов.
+    """
+    interests = db.all_interests()
+    if not interests:
+        return
+    snippet = text[:400]
+    notified: set[int] = set()
+    sent = 0
+    for user_id, interest in interests:
+        if user_id in notified:
+            continue
+        try:
+            prompt = INTEREST_MATCH_PROMPT.format(interest=interest, text=snippet)
+            raw = await summarizer.classify(snippet, prompt, max_tokens=5)
+            if raw.strip().lower().startswith("yes"):
+                payload = f"🔍 По интересу «{interest}»\n\n{text}".strip()[:4000]
+                await bot_client.send_message(user_id, payload, link_preview=False)
+                notified.add(user_id)
+                sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Семант. поиск: ошибка (%s, %s): %s", user_id, interest, exc)
+    if sent:
+        logger.info("Семант. поиск: отправлено %d совпадений по интересам", sent)
 
 
 def _parse_topics(raw: str) -> list[str]:
