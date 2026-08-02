@@ -111,6 +111,9 @@ async def run() -> None:
         # Interests-модуль: команды /add_channel, /my_channels + кнопки тем.
         from interests_ui import register_interests_handlers
         register_interests_handlers(bot_client, db, settings.admin_id)
+        # Админка (5.4): /status, /ban_channel, /unban_channel.
+        from admin_ui import register_admin_handlers
+        register_admin_handlers(bot_client, db, settings.admin_id)
         logger.info(
             "Меню бота включено (admin_id=%s): Military + Interests. Напиши /start.",
             settings.admin_id,
@@ -315,6 +318,8 @@ async def _process_message(
 
     source = getattr(event.chat, "username", None) or getattr(event.chat, "id", "?")
     logger.info("Новое сообщение от %s: %s", source, text[:80])
+    # Отмечаем канал живым (для /status админки).
+    db.channel_seen(str(source), "military")
 
     try:
         # 3) Сжатие через LLM (fallback на оригинал — внутри summarizer).
@@ -350,6 +355,7 @@ async def _process_message(
             await _notify_subscribers(bot_client, db, regions, final_text)
     except Exception as exc:  # pragma: no cover — страховка конвейера
         logger.exception("Сбой обработки сообщения (пропускаем): %s", exc)
+        db.channel_error(str(source), "military", str(exc))
 
 
 async def _notify_subscribers(bot_client, db: Database, regions: list[str], text: str) -> None:

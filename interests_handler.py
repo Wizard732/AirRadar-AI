@@ -46,6 +46,8 @@ async def process_interests_message(
         return
 
     source = getattr(event.chat, "username", None) or getattr(event.chat, "id", "?")
+    # Отмечаем канал живым (для /status админки).
+    db.channel_seen(str(source), "interests")
 
     try:
         # 3) LLM-классификация тем.
@@ -64,6 +66,7 @@ async def process_interests_message(
             await _notify_topic_subscribers(bot_client, db, topics, source, text)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Interests: сбой обработки (%s): %s", source, exc)
+        db.channel_error(str(source), "interests", str(exc))
 
 
 def _parse_topics(raw: str) -> list[str]:

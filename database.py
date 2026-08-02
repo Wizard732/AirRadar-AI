@@ -136,6 +136,19 @@ class Database:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_cposts_ts ON classified_posts(ts)")
+            # Здоровье каналов и заблокированные источники (админка 5.4).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS channel_health (
+                    channel      TEXT PRIMARY KEY,   -- @username или -100...
+                    module       TEXT NOT NULL,      -- 'military' | 'interests'
+                    last_seen    INTEGER,            -- unix time последнего сообщения
+                    error_count  INTEGER NOT NULL DEFAULT 0,
+                    last_error   TEXT,               -- текст последней ошибки
+                    disabled     INTEGER NOT NULL DEFAULT 0  -- 1 = забанен админом
+                )
+                """
+            )
             self._conn.commit()
         logger.debug("БД инициализирована: %s", self._path)
 
@@ -522,6 +535,78 @@ class Database:
                 self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось сохранить классификацию: %s", exc)
+
+    # ------------------------------------------------------------------
+    #  Админка (5.4): здоровье каналов
+    # ------------------------------------------------------------------
+    def channel_seen(self, channel: str, module: str) -> None:
+        """Отметить, что из канала пришло сообщение (обновить last_seen)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                now = int(time.time())
+                self._conn.execute(
+                    "INSERT INTO channel_health (channel, module, last_seen, error_count, disabled) "
+                    "VALUES (?, ?, ?, 0, 0) "
+                    "ON CONFLICT(channel) DO UPDATE SET last_seen=excluded.last_seen",
+                    (channel, module, now),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось отметить канал активным: %s", exc)
+
+    def channel_error(self, channel: str, module: str, error: str) -> None:
+        """Записать ошибку парсинга канала (увеличивает счётчик)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO channel_health (channel, module, error_count, last_error, disabled) "
+                    "VALUES (?, ?, 1, ?, 0) "
+                    "ON CONFLICT(channel) DO UPDATE SET "
+                    "error_count=channel_health.error_count+1, last_error=excluded.last_error",
+                    (channel, module, error[:300]),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать ошибку канала: %s", exc)
+
+    def disable_channel(self, channel: str) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "UPDATE channel_health SET disabled=1 WHERE channel=?", (channel,)
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось забанить канал: %s", exc)
+
+    def enable_channel(self, channel: str) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "UPDATE channel_health SET disabled=0, error_count=0, last_error=NULL WHERE channel=?",
+                    (channel,),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось разбанить канал: %s", exc)
+
+    def all_channel_health(self) -> list[dict]:
+        """Состояние всех каналов (для /status)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT channel, module, last_seen, error_count, last_error, disabled "
+                    "FROM channel_health ORDER BY module, channel"
+                )
+                return [dict(row) for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить здоровье каналов: %s", exc)
+            return []
 
     # ------------------------------------------------------------------
     #  Очистка
