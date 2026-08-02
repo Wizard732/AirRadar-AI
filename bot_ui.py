@@ -21,6 +21,7 @@ import time
 
 from telethon import Button, TelegramClient, events
 from telethon.errors import MessageNotModifiedError
+from telethon.tl.types import KeyboardButtonWebView
 
 from database import Database
 from eta import estimate_eta, format_eta
@@ -73,9 +74,13 @@ def _main_menu_kb():
 
 
 def _main_menu_with_webapp(webapp_url: str):
-    """Главное меню + кнопка-WebApp (Mini App открывается по URL)."""
+    """Главное меню + кнопка-WebApp (Mini App открывается по URL).
+
+    Telethon 1.44 не имеет Button.webapp — используем KeyboardButtonWebView
+    напрямую (это и есть нативный тип Telegram для Web App кнопок).
+    """
     return [
-        [Button.webapp("⚙️ Настройки (Mini App)", url=webapp_url)],
+        [KeyboardButtonWebView(text="⚙️ Настройки (Mini App)", url=webapp_url)],
         [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
         [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
         [
