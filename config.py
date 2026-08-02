@@ -64,6 +64,8 @@ class Settings:
     groq_api_key: str = ""
     groq_url: str = "https://api.groq.com/openai"
     groq_model: str = "llama-3.1-8b-instant"
+    # Vision-модель Groq для OCR (распознавание текста с фото в постах).
+    groq_vision_model: str = "meta-llama/llama-4-scout-17b-16e-instruct"
 
     # Какой бэкенд использовать: 'ollama' (по умолчанию) или 'groq'
     llm_backend: str = "ollama"
@@ -123,6 +125,7 @@ def load_settings() -> Settings:
         groq_api_key=os.getenv("GROQ_API_KEY", ""),
         groq_url=os.getenv("GROQ_URL", "https://api.groq.com/openai"),
         groq_model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+        groq_vision_model=os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"),
         llm_backend=os.getenv("LLM_BACKEND", "ollama").strip().lower(),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         dedup_ttl=int(os.getenv("DEDUP_TTL", "60")),

@@ -336,6 +336,74 @@ class GroqSummarizer(SummarizerProtocol):
             return False
 
 
+async def ocr_image(
+    image_bytes: bytes,
+    mime_type: str,
+    api_key: str,
+    model: str,
+    session: aiohttp.ClientSession,
+    timeout: int = 30,
+) -> str:
+    """Распознать текст с изображения через Groq vision-модель (Llama 4 Scout).
+
+    Возвращает распознанный текст или пустую строку при ошибке. Не падает.
+    Используется для постов с фото (ТЗ 5.1) — подпись + текст с картинки.
+    """
+    import base64
+
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Распознай и выведи весь текст с этого изображения дословно. "
+                        "Если текста нет — ответь пустой строкой.",
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{b64}",
+                        },
+                    },
+                ],
+            }
+        ],
+        "temperature": 0.0,
+        "max_tokens": 500,
+        "stream": False,
+    }
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    try:
+        async with session.post(url, json=payload, headers=headers,
+                                timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                logger.warning("OCR Groq HTTP %s: %s", resp.status, body[:200])
+                return ""
+            data = await resp.json()
+            choices = data.get("choices") or []
+            if not choices:
+                return ""
+            content = choices[0].get("message", {}).get("content") or ""
+            # content может быть строкой или списком (multimodal формат).
+            if isinstance(content, list):
+                return " ".join(
+                    blk.get("text", "") for blk in content if isinstance(blk, dict)
+                ).strip()
+            return str(content).strip()
+    except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
+        logger.warning("OCR Groq недоступен (%s)", exc)
+        return ""
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("OCR: неожиданная ошибка: %s", exc)
+        return ""
+
+
 def make_summarizer(backend: str, settings: Any, session: aiohttp.ClientSession) -> SummarizerProtocol:
     """Фабрика summarizer-а по настройкам.
 

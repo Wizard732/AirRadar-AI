@@ -31,6 +31,9 @@ async def process_interests_message(
     dedup: DedupCache,
     db: Database,
     bot_client=None,
+    http_session=None,
+    groq_api_key: str = "",
+    vision_model: str = "",
 ) -> None:
     """Классифицировать пост user-канала и разослать подписчикам тем.
 
@@ -39,6 +42,12 @@ async def process_interests_message(
     """
     message = event.message
     text = (message.text or message.message or "").strip()
+    # Если есть фото — распознаём текст (OCR, ТЗ 5.1) и объединяем с подписью.
+    if getattr(message, "photo", None) is not None and http_session is not None and groq_api_key:
+        from media_ocr import extract_text_with_ocr
+        text = await extract_text_with_ocr(
+            event, http_session, groq_api_key, vision_model
+        )
     if not text or len(text) < 20:
         return  # слишком короткое / медиа без текста
 

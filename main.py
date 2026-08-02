@@ -197,7 +197,10 @@ async def run() -> None:
     # Обработчик новых сообщений из всех исходных (военных) каналов.
     @client.on(events.NewMessage(chats=resolved_chats))
     async def handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
-        await _process_message(event, summarizer, publisher, dedup, db, bot_client)
+        await _process_message(
+            event, summarizer, publisher, dedup, db, bot_client,
+            http_session, settings.groq_api_key, settings.groq_vision_model, settings,
+        )
 
     # --- Interests-модуль: обработчик постов из user-каналов ---
     # User-каналы добавляются пользователями через /add_channel. Резолвятся из БД.
@@ -219,7 +222,10 @@ async def run() -> None:
     if interests_resolved:
         @client.on(events.NewMessage(chats=interests_resolved))
         async def interests_handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
-            await process_interests_message(event, summarizer, dedup, db, bot_client)
+            await process_interests_message(
+                event, summarizer, dedup, db, bot_client,
+                http_session, settings.groq_api_key, settings.groq_vision_model,
+            )
 
     # --- фоновый healthcheck Ollama ---
     health_task = asyncio.create_task(
@@ -311,6 +317,10 @@ async def _process_message(
     dedup: DedupCache,
     db: Database,
     bot_client=None,
+    http_session=None,
+    groq_api_key: str = "",
+    vision_model: str = "",
+    settings=None,
 ) -> None:
     """Полный конвейер обработки одного входящего сообщения.
 
@@ -321,8 +331,14 @@ async def _process_message(
     """
     message: Message = event.message
     text = (message.text or message.message or "").strip()
+    # Если есть фото — распознаём текст с него (OCR, ТЗ 5.1) и объединяем с подписью.
+    if getattr(message, "photo", None) is not None and http_session is not None and groq_api_key:
+        from media_ocr import extract_text_with_ocr
+        text = await extract_text_with_ocr(
+            event, http_session, groq_api_key, vision_model, timeout=settings.http_timeout
+        )
     if not text:
-        return  # медиа без текста — пропускаем
+        return  # медиа без текста и без распознанного — пропускаем
 
     # 0) Очистка подписи канала ДО всех проверок — хвост «➡️Підписатись»
     #    засоряет фильтр, дедупликацию и определение региона.
