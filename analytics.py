@@ -82,13 +82,18 @@ def build_rich_alert(
         lines.append(f"📍 Регіон: {region_name(regions[0])}")
 
     # ETA — для классов с оружием в полёте, только imminent/unknown.
+    # Для быстрых классов (балістика/гіперзвук/КАБ/РСЗО/артилерія/ФПВ) — всегда
+    # типовое из класса, т.к. БД хранит смешанные пары и врёт (16 мин для балістики).
     weapon_has_eta = weapon in ("ballistic", "cruise_missile", "kab", "shahed", "fpv", "mlrs", "artillery")
+    fast_weapons = ("ballistic", "kab", "mlrs", "artillery", "fpv")  # им нельзя доверять смешанный ETA
     if weapon_has_eta and stage in ("imminent", "unknown"):
-        # Пробуем по региону; fallback — типовое для класса.
         typical = weapon_eta(weapon)
-        if regions:
-            # estimate_eta хранит в БД по старым типам (missile/uav) — маппим.
-            eta_db_type = "missile" if weapon in ("ballistic", "cruise_missile", "kab") else "uav"
+        if weapon in fast_weapons:
+            # Быстрое оружие — всегда типовое из класса (точнее смешанного ETA).
+            lines.append(f"⏱ ETA: {typical}")
+        elif regions:
+            # Для крылатых/БПЛА — пробуем по региону.
+            eta_db_type = "missile" if weapon == "cruise_missile" else "uav"
             est = estimate_eta(db, regions[0], weapon_type=eta_db_type)
             if est["available"] and est["avg_seconds"]:
                 mins = int(est["avg_seconds"] / 60)

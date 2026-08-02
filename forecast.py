@@ -69,12 +69,13 @@ def escalation_risk(db: Database, region: str, current_threats: list[dict]) -> s
     recent_aviation = [t for t in current_threats if t["type"] == "missile" and now - t["ts"] < 3600]
     if not recent_aviation:
         return ""
-    # Сколько ракетных угроз было в регионе за последний час всего.
-    recent_count = db.threats_in_last_hours(region, hours=1)
+    # Считаем угрозы за последний час, исключая текущую (минус 1 — сама себя).
+    recent_count = db.threats_in_last_hours(region, hours=1) - 1
+    # Эскалация — только если ДРУГИХ угроз 3+ за час (не считая текущую).
     if recent_count >= 3:
-        return "📈 Ознака ескалації: активність авіації + множинні загрози. Висока ймовірність масованого удару."
+        return "📈 Ознака ескалації: за останню годину зафіксовано 3+ загрози. Висока ймовірність масованого удару."
     if recent_count >= 1:
-        return "📈 Підвищений ризик: зафіксовано авіаційну активність. Можливе посилення удару."
+        return "📈 Підвищений ризик: за останню годину зафіксовано додаткові загрози."
     return ""
 
 
