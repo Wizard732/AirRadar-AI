@@ -70,16 +70,26 @@ def build_rich_alert(
     if regions:
         lines.append(f"📍 Регіон: {region_name(regions[0])}")
 
-    # ETA — только для ракет/БПЛА/артиллерии (не для отбоя/тревоги/взрыва).
-    if threat_type in ("missile", "uav", "artillery") and regions:
-        est = estimate_eta(db, regions[0])
-        if est["available"] and est["avg_seconds"]:
-            mins = int(est["avg_seconds"] / 60)
-            lo = max(1, mins // 2)
-            hi = mins * 2
-            lines.append(
-                f"⏱ ETA: ~{mins} хв (за {est['samples']} істор. пар)  [~{lo} – ~{hi} хв]"
-            )
+    # ETA — для ракет/БПЛА/артиллерии (не для отбоя/тревоги/взрыва).
+    # Сначала пробуем по региону; если данных мало — fallback на типовые ETA.
+    if threat_type in ("missile", "uav", "artillery"):
+        if regions:
+            est = estimate_eta(db, regions[0])
+            if est["available"] and est["avg_seconds"]:
+                mins = int(est["avg_seconds"] / 60)
+                lo = max(1, mins // 2)
+                hi = mins * 2
+                lines.append(
+                    f"⏱ ETA: ~{mins} хв (за {est['samples']} істор. пар)  [~{lo} – ~{hi} хв]"
+                )
+            else:
+                # Нет истории по региону — даём типовое время по типу оружия.
+                typical = _typical_eta(threat_type)
+                lines.append(f"⏱ Орієнтовний ETA: {typical}")
+        else:
+            # Регион не определён — даём типовое время по типу оружия.
+            typical = _typical_eta(threat_type)
+            lines.append(f"⏱ Орієнтовний ETA: {typical}")
 
     # Рекомендация (кроме отбоя) — с эмодзи по уровню критичности.
     if threat_type != "stand_down":
@@ -100,6 +110,20 @@ def build_rich_alert(
             lines.append(analysis)
 
     return "\n".join(lines)[:4000]
+
+
+# Типовое время подлёта по типам оружия (если нет истории по региону).
+# Основано на общих данных: КАБ долетает быстро, БПЛА — дольше.
+_TYPICAL_ETA = {
+    "missile": "~10–30 хв",
+    "uav": "~20–60 хв",
+    "artillery": "<5 хв",
+}
+
+
+def _typical_eta(threat_type: str) -> str:
+    """Типовое ориентировочное время подлёта, если нет истории по региону."""
+    return _TYPICAL_ETA.get(threat_type, "~невідомо")
 
 
 def _build_analysis(db: Database, region: str, threat_type: str) -> str:
