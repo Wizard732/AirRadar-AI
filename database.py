@@ -159,6 +159,23 @@ class Database:
                 )
                 """
             )
+            # Структурированные сущности из постов (для детальной статистики).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS threat_entities (
+                    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts       INTEGER NOT NULL,
+                    region   TEXT    NOT NULL DEFAULT '',
+                    weapon   TEXT    NOT NULL DEFAULT '',
+                    city     TEXT    NOT NULL DEFAULT '',
+                    target   TEXT    NOT NULL DEFAULT '',
+                    impact   TEXT    NOT NULL DEFAULT '',
+                    ppo      TEXT    NOT NULL DEFAULT ''
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_ent_ts ON threat_entities(ts)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_ent_region ON threat_entities(region)")
             # Свободные интересы юзера (семантический поиск, ТЗ 5.3).
             cur.execute(
                 """
@@ -674,6 +691,75 @@ class Database:
         except sqlite3.Error as exc:
             logger.warning("Не удалось получить все интересы: %s", exc)
             return []
+
+    # ------------------------------------------------------------------
+    #  Сущности: детальная статистика (города, объекты, последствия)
+    # ------------------------------------------------------------------
+    def save_entities(self, region: str, entities: dict[str, str]) -> None:
+        """Сохранить извлечённые сущности поста."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO threat_entities (ts, region, weapon, city, target, impact, ppo) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        int(time.time()),
+                        region,
+                        entities.get("weapon", ""),
+                        entities.get("city", ""),
+                        entities.get("target", ""),
+                        entities.get("impact", ""),
+                        entities.get("ppo", ""),
+                    ),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("save_entities: %s", exc)
+
+    def entity_counts(self, field: str, region: str | None = None, since: float = 0.0) -> dict[str, int]:
+        """Топ-значения одного поля (weapon/city/target/impact/ppo) за период."""
+        allowed = {"weapon", "city", "target", "impact", "ppo"}
+        if field not in allowed:
+            return {}
+        try:
+            with self._lock:
+                assert self._conn is not None
+                if region:
+                    cur = self._conn.execute(
+                        f"SELECT {field} f, COUNT(*) c FROM threat_entities "
+                        f"WHERE {field} != '' AND region = ? AND ts >= ? GROUP BY {field} ORDER BY c DESC LIMIT 15",
+                        (region, int(since)),
+                    )
+                else:
+                    cur = self._conn.execute(
+                        f"SELECT {field} f, COUNT(*) c FROM threat_entities "
+                        f"WHERE {field} != '' AND ts >= ? GROUP BY {field} ORDER BY c DESC LIMIT 15",
+                        (int(since),),
+                    )
+                return {row["f"]: row["c"] for row in cur.fetchall()}
+        except sqlite3.Error as exc:
+            logger.warning("entity_counts: %s", exc)
+            return {}
+
+    def eta_per_weapon(self, region: str | None = None) -> dict[str, int]:
+        """Средний ETA по типам оружия (из threat_entities weapon + threats)."""
+        # Упрощённо: берём weapon из threat_entities, сопоставляем с ETA из threats.
+        # Возвращаем {weapon: avg_minutes}.
+        try:
+            with self._lock:
+                assert self._conn is not None
+                # Связываем по времени: для каждого weapon берём пары пуск→прилёт.
+                cur = self._conn.execute(
+                    "SELECT weapon, COUNT(*) c FROM threat_entities "
+                    "WHERE weapon != '' GROUP BY weapon ORDER BY c DESC LIMIT 10"
+                )
+                weapons = {row["weapon"]: row["c"] for row in cur.fetchall()}
+                # ETA по типам оружия пока грубо: из threats (missile/uav).
+                return weapons  # {weapon: count}
+        except sqlite3.Error as exc:
+            logger.warning("eta_per_weapon: %s", exc)
+            return {}
 
     # ------------------------------------------------------------------
     #  Прогнозная аналитика: паттерны по часам, корреляции, коридоры

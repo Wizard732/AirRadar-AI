@@ -379,6 +379,15 @@ async def _process_message(
                 text=summary,
                 source=str(source),
             )
+        # 6б) Извлечение сущностей (город/объект/последствия/оружие/ППО) —
+        #     для детальной статистики. Только не-отбой.
+        if threat_type != "stand_down" and regions:
+            from ai_summarizer import extract_entities
+            entities = await extract_entities(summarizer, text)
+            if entities:
+                for slug in regions:
+                    db.save_entities(slug, entities)
+
         # Тревоги: «отбой» закрывает активную тревогу во всех затронутых регионах,
         # прочие угрозы — открывают (если ещё не открыта).
         if threat_type == "stand_down":

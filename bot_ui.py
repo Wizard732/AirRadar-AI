@@ -68,8 +68,9 @@ def _main_menu_kb():
         [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
         [
             Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
-            Button.inline("⏱ Текущие угрозы", data=CB_ACTIVE),
+            Button.inline("📋 Детальна статистика", data="stats_detail"),
         ],
+        [Button.inline("⏱ Текущие угрозы", data=CB_ACTIVE)],
     ]
 
 
@@ -317,6 +318,12 @@ def register_handlers(bot: TelegramClient, db: Database, admin_id: int, webapp_u
 
             elif data == CB_STATS_ALL:
                 await _safe_edit(_stats_all_text(db), _menu_kb())
+
+            elif data == "stats_detail":
+                # Детальная статистика за неделю (все регионы).
+                from stats import format_detailed_stats
+                text = format_detailed_stats(db, days=7)
+                await _safe_edit(text, _menu_kb())
 
             elif data == CB_ACTIVE:
                 await _safe_edit(_active_text(db), _menu_kb())
