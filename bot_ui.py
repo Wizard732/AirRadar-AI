@@ -46,6 +46,8 @@ TYPE_LABELS = {
     "missile": "🚀 Ракеты",
     "uav": "🛸 БПЛА",
     "explosion": "💥 Взрывы",
+    "artillery": "🔴 Артиллерия",
+    "wmd": "☣️ ОМП",
     "stand_down": "🟢 Отбои",
     "other": "🚨 Прочее",
 }

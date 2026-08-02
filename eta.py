@@ -34,11 +34,11 @@ HISTORY_DAYS = 30
 MIN_PAIRS = 2
 
 # Типы угроз, которые считаем «в полёте» (пуском).
-LAUNCH_TYPES = ("missile", "uav")
+LAUNCH_TYPES = ("missile", "uav", "artillery")
 # Типы, которые считаем «прилётом» (факт поражения). Включаем 'other', т.к.
 # реальные прилёты в каналах часто классифицируются как «прочее»
 # (короткие посты «гучно», «прилет» и т.п. без явных ключей explosion).
-IMPACT_TYPES = ("explosion", "other")
+IMPACT_TYPES = ("explosion", "artillery", "other")
 
 
 def estimate_eta(db: Database, region: str) -> dict[str, Any]:
