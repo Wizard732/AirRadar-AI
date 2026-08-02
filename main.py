@@ -331,20 +331,28 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     """Разослать текст всем подписчикам указанных регионов.
 
     Работает «best effort»: ошибки отправки (пользователь заблокировал бота и
-    т.п.) логируются, но не роняют рассылку остальным.
+    т.п.) логируются, но не роняют рассылку остальным. Текст отправляется как
+    plain (без parse_mode), т.к. markdown в постах каналов часто ломается на
+    спецсимволах, что молча блокировало всю рассылку.
     """
     from regions import region_name as _rname
+
     # Собираем уникальных подписчиков по всем регионам сообщения.
     notified: set[int] = set()
+    sent_count = 0
     for slug in regions:
         for user_id in db.get_subscribers(slug):
             if user_id in notified:
                 continue
             notified.add(user_id)
             try:
-                await bot_client.send_message(user_id, text, parse_mode="md", link_preview=False)
+                await bot_client.send_message(user_id, text, link_preview=False)
+                sent_count += 1
             except Exception as exc:  # noqa: BLE001 — один неудачный не стопит остальных
                 logger.debug("Не удалось отправить подписку %s: %s", user_id, exc)
+    if sent_count:
+        logger.info("Рассылка по подпискам: отправлено %d получателям (регионы: %s)",
+                    sent_count, ", ".join(_rname(s) for s in regions))
 
 
 async def _healthcheck_loop(summarizer: AISummarizer, interval: int) -> None:
