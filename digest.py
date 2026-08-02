@@ -88,8 +88,11 @@ async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_
 
     Запускается как asyncio-таска из main.run(). Отменяется при остановке бота.
     summarizer: для LLM-сводки дайджеста (ТЗ 5.2).
+    publisher: для отправки сводки в канал.
+
+    Защита от спама: ключи отправленных сводок хранятся в БД (digest_log),
+    поэтому рестарт бота НЕ вызывает повторную отправку.
     """
-    last_run: set[int] = set()  # часы (UTC), уже отправленные сегодня
     logger.info("Планировщик дайджестов запущен (утро=%d:00, вечер=%d:00 UTC)",
                 morning_hour, evening_hour)
     try:
@@ -97,31 +100,37 @@ async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_
             await asyncio.sleep(300)  # проверка раз в 5 минут
             now = time.gmtime()
             cur_hour = now.tm_hour
-            # Сброс отметок в полночь (UTC).
-            if cur_hour == 0 and now.tm_min < 10:
-                last_run = set()
-            # Если текущий час — час дайджеста и ещё не слали сегодня.
-            if cur_hour in (morning_hour, evening_hour) and cur_hour not in last_run:
-                period = "Утренний" if cur_hour == morning_hour else "Вечерний"
-                try:
-                    n = await send_digests(bot_client, db, period, summarizer)
-                    last_run.add(cur_hour)
-                    if n:
-                        logger.info("Дайджест «%s» отправлен %d получателям", period, n)
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception("Сбой дайджеста «%s»: %s", period, exc)
+            cur_min = now.tm_min
+            today = time.strftime("%Y-%m-%d")
+
+            # Чистим старые записи раз в сутки.
+            if cur_hour == 0 and cur_min < 10:
+                db.cleanup_digest_log()
+
+            # Утренний/вечерний дайджест (Interests).
+            if cur_hour in (morning_hour, evening_hour):
+                key = f"digest_{cur_hour}_{today}"
+                if not db.is_digest_sent(key):
+                    period = "Утренний" if cur_hour == morning_hour else "Вечерний"
+                    try:
+                        n = await send_digests(bot_client, db, period, summarizer)
+                        db.mark_digest_sent(key)
+                        if n:
+                            logger.info("Дайджест «%s» отправлен %d получателям", period, n)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception("Сбой дайджеста «%s»: %s", period, exc)
 
             # Ежедневный прогноз в 19:05 UTC = 22:05 по киевскому времени.
-            # Проверяем час и минуту (планировщик тикает каждые 5 мин).
-            cur_min = now.tm_min
-            if cur_hour == 19 and cur_min >= 5 and "evening" not in last_run:
-                try:
-                    n = await _send_evening_forecasts(bot_client, db, publisher)
-                    last_run.add("evening")
-                    if n:
-                        logger.info("Сводка за день отправлена: %d получателям + канал", n)
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception("Сбой вечернего прогноза: %s", exc)
+            if cur_hour == 19 and cur_min >= 5:
+                key = f"evening_{today}"
+                if not db.is_digest_sent(key):
+                    try:
+                        n = await _send_evening_forecasts(bot_client, db, publisher)
+                        db.mark_digest_sent(key)
+                        if n:
+                            logger.info("Сводка за день отправлена: %d получателям + канал", n)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception("Сбой вечернего прогноза: %s", exc)
     except asyncio.CancelledError:
         logger.info("Планировщик дайджестов остановлен")
         raise

@@ -176,6 +176,15 @@ class Database:
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ent_ts ON threat_entities(ts)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ent_region ON threat_entities(region)")
+            # Журнал отправленных сводок (защита от спама при рестартах).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS digest_log (
+                    key       TEXT PRIMARY KEY,   -- 'evening_2026-08-02' и т.п.
+                    ts        INTEGER NOT NULL
+                )
+                """
+            )
             # Свободные интересы юзера (семантический поиск, ТЗ 5.3).
             cur.execute(
                 """
@@ -859,6 +868,45 @@ class Database:
         except sqlite3.Error as exc:
             logger.warning("threats_in_last_hours: %s", exc)
             return 0
+
+    # ------------------------------------------------------------------
+    #  Журнал сводок (защита от спама при рестартах)
+    # ------------------------------------------------------------------
+    def is_digest_sent(self, key: str) -> bool:
+        """Проверить, была ли уже отправлена сводка с этим ключом сегодня."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT 1 FROM digest_log WHERE key = ?", (key,)
+                ).fetchone()
+                return row is not None
+        except sqlite3.Error:
+            return False
+
+    def mark_digest_sent(self, key: str) -> None:
+        """Отметить сводку как отправленную."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO digest_log (key, ts) VALUES (?, ?)",
+                    (key, int(time.time())),
+                )
+                self._conn.commit()
+        except sqlite3.Error:
+            pass
+
+    def cleanup_digest_log(self) -> None:
+        """Удалить записи старше 7 дней."""
+        cutoff = int(time.time()) - 7 * 86400
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute("DELETE FROM digest_log WHERE ts < ?", (cutoff,))
+                self._conn.commit()
+        except sqlite3.Error:
+            pass
 
     # ------------------------------------------------------------------
     #  Админка: управление администраторами
