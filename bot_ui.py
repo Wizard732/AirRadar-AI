@@ -47,9 +47,19 @@ CB_ACTIVE = "active"     # текущие угрозы
 # Человекочитаемые подписи типов угроз.
 TYPE_LABELS = {
     "missile": "🚀 Ракеты",
+    "ballistic": "🚀 Балістика",
+    "cruise_missile": "🚀 Крилаті ракети",
+    "kab": "✈️ КАБ",
+    "aviation": "✈️ Авіація",
     "uav": "🛸 БПЛА",
-    "explosion": "💥 Взрывы",
+    "shahed": "🛸 Shahed",
+    "fpv": "🛸 ФПВ-дрони",
+    "recon_drone": "👁 Розвідка",
+    "mlrs": "🔴 РСЗО",
     "artillery": "🔴 Артиллерия",
+    "explosion": "💥 Взрывы",
+    "air_defense": "🛡 ППО",
+    "alert": "🟡 Тривога",
     "stand_down": "🟢 Отбои",
     "other": "🚨 Прочее",
 }
