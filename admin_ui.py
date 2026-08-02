@@ -42,6 +42,17 @@ def register_admin_handlers(
             return
         await event.respond(_status_text(db), parse_mode="html")
 
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/summary"))
+    async def _summary(event) -> None:  # noqa: ANN001
+        """Ручной запуск сводки дня + отправка в канал."""
+        if not _is_admin(event.sender_id):
+            return
+        from digest import _send_evening_forecasts
+        from main import _get_publisher
+        publisher = _get_publisher()
+        n = await _send_evening_forecasts(bot, db, publisher)
+        await event.respond(f"✅ Сводка отправлена: {n} получателям + канал.", parse_mode="html")
+
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/give_admin\s+(\d+)"))
     async def _give_admin(event) -> None:  # noqa: ANN001
         if not _is_super(event.sender_id):

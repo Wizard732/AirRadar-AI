@@ -93,6 +93,9 @@ async def run() -> None:
         timeout=settings.http_timeout,
         session=http_session,
     )
+    # Сохраняем ссылку для /summary (ручной запуск сводки из admin_ui).
+    global _publisher_ref
+    _publisher_ref = publisher
 
     # Дедупликация: гибрид in-memory + SQLite. Переживает рестарт и ловит
     # поздние репосты между каналами (окно в БД — до 1 часа).
@@ -460,6 +463,15 @@ def main() -> None:
         # Частый случай: ошибки конфигурации (нет .env и т.п.).
         print(f"[FATAL] {exc}", file=sys.stderr)
         sys.exit(1)
+
+
+# Глобальная ссылка на Publisher — для /summary (ручной запуск сводки).
+_publisher_ref = None
+
+
+def _get_publisher():
+    """Возвращает Publisher (устанавливается в run()). Для admin_ui /summary."""
+    return _publisher_ref
 
 
 if __name__ == "__main__":
