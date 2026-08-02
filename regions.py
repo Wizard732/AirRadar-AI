@@ -158,14 +158,53 @@ for _slug, (_name, _keys) in REGIONS.items():
     for _kw in _keys:
         _KEYWORD_INDEX[_kw] = _slug
 
+# Маппинг названий каналов на регионы (по подстроке в имени канала).
+# Если в тексте нет города, но канал региональный — берём отсюда.
+_CHANNEL_REGION_MAP: dict[str, str] = {
+    "sumy": "sumska",
+    "sum": "sumska",
+    "сум": "sumska",
+    "киев": "kyivska",
+    "kiev": "kyivska",
+    "kyiv": "kyivska",
+    "левый бereg": "kyivska",
+    "левий берег": "kyivska",
+    "левий_бereg": "kyivska",
+    "позняк": "kyivska",
+    "осокорк": "kyivska",
+    "харк": "kharkivska",
+    "харків": "kharkivska",
+    "одес": "odeska",
+    "дніпр": "dnipropetrovska",
+    "днепр": "dnipropetrovska",
+    "черніг": "chernigivska",
+    "черниг": "chernigivska",
+    "житом": "zhytomyrska",
+    "полтав": "poltavska",
+    "льв": "lvivska",
+    "запор": "zaporizka",
+    "херсон": "khersonska",
+    "миколаїв": "mykolaivska",
+    "николаев": "mykolaivska",
+    "вінниц": "vinnytska",
+    "винниц": "vinnytska",
+    "ровн": "rivnenska",
+    "рівн": "rivnenska",
+    "луцк": "volynska",
+    "волин": "volynska",
+}
 
-def detect_region(text: str) -> list[str]:
+
+def detect_region(text: str, channel: str = "") -> list[str]:
     """Вернуть список slug-ов регионов, упомянутых в тексте.
 
     Регистронезависимо. Возвращает уникальные slug-и в порядке первого
     совпадения. Один пост может дать несколько регионов (например,
     «БпЛА зі Сумської на Київ» → ['sumska', 'kyivska']).
     Пустой список = регион не определён.
+
+    channel: @username или ID канала-источника. Если в тексте нет города,
+    проверяем название канала (например @sumyliketop → Сумы).
     """
     if not text:
         return []
@@ -176,6 +215,16 @@ def detect_region(text: str) -> list[str]:
         if kw in lowered and slug not in seen:
             found.append(slug)
             seen.add(slug)
+
+    # Fallback: если регион не найден в тексте — пробуем по названию канала.
+    if not found and channel:
+        ch_lower = str(channel).lower()
+        for ch_key, slug in _CHANNEL_REGION_MAP.items():
+            if ch_key in ch_lower and slug not in seen:
+                found.append(slug)
+                seen.add(slug)
+                break  # один регион по каналу
+
     return found
 
 

@@ -374,7 +374,7 @@ async def _process_message(
         await publisher.send(final_text)
 
         # 6) Определение регионов и запись в журнал БД.
-        regions = detect_region(text)
+        regions = detect_region(text, channel=str(source))
         regions_to_log = regions or ["unknown"]
         for slug in regions_to_log:
             db.add_threat(

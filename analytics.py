@@ -61,7 +61,8 @@ def build_rich_alert(
     """
     # Новая классификация: полный класс оружия (не старый missile/uav).
     weapon = classify_weapon(text)
-    regions = detect_region(text)
+    # Регион: из текста, fallback на название канала.
+    regions = detect_region(text, channel=str(source))
 
     # Определяем стадию угрозы по контексту.
     stage = _detect_stage(text, weapon)
