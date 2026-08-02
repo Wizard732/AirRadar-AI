@@ -31,12 +31,14 @@ PAIR_WINDOW = 2 * 3600
 HISTORY_DAYS = 30
 
 # Минимум пар, чтобы выдать оценку ETA. Меньше — говорим «недостаточно данных».
-MIN_PAIRS = 3
+MIN_PAIRS = 2
 
 # Типы угроз, которые считаем «в полёте» (пуском).
-LAUNCH_TYPES = ("missile", "uav", "other")
-# Тип, который считаем «прилётом».
-IMPACT_TYPE = "explosion"
+LAUNCH_TYPES = ("missile", "uav")
+# Типы, которые считаем «прилётом» (факт поражения). Включаем 'other', т.к.
+# реальные прилёты в каналах часто классифицируются как «прочее»
+# (короткие посты «гучно», «прилет» и т.п. без явных ключей explosion).
+IMPACT_TYPES = ("explosion", "other")
 
 
 def estimate_eta(db: Database, region: str) -> dict[str, Any]:
@@ -62,11 +64,13 @@ def estimate_eta(db: Database, region: str) -> dict[str, Any]:
             "AND ts >= ? ORDER BY ts",
             (region, "missile", "uav", since),
         ).fetchall()
-        # Все «прилёты» в регионе за период (+ окно до since, чтобы хватило).
+        # Все «прилёты» в регионе за период (explosion + other — реальные
+        # прилёты в каналах часто без явного слова «взрыв»).
+        impact_ph = ",".join("?" * len(IMPACT_TYPES))
         impacts = conn.execute(
-            "SELECT ts FROM threats WHERE region = ? AND threat_type = ? "
+            f"SELECT ts FROM threats WHERE region = ? AND threat_type IN ({impact_ph}) "
             "AND ts >= ? ORDER BY ts",
-            (region, IMPACT_TYPE, since),
+            (region, *IMPACT_TYPES, since),
         ).fetchall()
 
         impact_ts = [row["ts"] for row in impacts]

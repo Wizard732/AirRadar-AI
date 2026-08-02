@@ -31,7 +31,7 @@ from ai_summarizer import SummarizerProtocol, make_summarizer
 from bot_ui import register_handlers
 from database import Database
 from dedup import DedupCache
-from fast_filter import matches_keywords
+from fast_filter import clean_signature, matches_keywords
 from health_server import start_health_server
 from publisher import Publisher
 from regions import detect_region
@@ -268,6 +268,10 @@ async def _process_message(
     text = (message.text or message.message or "").strip()
     if not text:
         return  # медиа без текста — пропускаем
+
+    # 0) Очистка подписи канала ДО всех проверок — хвост «➡️Підписатись»
+    #    засоряет фильтр, дедупликацию и определение региона.
+    text = clean_signature(text)
 
     # 1) Быстрый фильтр по ключевым словам (до тяжёлого ИИ).
     if not matches_keywords(text):
