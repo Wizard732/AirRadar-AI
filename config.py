@@ -77,6 +77,11 @@ class Settings:
     # Включение Interests-модуля (новости по темам). По умолчанию включён.
     interests_enabled: bool = True
 
+    # Дайджесты: часы (UTC) утра/вечера, когда собирать и слать сводку.
+    # Пусто = дайджесты отключены (только мгновенная выдача).
+    digest_morning_hour: int = 8
+    digest_evening_hour: int = 20
+
     # Исходные каналы мониторинга (по умолчанию пусто — проверяется в load_settings)
     source_channels: list[str] = field(default_factory=list)
 
@@ -121,4 +126,6 @@ def load_settings() -> Settings:
         http_timeout=int(os.getenv("HTTP_TIMEOUT", "30")),
         healthcheck_interval=int(os.getenv("HEALTHCHECK_INTERVAL", "300")),
         interests_enabled=os.getenv("INTERESTS_ENABLED", "1").strip() not in ("0", "false", "no"),
+        digest_morning_hour=int(os.getenv("DIGEST_MORNING_HOUR", "8")),
+        digest_evening_hour=int(os.getenv("DIGEST_EVENING_HOUR", "20")),
     )

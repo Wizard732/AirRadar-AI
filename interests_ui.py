@@ -40,13 +40,18 @@ def _interests_main_kb() -> list:
     ]
 
 
-def _topics_kb(user_topics: set[str], page: int = 0) -> list:
-    """Сетка тем с пагинацией. Подписанные — 🔕, неподписанные — 🔔."""
+def _topics_kb(user_topics: dict, page: int = 0) -> list:
+    """Сетка тем с пагинацией. user_topics: {slug: mode} (mode='instant'|'digest').
+
+    Метки: 🔔 — не подписан (клик=мгновенно), ⚡ — instant (клик=дайджест),
+    🕗 — digest (клик=отписка).
+    """
     start = page * PAGE_SIZE
     chunk = TOPICS[start : start + PAGE_SIZE]
     rows = []
     for slug, label in chunk:
-        mark = "🔕" if slug in user_topics else "🔔"
+        mode = user_topics.get(slug)
+        mark = "🔔" if mode is None else ("🕗" if mode == "digest" else "⚡")
         rows.append([Button.inline(f"{mark} {label}", data=CB_INT_TOPIC_TOGGLE + slug)])
     # Навигация.
     total_pages = (len(TOPICS) + PAGE_SIZE - 1) // PAGE_SIZE
@@ -65,7 +70,7 @@ def _interests_main_text() -> str:
         "📰 <b>Новости по интересам</b>\n\n"
         "Бот анализирует посты из добавленных тобой каналов и присылает в ЛС "
         "только то, что подходит под выбранные темы.\n\n"
-        "• <b>Темы</b> — выбери, что интересует (кнопки 🔔/🔕)\n"
+        "• <b>Темы</b> — выбери, что интересует. Кнопки: 🔔 подписаться мгновенно, ⚡ дайджест, 🕗 отписка\n"
         "• <b>Мои каналы</b> — источники новостей\n"
         "• Добавить канал: команда <code>/add_channel @username</code>"
     )
@@ -135,19 +140,27 @@ def register_interests_handlers(bot: TelegramClient, db: Database, admin_id: int
             elif data == CB_INT_TOPICS or data.startswith(CB_INT_TOPICS):
                 # it: или it:N (страница)
                 page = int(data[len(CB_INT_TOPICS):] or "0")
-                user_topics = set(db.user_topics(event.sender_id))
+                user_topics = db.user_topics_with_modes(event.sender_id)
                 await _safe_edit(_topics_text(), _topics_kb(user_topics, page))
 
             elif data.startswith(CB_INT_TOPIC_TOGGLE):
                 slug = data[len(CB_INT_TOPIC_TOGGLE):]
                 if slug in {s for s, _ in TOPICS}:
                     if db.is_subscribed_topic(event.sender_id, slug):
-                        db.unsubscribe_topic(event.sender_id, slug)
-                        await event.answer("🔕 Отписка: " + topic_label(slug))
+                        mode = db.topic_delivery_mode(event.sender_id, slug)
+                        if mode == "instant":
+                            # instant → digest (следующий клик переключит режим)
+                            db.subscribe_topic(event.sender_id, slug, mode="digest")
+                            await event.answer("🕗 Дайджест (утро/вечер): " + topic_label(slug))
+                        elif mode == "digest":
+                            # digest → отписка
+                            db.unsubscribe_topic(event.sender_id, slug)
+                            await event.answer("🔕 Отписка: " + topic_label(slug))
                     else:
-                        db.subscribe_topic(event.sender_id, slug)
-                        await event.answer("🔔 Подписка: " + topic_label(slug))
-                    user_topics = set(db.user_topics(event.sender_id))
+                        # не подписан → instant
+                        db.subscribe_topic(event.sender_id, slug, mode="instant")
+                        await event.answer("🔔 Мгновенно: " + topic_label(slug))
+                    user_topics = db.user_topics_with_modes(event.sender_id)
                     await _safe_edit(_topics_text(), _topics_kb(user_topics))
 
             elif data == CB_INT_CHANNELS:

@@ -116,8 +116,9 @@ class Database:
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS user_topics (
-                    user_id  INTEGER NOT NULL,
-                    topic    TEXT    NOT NULL,      -- slug темы
+                    user_id        INTEGER NOT NULL,
+                    topic          TEXT    NOT NULL,      -- slug темы
+                    delivery_mode  TEXT    NOT NULL DEFAULT 'instant',  -- 'instant' | 'digest'
                     PRIMARY KEY (user_id, topic)
                 )
                 """
@@ -461,13 +462,14 @@ class Database:
             logger.warning("Не удалось получить каналы пользователя: %s", exc)
             return []
 
-    def subscribe_topic(self, user_id: int, topic: str) -> None:
+    def subscribe_topic(self, user_id: int, topic: str, mode: str = "instant") -> None:
         try:
             with self._lock:
                 assert self._conn is not None
                 self._conn.execute(
-                    "INSERT OR IGNORE INTO user_topics (user_id, topic) VALUES (?, ?)",
-                    (user_id, topic),
+                    "INSERT INTO user_topics (user_id, topic, delivery_mode) VALUES (?, ?, ?) "
+                    "ON CONFLICT(user_id, topic) DO UPDATE SET delivery_mode=excluded.delivery_mode",
+                    (user_id, topic, mode),
                 )
                 self._conn.commit()
         except sqlite3.Error as exc:
@@ -498,18 +500,28 @@ class Database:
             logger.warning("Не удалось проверить подписку темы: %s", exc)
             return False
 
-    def topic_subscribers(self, topic: str) -> list[int]:
-        """user_id всех подписчиков темы (для рассылки)."""
+    def topic_subscribers(self, topic: str, mode: str | None = None) -> list[int]:
+        """user_id подписчиков темы. mode='instant'|'digest' — фильтр (None=все)."""
         try:
             with self._lock:
                 assert self._conn is not None
-                cur = self._conn.execute(
-                    "SELECT user_id FROM user_topics WHERE topic = ?", (topic,)
-                )
+                if mode is None:
+                    cur = self._conn.execute(
+                        "SELECT user_id FROM user_topics WHERE topic = ?", (topic,)
+                    )
+                else:
+                    cur = self._conn.execute(
+                        "SELECT user_id FROM user_topics WHERE topic = ? AND delivery_mode = ?",
+                        (topic, mode),
+                    )
                 return [row["user_id"] for row in cur.fetchall()]
         except sqlite3.Error as exc:
             logger.warning("Не удалось получить подписчиков темы: %s", exc)
             return []
+
+    def digest_subscribers_by_topic(self, topic: str) -> list[int]:
+        """user_id подписчиков темы в режиме дайджеста."""
+        return self.topic_subscribers(topic, mode="digest")
 
     def user_topics(self, user_id: int) -> list[str]:
         try:
@@ -523,6 +535,20 @@ class Database:
             logger.warning("Не удалось получить темы пользователя: %s", exc)
             return []
 
+    def user_topics_with_modes(self, user_id: int) -> dict:
+        """{slug: mode} для всех тем, на которые подписан юзер."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT topic, delivery_mode FROM user_topics WHERE user_id = ?",
+                    (user_id,),
+                )
+                return {row["topic"]: row["delivery_mode"] for row in cur.fetchall()}
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить темы+режимы: %s", exc)
+            return {}
+
     def save_classification(self, source: str, text: str, topics: str) -> None:
         """Записать классифицированный пост в журнал."""
         try:
@@ -535,6 +561,49 @@ class Database:
                 self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось сохранить классификацию: %s", exc)
+
+    def recent_classified_posts(self, topic: str, since_ts: int, limit: int = 5) -> list[dict]:
+        """Посты темы за период (для дайджеста). Фильтр по теме через LIKE."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT ts, source, text FROM classified_posts "
+                    "WHERE ts >= ? AND (','||topics||',') LIKE ? "
+                    "ORDER BY ts DESC LIMIT ?",
+                    (since_ts, f"%,{topic},%", limit),
+                )
+                return [dict(row) for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить посты для дайджеста: %s", exc)
+            return []
+
+    def all_digest_topics(self) -> list[str]:
+        """Уникальные темы, у которых есть хотя бы один digest-подписчик."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT DISTINCT topic FROM user_topics WHERE delivery_mode='digest'"
+                )
+                return [row["topic"] for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить дайджест-темы: %s", exc)
+            return []
+
+    def topic_delivery_mode(self, user_id: int, topic: str) -> str:
+        """Режим выдачи юзера по теме ('instant' | 'digest')."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT delivery_mode FROM user_topics WHERE user_id=? AND topic=?",
+                    (user_id, topic),
+                ).fetchone()
+                return row["delivery_mode"] if row else "instant"
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить режим выдачи: %s", exc)
+            return "instant"
 
     # ------------------------------------------------------------------
     #  Админка (5.4): здоровье каналов

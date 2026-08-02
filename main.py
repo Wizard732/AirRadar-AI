@@ -222,6 +222,16 @@ async def run() -> None:
         name="ollama-healthcheck",
     )
 
+    # --- планировщик дайджестов (утро/вечер) ---
+    digest_task = None
+    if bot_client is not None:
+        from digest import digest_scheduler
+        digest_task = asyncio.create_task(
+            digest_scheduler(bot_client, db,
+                             settings.digest_morning_hour, settings.digest_evening_hour),
+            name="digest-scheduler",
+        )
+
     # --- graceful shutdown ---
     stop_event = asyncio.Event()
 
@@ -271,6 +281,12 @@ async def run() -> None:
             await health_task
         except asyncio.CancelledError:
             pass
+        if digest_task is not None:
+            digest_task.cancel()
+            try:
+                await digest_task
+            except asyncio.CancelledError:
+                pass
 
         logger.info("Отключаю Telethon и закрываю сессии…")
         if bot_client is not None:

@@ -97,7 +97,8 @@ async def _notify_topic_subscribers(bot_client, db: Database, topics: list[str],
         payload = payload[:4000]
 
     for topic in topics:
-        for user_id in db.topic_subscribers(topic):
+        # Только instant-подписчики; digest-подписчики получают сводкой (digest.py).
+        for user_id in db.topic_subscribers(topic, mode="instant"):
             if user_id in notified:
                 continue
             notified.add(user_id)
