@@ -149,6 +149,10 @@ async def _send_evening_forecasts(bot_client, db: Database, publisher=None) -> i
     except Exception:
         regions = []
 
+    # Фильтруем фантомные регионы (которых нет в REGIONS).
+    from regions import REGIONS
+    regions = [r for r in regions if r in REGIONS]
+
     if not regions:
         # Нет подписок — берём топ-5 регионов за последние 24 часа.
         day_ago = int(time.time()) - 86400

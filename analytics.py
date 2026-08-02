@@ -127,6 +127,14 @@ def build_rich_alert(
             lines.append("")
             lines.append(analysis)
 
+    # Тег источника внизу (без ID, только @username или название).
+    if source and str(source) not in ("?", "None"):
+        src = str(source)
+        if src.lstrip("-").isdigit():
+            lines.append(f"\n📡 Джерело: моніторинг")
+        else:
+            lines.append(f"\n📡 @{src}")
+
     return "\n".join(lines)[:4000]
 
 
