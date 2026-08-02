@@ -23,32 +23,31 @@ async def _health(request: web.Request) -> web.Response:  # noqa: ANN001
     return web.json_response({"status": "ok", "service": "airradar"})
 
 
-async def start_health_server(port: int | None = None) -> asyncio.Task:
-    """Запустить HTTP-сервер health-check в фоне, вернуть task.
+async def _serve_forever(port: int) -> None:
+    """Бесконечная корутина: держит HTTP-сервер живым всё время работы бота."""
+    app = web.Application()
+    app.router.add_get("/", _health)
+    app.router.add_get("/health", _health)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info("Health-сервер слушает порт %s (для health-check платформы)", port)
+    # Бесконечно висим, пока бот работает. Выход — через cancel задачи.
+    await asyncio.Event().wait()
+
+
+async def start_health_server(port: int | None = None) -> asyncio.Task | None:
+    """Запустить HTTP-сервер health-check в фоне, вернуть task (или None при ошибке).
 
     port: если None — берётся из переменной окружения PORT (стандарт PaaS),
-          иначе 8080. Функция не падает при ошибке — логирует warning,
-          потому что бот должен работать даже без health-сервера.
+          иначе 8080. Функция не падает при ошибке (порт занят и т.п.) —
+          логирует warning, потому что бот должен работать даже без health-сервера.
     """
     if port is None:
         port = int(os.getenv("PORT", "8080"))
-
-    app = web.Application()
-    # Любой путь → health-ответ. Koyeb обычно пингует / или /health.
-    app.router.add_get("/", _health)
-    app.router.add_get("/health", _health)
-
     try:
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
-        logger.info("Health-сервер слушает порт %s (для health-check платформы)", port)
-        # Вернём задачу, которая держит сервер живым; cancelled при остановке.
-        return asyncio.create_task(asyncio.Future(), name="health-server")
+        return asyncio.create_task(_serve_forever(port), name="health-server")
     except Exception as exc:  # pragma: no cover
         logger.warning("Не удалось запустить health-сервер: %s", exc)
-        # Вернём фиктивную завершённую задачу, чтобы вызывающий код не ломался.
-        dummy = asyncio.Future()
-        dummy.set_result(None)
-        return asyncio.create_task(dummy)
+        return None
