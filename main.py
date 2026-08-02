@@ -78,6 +78,10 @@ async def run() -> None:
         settings.groq_model if settings.llm_backend == "groq" else settings.ollama_model,
     )
 
+    # --- SQLite-журнал угроз/тревог (фундамент статистики и ETA) ---
+    db = Database(settings.db_path)
+    logger.info("БД журнала: %s", settings.db_path)
+
     # HTTP-сервер: health-check + API для карты угроз (/api/threats).
     # set_db передаёт Database, чтобы API могло отдавать активные угрозы.
     from health_server import set_db
@@ -89,9 +93,6 @@ async def run() -> None:
         timeout=settings.http_timeout,
         session=http_session,
     )
-    # --- SQLite-журнал угроз/тревог (фундамент статистики и ETA) ---
-    db = Database(settings.db_path)
-    logger.info("БД журнала: %s", settings.db_path)
 
     # Дедупликация: гибрид in-memory + SQLite. Переживает рестарт и ловит
     # поздние репосты между каналами (окно в БД — до 1 часа).
