@@ -97,8 +97,8 @@ async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_
             await asyncio.sleep(300)  # проверка раз в 5 минут
             now = time.gmtime()
             cur_hour = now.tm_hour
-            # Сброс отметок в полночь.
-            if cur_hour == 0:
+            # Сброс отметок в полночь (UTC).
+            if cur_hour == 0 and now.tm_min < 10:
                 last_run = set()
             # Если текущий час — час дайджеста и ещё не слали сегодня.
             if cur_hour in (morning_hour, evening_hour) and cur_hour not in last_run:
@@ -111,13 +111,15 @@ async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Сбой дайджеста «%s»: %s", period, exc)
 
-            # Ежедневный прогноз на ночь в 22:00 UTC (отдельный час от дайджестов).
-            if cur_hour == 22 and 22 not in last_run:
+            # Ежедневный прогноз в 19:05 UTC = 22:05 по киевскому времени.
+            # Проверяем час и минуту (планировщик тикает каждые 5 мин).
+            cur_min = now.tm_min
+            if cur_hour == 19 and cur_min >= 5 and "evening" not in last_run:
                 try:
                     n = await _send_evening_forecasts(bot_client, db, publisher)
-                    last_run.add(22)
+                    last_run.add("evening")
                     if n:
-                        logger.info("Вечерний прогноз отправлен %d получателям", n)
+                        logger.info("Сводка за день отправлена: %d получателям + канал", n)
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Сбой вечернего прогноза: %s", exc)
     except asyncio.CancelledError:
