@@ -147,7 +147,7 @@ class AISummarizer:
             "system": SYSTEM_PROMPT,
             "stream": False,  # один цельный ответ — проще и надёжнее парсить
             "options": {
-                "temperature": 0.2,  # минимум фантазии: нужны факты, а не «творчество»
+                "temperature": 0.0,  # 0 = полная детерминированность, никаких выдумок
                 "num_predict": 80,   # жёсткий лимит токенов на короткую выжимку
             },
         }
@@ -298,7 +298,7 @@ class GroqSummarizer(SummarizerProtocol):
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": text},
             ],
-            "temperature": 0.2,   # минимум фантазии — только факты
+            "temperature": 0.0,   # 0 = детерминированность, никаких выдумок
             "max_tokens": 80,     # жёсткий лимит на короткую выжимку
             "stream": False,
         }
