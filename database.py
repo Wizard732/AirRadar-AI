@@ -89,6 +89,17 @@ class Database:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_seen_ts ON seen_hashes(ts)")
+            # Подписки пользователей на регионы (для рассылки в ЛС).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS subscriptions (
+                    user_id   INTEGER NOT NULL,   -- Telegram user id подписчика
+                    region    TEXT    NOT NULL,   -- slug региона
+                    PRIMARY KEY (user_id, region)
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_sub_region ON subscriptions(region)")
             self._conn.commit()
         logger.debug("БД инициализирована: %s", self._path)
 
@@ -280,6 +291,75 @@ class Database:
                 return [row["region"] for row in cur.fetchall()]
         except sqlite3.Error as exc:
             logger.warning("Не удалось прочитать активные тревоги: %s", exc)
+            return []
+
+    # ------------------------------------------------------------------
+    #  Подписки на регионы (рассылка в ЛС)
+    # ------------------------------------------------------------------
+    def subscribe(self, user_id: int, region: str) -> None:
+        """Подписать пользователя на регион (idempotent)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO subscriptions (user_id, region) VALUES (?, ?)",
+                    (user_id, region),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось подписать: %s", exc)
+
+    def unsubscribe(self, user_id: int, region: str) -> None:
+        """Отписать пользователя от региона."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "DELETE FROM subscriptions WHERE user_id = ? AND region = ?",
+                    (user_id, region),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось отписать: %s", exc)
+
+    def is_subscribed(self, user_id: int, region: str) -> bool:
+        """Проверить, подписан ли пользователь на регион."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT 1 FROM subscriptions WHERE user_id = ? AND region = ?",
+                    (user_id, region),
+                ).fetchone()
+                return row is not None
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось проверить подписку: %s", exc)
+            return False
+
+    def get_subscribers(self, region: str) -> list[int]:
+        """Список user_id, подписанных на регион (для рассылки)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT user_id FROM subscriptions WHERE region = ?", (region,)
+                )
+                return [row["user_id"] for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить подписчиков: %s", exc)
+            return []
+
+    def user_subscriptions(self, user_id: int) -> list[str]:
+        """Список регионов, на которые подписан пользователь (для меню)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT region FROM subscriptions WHERE user_id = ?", (user_id,)
+                )
+                return [row["region"] for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить подписки: %s", exc)
             return []
 
     # ------------------------------------------------------------------

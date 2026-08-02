@@ -20,6 +20,7 @@ import logging
 import time
 
 from telethon import Button, TelegramClient, events
+from telethon.errors import MessageNotModifiedError
 
 from database import Database
 from eta import estimate_eta, format_eta
@@ -37,7 +38,8 @@ CB_REGION_STATS = "rst:" # статистика тревог региона: rst
 CB_REGION_ETA = "ret:"   # ETA региона: ret:kyivska
 CB_REGION_HIST = "rhi:"  # история ударов региона: rhi:kyivska
 CB_REGION_CONS = "rco:"  # последствия региона: rco:kyivska
-CB_MAIN = "main"         #回到 главное меню
+CB_REGION_SUB = "rsb:"   # подписка на регион: rsb:kyivska
+CB_MAIN = "main"         # главное меню
 CB_STATS_ALL = "sall"    # общая статистика
 CB_ACTIVE = "active"     # текущие угрозы
 
@@ -94,8 +96,12 @@ def _regions_kb(page: int):
     return rows
 
 
-def _region_menu_kb(slug: str):
-    """Меню конкретного региона."""
+def _region_menu_kb(slug: str, subscribed: bool = False):
+    """Меню конкретного региона. Кнопка подписки меняется в зависимости от статуса."""
+    sub_btn = Button.inline(
+        "🔕 Отписаться" if subscribed else "🔔 Подписаться",
+        data=CB_REGION_SUB + slug,
+    )
     return [
         [
             Button.inline("📊 Статистика тревог", data=CB_REGION_STATS + slug),
@@ -105,6 +111,7 @@ def _region_menu_kb(slug: str):
             Button.inline("💥 История ударов", data=CB_REGION_HIST + slug),
             Button.inline("🔥 Последствия", data=CB_REGION_CONS + slug),
         ],
+        [sub_btn],
         [Button.inline("◀️ К списку областей", data=CB_REGION_PAGE + "0")],
         [Button.inline("🏠 Главное меню", data=CB_MAIN)],
     ]
@@ -266,59 +273,78 @@ def register_handlers(bot: TelegramClient, db: Database, admin_id: int) -> None:
 
         data = event.data.decode("utf-8") if isinstance(event.data, bytes) else event.data
 
+        async def _safe_edit(text: str, buttons) -> None:
+            """Обёртка над event.edit, глотающая MessageNotModifiedError.
+
+            Возникает, когда пользователь нажимает кнопку, но текст не изменился
+            (например, нажал «Статистика» дважды). Это не ошибка — просто noop.
+            """
+            try:
+                await event.edit(text, parse_mode="html", buttons=buttons)
+            except MessageNotModifiedError:
+                pass  # контент не изменился — это нормально, не падаем
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Не удалось обновить сообщение меню: %s", exc)
+
         try:
             # Маршрутизация по префиксу callback_data.
             if data == CB_MAIN:
-                await event.edit(_main_text(), parse_mode="html", buttons=_main_menu_kb())
+                await _safe_edit(_main_text(), _main_menu_kb())
 
             elif data == CB_STATS_ALL:
-                await event.edit(_stats_all_text(db), parse_mode="html", buttons=_main_menu_kb())
+                await _safe_edit(_stats_all_text(db), _main_menu_kb())
 
             elif data == CB_ACTIVE:
-                await event.edit(_active_text(db), parse_mode="html", buttons=_main_menu_kb())
+                await _safe_edit(_active_text(db), _main_menu_kb())
 
             elif data.startswith(CB_REGION_PAGE):
                 page = int(data[len(CB_REGION_PAGE):] or "0")
-                await event.edit(
+                await _safe_edit(
                     "🏙 <b>Выбери область</b>\n\nЛистай кнопками ◀️ ▶️.",
-                    parse_mode="html",
-                    buttons=_regions_kb(page),
+                    _regions_kb(page),
                 )
 
             elif data.startswith(CB_REGION_SELECT):
                 slug = data[len(CB_REGION_SELECT):]
                 if slug in REGIONS:
-                    await event.edit(
-                        _region_menu_text(slug), parse_mode="html", buttons=_region_menu_kb(slug)
-                    )
+                    sub = db.is_subscribed(event.sender_id, slug)
+                    await _safe_edit(_region_menu_text(slug), _region_menu_kb(slug, sub))
 
             elif data.startswith(CB_REGION_STATS):
                 slug = data[len(CB_REGION_STATS):]
                 await event.answer()
-                await event.edit(
-                    _region_stats_text(db, slug), parse_mode="html", buttons=_region_menu_kb(slug)
-                )
+                sub = db.is_subscribed(event.sender_id, slug)
+                await _safe_edit(_region_stats_text(db, slug), _region_menu_kb(slug, sub))
 
             elif data.startswith(CB_REGION_ETA):
                 slug = data[len(CB_REGION_ETA):]
                 await event.answer()
-                await event.edit(
-                    _region_eta_text(db, slug), parse_mode="html", buttons=_region_menu_kb(slug)
-                )
+                sub = db.is_subscribed(event.sender_id, slug)
+                await _safe_edit(_region_eta_text(db, slug), _region_menu_kb(slug, sub))
 
             elif data.startswith(CB_REGION_HIST):
                 slug = data[len(CB_REGION_HIST):]
                 await event.answer()
-                await event.edit(
-                    _region_hist_text(db, slug), parse_mode="html", buttons=_region_menu_kb(slug)
-                )
+                sub = db.is_subscribed(event.sender_id, slug)
+                await _safe_edit(_region_hist_text(db, slug), _region_menu_kb(slug, sub))
 
             elif data.startswith(CB_REGION_CONS):
                 slug = data[len(CB_REGION_CONS):]
                 await event.answer()
-                await event.edit(
-                    _region_cons_text(db, slug), parse_mode="html", buttons=_region_menu_kb(slug)
-                )
+                sub = db.is_subscribed(event.sender_id, slug)
+                await _safe_edit(_region_cons_text(db, slug), _region_menu_kb(slug, sub))
+
+            elif data.startswith(CB_REGION_SUB):
+                slug = data[len(CB_REGION_SUB):]
+                # Переключаем подписку.
+                if db.is_subscribed(event.sender_id, slug):
+                    db.unsubscribe(event.sender_id, slug)
+                    await event.answer("🔕 Отписка от " + region_name(slug))
+                else:
+                    db.subscribe(event.sender_id, slug)
+                    await event.answer("🔔 Подписка на " + region_name(slug))
+                sub = db.is_subscribed(event.sender_id, slug)
+                await _safe_edit(_region_menu_text(slug), _region_menu_kb(slug, sub))
 
         except Exception as exc:  # noqa: BLE001 — не роняем меню на ошибке рендера
             logger.exception("Ошибка обработки callback %s: %s", data, exc)

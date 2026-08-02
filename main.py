@@ -81,7 +81,8 @@ async def run() -> None:
     # Health-сервер для PaaS-платформ (Koyeb и др.): открывает HTTP-порт, чтобы
     # платформа видела живой сервис. На обычном VPS/компе просто висит в фоне
     # и не мешает. Порт берётся из переменной PORT (стандарт PaaS) или 8080.
-    await start_health_server()
+    # Ссылку на task сохраняем, чтобы asyncio его не «потерял» (warning о pending).
+    _health_task = await start_health_server()
     publisher = Publisher(
         bot_token=settings.bot_token,
         target_channel=settings.target_channel,
@@ -185,7 +186,7 @@ async def run() -> None:
     # Обработчик новых сообщений из всех исходных каналов.
     @client.on(events.NewMessage(chats=resolved_chats))
     async def handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
-        await _process_message(event, summarizer, publisher, dedup, db)
+        await _process_message(event, summarizer, publisher, dedup, db, bot_client)
 
     # --- фоновый healthcheck Ollama ---
     health_task = asyncio.create_task(
@@ -260,11 +261,14 @@ async def _process_message(
     publisher: Publisher,
     dedup: DedupCache,
     db: Database,
+    bot_client=None,
 ) -> None:
     """Полный конвейер обработки одного входящего сообщения.
 
     Любые исключения на отдельных этапах логируются и НЕ роняют обработчик,
     чтобы одно «плохое» сообщение не убило чтение из всех каналов.
+    bot_client: TelegramClient бота — нужен для рассылки по подпискам (если None,
+    рассылка пропускается).
     """
     message: Message = event.message
     text = (message.text or message.message or "").strip()
@@ -288,17 +292,16 @@ async def _process_message(
     logger.info("Новое сообщение от %s: %s", source, text[:80])
 
     try:
-        # 3) Сжатие через Ollama (fallback на оригинал — внутри summarizer).
+        # 3) Сжатие через LLM (fallback на оригинал — внутри summarizer).
         summary = await summarizer.summarize(text)
-        # 4) Эмодзи-заголовок по типу угрозы.
+        # 4) Эмодзи-заголовок и тип угрозы.
         header = get_sticker_header(text)
         threat_type = classify_threat(text)
-        # 5) Сборка и публикация.
+        # 5) Сборка и публикация в общий канал.
         final_text = f"{header}\n{summary}".strip()
         await publisher.send(final_text)
 
-        # 6) Запись в журнал БД (для статистики и ETA). Регион может быть
-        #    не определён — тогда пишем в «неизвестный», чтобы счётчики росли.
+        # 6) Определение регионов и запись в журнал БД.
         regions = detect_region(text)
         regions_to_log = regions or ["unknown"]
         for slug in regions_to_log:
@@ -316,8 +319,32 @@ async def _process_message(
         else:
             for slug in regions or []:
                 db.alert_start(slug)
+
+        # 7) Рассылка по подпискам в ЛС — только для определённых регионов.
+        if bot_client is not None and regions:
+            await _notify_subscribers(bot_client, db, regions, final_text)
     except Exception as exc:  # pragma: no cover — страховка конвейера
         logger.exception("Сбой обработки сообщения (пропускаем): %s", exc)
+
+
+async def _notify_subscribers(bot_client, db: Database, regions: list[str], text: str) -> None:
+    """Разослать текст всем подписчикам указанных регионов.
+
+    Работает «best effort»: ошибки отправки (пользователь заблокировал бота и
+    т.п.) логируются, но не роняют рассылку остальным.
+    """
+    from regions import region_name as _rname
+    # Собираем уникальных подписчиков по всем регионам сообщения.
+    notified: set[int] = set()
+    for slug in regions:
+        for user_id in db.get_subscribers(slug):
+            if user_id in notified:
+                continue
+            notified.add(user_id)
+            try:
+                await bot_client.send_message(user_id, text, parse_mode="md", link_preview=False)
+            except Exception as exc:  # noqa: BLE001 — один неудачный не стопит остальных
+                logger.debug("Не удалось отправить подписку %s: %s", user_id, exc)
 
 
 async def _healthcheck_loop(summarizer: AISummarizer, interval: int) -> None:
