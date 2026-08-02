@@ -24,3 +24,6 @@ env/
 # SQLite-журнал (данные угроз/тревог — локальные, в git не нужен)
 *.db
 *.db-journal
+
+# Логи импорта/отладки
+import_progress.log
