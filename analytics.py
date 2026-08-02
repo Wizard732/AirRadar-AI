@@ -197,6 +197,8 @@ def _severity_for_class(base_severity: str, stage: str) -> tuple[str, str, str]:
         return ("🟠", "HIGH", "Угроза. Немедленно в укрытие.")
     if base_severity == "ALL_CLEAR":
         return ("🟢", "ALL CLEAR", "Отбой. Можно выходить.")
+    if base_severity == "LOW":
+        return ("🟡", "INFO", "Інформація. Паніки немає.")
     return ("🟡", "MODERATE", "Будьте напоготові.")
 
 
