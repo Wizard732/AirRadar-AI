@@ -108,8 +108,11 @@ async def run() -> None:
             settings.tg_api_hash,
         )
         register_handlers(bot_client, db, settings.admin_id)
+        # Interests-модуль: команды /add_channel, /my_channels + кнопки тем.
+        from interests_ui import register_interests_handlers
+        register_interests_handlers(bot_client, db, settings.admin_id)
         logger.info(
-            "Интерактивное меню бота включено (admin_id=%s). Напиши боту /start в личку.",
+            "Меню бота включено (admin_id=%s): Military + Interests. Напиши /start.",
             settings.admin_id,
         )
     else:
@@ -183,10 +186,32 @@ async def run() -> None:
             "Проверь SOURCE_CHANNELS в .env и подписки аккаунта."
         )
 
-    # Обработчик новых сообщений из всех исходных каналов.
+    # Обработчик новых сообщений из всех исходных (военных) каналов.
     @client.on(events.NewMessage(chats=resolved_chats))
     async def handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
         await _process_message(event, summarizer, publisher, dedup, db, bot_client)
+
+    # --- Interests-модуль: обработчик постов из user-каналов ---
+    # User-каналы добавляются пользователями через /add_channel. Резолвятся из БД.
+    from interests_handler import process_interests_message
+    interests_channels = db.all_interests_channels()
+    interests_resolved: list = []
+    if interests_channels:
+        logger.info("Interests: резолвлю %d user-каналов…", len(interests_channels))
+        async for dialog in client.iter_dialogs():
+            ent = dialog.entity
+            uname = (getattr(ent, "username", None) or "").lower()
+            eid = getattr(ent, "id", None)
+            for ch in interests_channels:
+                ch_low = ch.strip().lower().lstrip("@")
+                if (uname and uname == ch_low) or (eid is not None and str(eid) == ch_low.lstrip("-").lstrip("100")):
+                    interests_resolved.append(ent)
+        logger.info("Interests: доступно user-каналов: %d/%d", len(interests_resolved), len(interests_channels))
+
+    if interests_resolved:
+        @client.on(events.NewMessage(chats=interests_resolved))
+        async def interests_handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
+            await process_interests_message(event, summarizer, dedup, db, bot_client)
 
     # --- фоновый healthcheck Ollama ---
     health_task = asyncio.create_task(

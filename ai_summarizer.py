@@ -142,6 +142,34 @@ class AISummarizer:
             logger.warning("Healthcheck Ollama: неожиданная ошибка (%s)", exc)
             return False
 
+    async def classify(self, text: str, system_prompt: str, max_tokens: int = 30) -> str:
+        """Классифицировать текст с произвольным системным промптом (Ollama).
+
+        Универсальный путь для Interests-модуля. Возвращает сырой ответ модели
+        (slug-и через запятую) или пустую строку при ошибке.
+        """
+        text = text.strip()
+        if not text:
+            return ""
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "prompt": text,
+            "system": system_prompt,
+            "stream": False,
+            "options": {"temperature": 0.0, "num_predict": max_tokens},
+        }
+        try:
+            session = await self._get_session()
+            async with session.post(self._generate_url, json=payload) as resp:
+                if resp.status != 200:
+                    logger.warning("Ollama classify HTTP %s", resp.status)
+                    return ""
+                data = await resp.json()
+                return (data.get("response") or "").strip()
+        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
+            logger.warning("Ollama classify недоступен (%s)", exc)
+            return ""
+
 
 # ============================================================
 #  Groq Cloud API — облачная альтернатива Ollama (для VPS 24/7).
@@ -151,9 +179,12 @@ class AISummarizer:
 
 # Минимальный «интерфейс» summarizer-а: и Ollama, и Groq реализуют его.
 class SummarizerProtocol:
-    """Условный интерфейс: summarize(text) -> str, healthcheck() -> bool."""
+    """Интерфейс LLM-клиента: summarize (военный) + classify (универсальный)."""
 
     async def summarize(self, text: str) -> str:  # pragma: no cover
+        raise NotImplementedError
+
+    async def classify(self, text: str, system_prompt: str, max_tokens: int = 30) -> str:  # pragma: no cover
         raise NotImplementedError
 
     async def healthcheck(self) -> bool:  # pragma: no cover
@@ -257,6 +288,46 @@ class GroqSummarizer(SummarizerProtocol):
                 if not ok:
                     logger.warning("Healthcheck Groq: HTTP %s", resp.status)
                 return ok
+        except aiohttp.ClientError as exc:
+            logger.warning("Healthcheck Groq: сеть недоступна (%s)", exc)
+            return False
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Healthcheck Groq: неожиданная ошибка (%s)", exc)
+            return False
+
+    async def classify(self, text: str, system_prompt: str, max_tokens: int = 30) -> str:
+        """Классифицировать текст с произвольным системным промптом.
+
+        В отличие от summarize() (военный промпт), здесь промпт передаётся
+        параметром — универсальный путь для Interests-модуля (темы) и будущих
+        задач. Возвращает сырое содержимое ответа (slug-и через запятую) или
+        пустую строку при ошибке.
+        """
+        text = text.strip()
+        if not text:
+            return ""
+        payload: dict[str, Any] = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text},
+            ],
+            "temperature": 0.0,   # классификация — детерминизм важнее креатива
+            "max_tokens": max_tokens,
+            "stream": False,
+        }
+        try:
+            session = await self._get_session()
+            async with session.post(self._url, json=payload, headers=self._headers) as resp:
+                if resp.status != 200:
+                    logger.warning("Groq classify HTTP %s", resp.status)
+                    return ""
+                data = await resp.json()
+                choices = data.get("choices") or []
+                return (choices[0].get("message", {}).get("content") or "").strip() if choices else ""
+        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
+            logger.warning("Groq classify недоступен (%s)", exc)
+            return ""
         except aiohttp.ClientError as exc:
             logger.warning("Healthcheck Groq: сеть недоступна (%s)", exc)
             return False

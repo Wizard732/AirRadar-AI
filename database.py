@@ -100,6 +100,42 @@ class Database:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_sub_region ON subscriptions(region)")
+
+            # --- Interests-модуль ---
+            # User-каналы: какие новостные каналы добавил каждый пользователь.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_channels (
+                    user_id    INTEGER NOT NULL,
+                    channel    TEXT    NOT NULL,    -- @username или -100...
+                    PRIMARY KEY (user_id, channel)
+                )
+                """
+            )
+            # Подписки на темы (Interests-модуль).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_topics (
+                    user_id  INTEGER NOT NULL,
+                    topic    TEXT    NOT NULL,      -- slug темы
+                    PRIMARY KEY (user_id, topic)
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_usertopics_topic ON user_topics(topic)")
+            # Журнал классифицированных постов (для дайджестов/аналитики на следующих этапах).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS classified_posts (
+                    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts       INTEGER NOT NULL,
+                    source   TEXT    NOT NULL,
+                    text     TEXT    NOT NULL,
+                    topics   TEXT    NOT NULL        -- slug-ы через запятую
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_cposts_ts ON classified_posts(ts)")
             self._conn.commit()
         logger.debug("БД инициализирована: %s", self._path)
 
@@ -361,6 +397,131 @@ class Database:
         except sqlite3.Error as exc:
             logger.warning("Не удалось получить подписки: %s", exc)
             return []
+
+    # ------------------------------------------------------------------
+    #  Interests-модуль: каналы, темы, классификация
+    # ------------------------------------------------------------------
+    def add_user_channel(self, user_id: int, channel: str) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO user_channels (user_id, channel) VALUES (?, ?)",
+                    (user_id, channel),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось добавить канал: %s", exc)
+
+    def remove_user_channel(self, user_id: int, channel: str) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "DELETE FROM user_channels WHERE user_id = ? AND channel = ?",
+                    (user_id, channel),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось удалить канал: %s", exc)
+
+    def all_interests_channels(self) -> list[str]:
+        """Все уникальные каналы, добавленные любым пользователем (для парсинга)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute("SELECT DISTINCT channel FROM user_channels")
+                return [row["channel"] for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить каналы: %s", exc)
+            return []
+
+    def user_channels(self, user_id: int) -> list[str]:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT channel FROM user_channels WHERE user_id = ?", (user_id,)
+                )
+                return [row["channel"] for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить каналы пользователя: %s", exc)
+            return []
+
+    def subscribe_topic(self, user_id: int, topic: str) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO user_topics (user_id, topic) VALUES (?, ?)",
+                    (user_id, topic),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось подписать на тему: %s", exc)
+
+    def unsubscribe_topic(self, user_id: int, topic: str) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "DELETE FROM user_topics WHERE user_id = ? AND topic = ?",
+                    (user_id, topic),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось отписать от темы: %s", exc)
+
+    def is_subscribed_topic(self, user_id: int, topic: str) -> bool:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT 1 FROM user_topics WHERE user_id = ? AND topic = ?",
+                    (user_id, topic),
+                ).fetchone()
+                return row is not None
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось проверить подписку темы: %s", exc)
+            return False
+
+    def topic_subscribers(self, topic: str) -> list[int]:
+        """user_id всех подписчиков темы (для рассылки)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT user_id FROM user_topics WHERE topic = ?", (topic,)
+                )
+                return [row["user_id"] for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить подписчиков темы: %s", exc)
+            return []
+
+    def user_topics(self, user_id: int) -> list[str]:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT topic FROM user_topics WHERE user_id = ?", (user_id,)
+                )
+                return [row["topic"] for row in cur.fetchall()]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить темы пользователя: %s", exc)
+            return []
+
+    def save_classification(self, source: str, text: str, topics: str) -> None:
+        """Записать классифицированный пост в журнал."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO classified_posts (ts, source, text, topics) VALUES (?, ?, ?, ?)",
+                    (int(time.time()), source, text[:1000], topics),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить классификацию: %s", exc)
 
     # ------------------------------------------------------------------
     #  Очистка

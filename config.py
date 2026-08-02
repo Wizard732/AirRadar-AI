@@ -74,6 +74,9 @@ class Settings:
     http_timeout: int = 30
     healthcheck_interval: int = 300
 
+    # Включение Interests-модуля (новости по темам). По умолчанию включён.
+    interests_enabled: bool = True
+
     # Исходные каналы мониторинга (по умолчанию пусто — проверяется в load_settings)
     source_channels: list[str] = field(default_factory=list)
 
@@ -117,4 +120,5 @@ def load_settings() -> Settings:
         dedup_ttl=int(os.getenv("DEDUP_TTL", "60")),
         http_timeout=int(os.getenv("HTTP_TIMEOUT", "30")),
         healthcheck_interval=int(os.getenv("HEALTHCHECK_INTERVAL", "300")),
+        interests_enabled=os.getenv("INTERESTS_ENABLED", "1").strip() not in ("0", "false", "no"),
     )

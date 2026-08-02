@@ -58,9 +58,13 @@ TYPE_LABELS = {
 #  Сборка клавиатур
 # =====================================================================
 
+CB_INTERESTS = "interests"  # переход в Interests-модуль
+
+
 def _main_menu_kb():
     return [
-        [Button.inline("🏙 Выбрать область", data=CB_REGION_PAGE + "0")],
+        [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
+        [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
         [
             Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
             Button.inline("⏱ Текущие угрозы", data=CB_ACTIVE),
@@ -295,6 +299,11 @@ def register_handlers(bot: TelegramClient, db: Database, admin_id: int) -> None:
 
             elif data == CB_ACTIVE:
                 await _safe_edit(_active_text(db), _main_menu_kb())
+
+            elif data == CB_INTERESTS:
+                # Переход в меню Interests-модуля (его кнопки определяет interests_ui).
+                from interests_ui import _interests_main_kb, _interests_main_text
+                await _safe_edit(_interests_main_text(), _interests_main_kb())
 
             elif data.startswith(CB_REGION_PAGE):
                 page = int(data[len(CB_REGION_PAGE):] or "0")
