@@ -110,6 +110,43 @@ async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_
                         logger.info("Дайджест «%s» отправлен %d получателям", period, n)
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Сбой дайджеста «%s»: %s", period, exc)
+
+            # Ежедневный прогноз на ночь в 21:00 UTC (отдельный час от дайджестов).
+            if cur_hour == 21 and 21 not in last_run:
+                try:
+                    n = await _send_evening_forecasts(bot_client, db)
+                    last_run.add(21)
+                    if n:
+                        logger.info("Вечерний прогноз отправлен %d получателям", n)
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("Сбой вечернего прогноза: %s", exc)
     except asyncio.CancelledError:
         logger.info("Планировщик дайджестов остановлен")
         raise
+
+
+async def _send_evening_forecasts(bot_client, db: Database) -> int:
+    """Разослать вечерний прогноз всем подписчикам регионов (Military)."""
+    from forecast import daily_forecast
+    from database import Database as DB
+    # Берём все регионы, на которые кто-то подписан (subscriptions).
+    try:
+        regions = db._conn.execute(
+            "SELECT DISTINCT region FROM subscriptions"
+        ).fetchall()
+    except Exception:
+        return 0
+    sent = 0
+    for row in regions:
+        region = row["region"]
+        text = daily_forecast(db, region)
+        if not text:
+            continue
+        subscribers = db.get_subscribers(region)
+        for user_id in subscribers:
+            try:
+                await bot_client.send_message(user_id, text, link_preview=False)
+                sent += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Прогноз: не отправлено %s: %s", user_id, exc)
+    return sent

@@ -17,6 +17,7 @@ import time
 from datetime import datetime
 
 from database import Database
+from forecast import escalation_risk, hourly_risk, shelter_window
 from eta import estimate_eta
 from regions import detect_region, region_name
 from sticker import classify_threat
@@ -208,6 +209,26 @@ def _build_analysis(db: Database, region: str, threat_type: str) -> str:
     if risk:
         has_data = True
         lines.append(f"🧠 Оцінка: {risk}")
+
+    # Прогнозные блоки (forecast.py):
+    # 1) Коридор укрытия — «сколько сидеть».
+    sw = shelter_window(db, region)
+    if sw:
+        has_data = True
+        lines.append(sw)
+
+    # 2) Часовой риск — «сейчас активный час».
+    hr = hourly_risk(db, region, threat_type)
+    if hr:
+        has_data = True
+        lines.append(hr)
+
+    # 3) Эскалация — если в воздухе авиация + множественные угрозы.
+    active = db.active_threats(within_seconds=3600)
+    esc = escalation_risk(db, region, active)
+    if esc:
+        has_data = True
+        lines.append(esc)
 
     if not has_data:
         return ""

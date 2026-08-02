@@ -676,6 +676,105 @@ class Database:
             return []
 
     # ------------------------------------------------------------------
+    #  Прогнозная аналитика: паттерны по часам, корреляции, коридоры
+    # ------------------------------------------------------------------
+    def hourly_pattern(self, region: str, threat_type: str | None = None) -> list[int]:
+        """Распределение угроз по часам (0-23) для региона.
+
+        Возвращает список из 24 чисел — сколько угроз пришлось на каждый час
+        за весь архив. Нужен для прогноза «сейчас исторически активный час».
+        """
+        try:
+            with self._lock:
+                assert self._conn is not None
+                if threat_type:
+                    cur = self._conn.execute(
+                        "SELECT ts FROM threats WHERE region=? AND threat_type=?",
+                        (region, threat_type),
+                    )
+                else:
+                    cur = self._conn.execute(
+                        "SELECT ts FROM threats WHERE region=?", (region,)
+                    )
+                hours = [0] * 24
+                for row in cur:
+                    h = time.localtime(row["ts"]).tm_hour
+                    hours[h] += 1
+                return hours
+        except sqlite3.Error as exc:
+            logger.warning("hourly_pattern: %s", exc)
+            return [0] * 24
+
+    def avg_time_between(self, region: str, trigger_type: str, follow_type: str, window: int = 14400) -> float | None:
+        """Среднее время между триггером (напр. зліт Ту-95) и последующей угрозой.
+
+        Ищет пары: запись trigger_type → запись follow_type в том же регионе
+        в течение window секунд. Возвращает среднее время в секундах или None.
+        Нужен для корреляции «авиация → удар».
+        """
+        try:
+            with self._lock:
+                assert self._conn is not None
+                triggers = self._conn.execute(
+                    "SELECT ts FROM threats WHERE region=? AND threat_type=? ORDER BY ts",
+                    (region, trigger_type),
+                ).fetchall()
+                follows = self._conn.execute(
+                    "SELECT ts FROM threats WHERE region=? AND threat_type=? ORDER BY ts",
+                    (region, follow_type),
+                ).fetchall()
+                follow_ts = [r["ts"] for r in follows]
+                pairs: list[int] = []
+                for trig in triggers:
+                    tts = trig["ts"]
+                    for fts in follow_ts:
+                        delta = fts - tts
+                        if 0 < delta <= window:
+                            pairs.append(delta)
+                            break
+                if len(pairs) < 2:
+                    return None
+                return sum(pairs) / len(pairs)
+        except sqlite3.Error as exc:
+            logger.warning("avg_time_between: %s", exc)
+            return None
+
+    def alert_duration_samples(self, region: str, limit: int = 50) -> list[int]:
+        """Список длительностей завершённых тревог в регионе (для коридора укрытия).
+
+        Возвращает список секунд. По нему считаем медиану и разброс
+        «сколько сидеть в укрытии».
+        """
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT ended_ts - started_ts AS dur FROM alerts "
+                    "WHERE region=? AND ended_ts IS NOT NULL "
+                    "ORDER BY started_ts DESC LIMIT ?",
+                    (region, limit),
+                )
+                return [row["dur"] for row in cur if row["dur"] and row["dur"] > 0]
+        except sqlite3.Error as exc:
+            logger.warning("alert_duration_samples: %s", exc)
+            return []
+
+    def threats_in_last_hours(self, region: str, hours: int = 3) -> int:
+        """Сколько угроз было в регионе за последние N часов (индикатор активности)."""
+        try:
+            cutoff = int(time.time()) - hours * 3600
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT COUNT(*) c FROM threats WHERE region=? AND ts >= ?",
+                    (region, cutoff),
+                ).fetchone()
+                return row["c"] if row else 0
+        except sqlite3.Error as exc:
+            logger.warning("threats_in_last_hours: %s", exc)
+            return 0
+
+    # ------------------------------------------------------------------
     #  Админка: управление администраторами
     # ------------------------------------------------------------------
     def add_admin(self, user_id: int, added_by: int) -> None:
