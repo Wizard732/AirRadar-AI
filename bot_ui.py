@@ -19,12 +19,7 @@ from __future__ import annotations
 import logging
 import time
 
-from telethon import TelegramClient, events
-from telethon.tl.custom import CallbackQuery
-from telethon.tl.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telethon import Button, TelegramClient, events
 
 from database import Database
 from eta import estimate_eta, format_eta
@@ -60,67 +55,57 @@ TYPE_LABELS = {
 #  Сборка клавиатур
 # =====================================================================
 
-def _main_menu_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
+def _main_menu_kb():
+    return [
+        [Button.inline("🏙 Выбрать область", data=CB_REGION_PAGE + "0")],
         [
-            [
-                InlineKeyboardButton("🏙 Выбрать область", callback_data=CB_REGION_PAGE + "0"),
-            ],
-            [
-                InlineKeyboardButton("📊 Общая статистика", callback_data=CB_STATS_ALL),
-                InlineKeyboardButton("⏱ Текущие угрозы", callback_data=CB_ACTIVE),
-            ],
-        ]
-    )
+            Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
+            Button.inline("⏱ Текущие угрозы", data=CB_ACTIVE),
+        ],
+    ]
 
 
-def _regions_kb(page: int) -> InlineKeyboardMarkup:
+def _regions_kb(page: int):
     """Клавиатура выбора области с пагинацией."""
     slugs = all_region_slugs()
     start = page * PAGE_SIZE
     chunk = slugs[start : start + PAGE_SIZE]
 
     # По 2 кнопки в ряд для читаемости названий.
-    rows: list[list[InlineKeyboardButton]] = []
+    rows = []
     for i in range(0, len(chunk), 2):
         row = []
         for slug in chunk[i : i + 2]:
-            row.append(
-                InlineKeyboardButton(
-                    region_name(slug), callback_data=CB_REGION_SELECT + slug
-                )
-            )
+            row.append(Button.inline(region_name(slug), data=CB_REGION_SELECT + slug))
         rows.append(row)
 
     # Кнопки навигации по страницам.
     total_pages = (len(slugs) + PAGE_SIZE - 1) // PAGE_SIZE
-    nav: list[InlineKeyboardButton] = []
+    nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton("◀️ Назад", callback_data=f"{CB_REGION_PAGE}{page - 1}"))
-    nav.append(InlineKeyboardButton("🏠 Главное меню", callback_data=CB_MAIN))
+        nav.append(Button.inline("◀️ Назад", data=f"{CB_REGION_PAGE}{page - 1}"))
+    nav.append(Button.inline("🏠 Главное меню", data=CB_MAIN))
     if page + 1 < total_pages:
-        nav.append(InlineKeyboardButton("Вперёд ▶️", callback_data=f"{CB_REGION_PAGE}{page + 1}"))
+        nav.append(Button.inline("Вперёд ▶️", data=f"{CB_REGION_PAGE}{page + 1}"))
     rows.append(nav)
 
-    return InlineKeyboardMarkup(rows)
+    return rows
 
 
-def _region_menu_kb(slug: str) -> InlineKeyboardMarkup:
+def _region_menu_kb(slug: str):
     """Меню конкретного региона."""
-    return InlineKeyboardMarkup(
+    return [
         [
-            [
-                InlineKeyboardButton("📊 Статистика тревог", callback_data=CB_REGION_STATS + slug),
-                InlineKeyboardButton("⏱ ETA угроз", callback_data=CB_REGION_ETA + slug),
-            ],
-            [
-                InlineKeyboardButton("💥 История ударов", callback_data=CB_REGION_HIST + slug),
-                InlineKeyboardButton("🔥 Последствия", callback_data=CB_REGION_CONS + slug),
-            ],
-            [InlineKeyboardButton("◀️ К списку областей", callback_data=CB_REGION_PAGE + "0")],
-            [InlineKeyboardButton("🏠 Главное меню", callback_data=CB_MAIN)],
-        ]
-    )
+            Button.inline("📊 Статистика тревог", data=CB_REGION_STATS + slug),
+            Button.inline("⏱ ETA угроз", data=CB_REGION_ETA + slug),
+        ],
+        [
+            Button.inline("💥 История ударов", data=CB_REGION_HIST + slug),
+            Button.inline("🔥 Последствия", data=CB_REGION_CONS + slug),
+        ],
+        [Button.inline("◀️ К списку областей", data=CB_REGION_PAGE + "0")],
+        [Button.inline("🏠 Главное меню", data=CB_MAIN)],
+    ]
 
 
 # =====================================================================
@@ -272,7 +257,7 @@ def register_handlers(bot: TelegramClient, db: Database, admin_id: int) -> None:
         await event.respond(_main_text(), parse_mode="html", buttons=_main_menu_kb())
 
     @bot.on(events.CallbackQuery())
-    async def _callback(event: CallbackQuery) -> None:  # noqa: ANN001
+    async def _callback(event) -> None:  # noqa: ANN001
         if not _is_admin(event.sender_id):
             await event.answer("Нет доступа.", alert=True)
             return
