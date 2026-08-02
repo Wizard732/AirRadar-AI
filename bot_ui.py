@@ -286,15 +286,12 @@ def register_handlers(bot: TelegramClient, db: Database, admin_id: int, webapp_u
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/start"))
     async def _start(event: events.NewMessage.Event) -> None:  # noqa: ANN001
-        if not _is_admin(event.sender_id):
-            return
+        # Меню доступно всем пользователям (подписки, статистика, алерты).
         await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb())
 
     @bot.on(events.CallbackQuery())
     async def _callback(event) -> None:  # noqa: ANN001
-        if not _is_admin(event.sender_id):
-            await event.answer("Нет доступа.", alert=True)
-            return
+        # Кнопки меню доступны всем. Админ-функции проверяются отдельно.
 
         data = event.data.decode("utf-8") if isinstance(event.data, bytes) else event.data
 

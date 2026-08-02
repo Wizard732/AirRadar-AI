@@ -18,6 +18,7 @@ from datetime import datetime
 
 from database import Database
 from forecast import escalation_risk, hourly_risk, shelter_window
+from weapon_classes import classify_weapon, weapon_eta, weapon_label, weapon_severity
 from eta import estimate_eta
 from regions import detect_region, region_name
 from sticker import classify_threat
@@ -58,20 +59,21 @@ def build_rich_alert(
     source: @username канала-источника.
     db: база для аналитики (ETA, история прильотов, длительность тревоги).
     """
-    threat_type = classify_threat(text)
+    # Новая классификация: полный класс оружия (не старый missile/uav).
+    weapon = classify_weapon(text)
     regions = detect_region(text)
 
-    # Определяем стадию угрозы по контексту: непосредственная (пуски, летит)
-    # или потенциальная (носители в море, возможен пуск). Снижает ложный CRITICAL.
-    stage = _detect_stage(text, threat_type)
+    # Определяем стадию угрозы по контексту.
+    stage = _detect_stage(text, weapon)
 
-    # Если стадия 'past' (упал/взорвался) — меняем тип на explosion (прилёт).
-    if stage == "past" and threat_type in ("missile", "uav", "artillery"):
-        threat_type = "explosion"
+    # Если стадия 'past' (упал/взорвался) — меняем класс на explosion.
+    if stage == "past" and weapon not in ("explosion", "air_defense", "stand_down", "alert"):
+        weapon = "explosion"
 
-    # Выбираем критичность с учётом стадии.
-    emoji, level, recommendation = _severity_for(threat_type, stage)
-    title = TYPE_TITLE.get(threat_type, "Загроза")
+    # Критичность из класса оружия + стадия.
+    base_sev = weapon_severity(weapon)
+    emoji, level, recommendation = _severity_for_class(base_sev, stage)
+    title = weapon_label(weapon)
 
     lines: list[str] = []
     lines.append(f"{emoji} {level}: {title}")
@@ -79,11 +81,15 @@ def build_rich_alert(
     if regions:
         lines.append(f"📍 Регіон: {region_name(regions[0])}")
 
-    # ETA — только при непосредственной угрозе (пуски/летит), не при потенциале.
-    if threat_type in ("missile", "uav", "artillery") and stage in ("imminent", "unknown"):
+    # ETA — для классов с оружием в полёте, только imminent/unknown.
+    weapon_has_eta = weapon in ("ballistic", "cruise_missile", "kab", "shahed", "fpv", "mlrs", "artillery")
+    if weapon_has_eta and stage in ("imminent", "unknown"):
+        # Пробуем по региону; fallback — типовое для класса.
+        typical = weapon_eta(weapon)
         if regions:
-            # Передаём тип оружия — баллистика и БПЛА считаются раздельно.
-            est = estimate_eta(db, regions[0], weapon_type=threat_type)
+            # estimate_eta хранит в БД по старым типам (missile/uav) — маппим.
+            eta_db_type = "missile" if weapon in ("ballistic", "cruise_missile", "kab") else "uav"
+            est = estimate_eta(db, regions[0], weapon_type=eta_db_type)
             if est["available"] and est["avg_seconds"]:
                 mins = int(est["avg_seconds"] / 60)
                 lo = max(1, mins // 2)
@@ -92,13 +98,11 @@ def build_rich_alert(
                     f"⏱ ETA: ~{mins} хв (за {est['samples']} істор. пар)  [~{lo} – ~{hi} хв]"
                 )
             else:
-                typical = _typical_eta(threat_type)
                 lines.append(f"⏱ Орієнтовний ETA: {typical}")
         else:
-            typical = _typical_eta(threat_type)
             lines.append(f"⏱ Орієнтовний ETA: {typical}")
 
-    if threat_type != "stand_down":
+    if weapon != "stand_down":
         icon = "🚨" if level == "CRITICAL" else "⚠️"
         lines.append(f"{icon} {recommendation}")
 
@@ -112,9 +116,9 @@ def build_rich_alert(
         lines.append("")
         lines.append(casualties)
 
-    if regions and threat_type != "stand_down":
+    if regions and weapon != "stand_down":
         region = regions[0]
-        analysis = _build_analysis(db, region, threat_type)
+        analysis = _build_analysis(db, region, weapon)
         if analysis:
             lines.append("")
             lines.append(analysis)
@@ -165,31 +169,26 @@ def _detect_stage(text: str, threat_type: str) -> str:
     return "unknown"
 
 
-def _severity_for(threat_type: str, stage: str) -> tuple[str, str, str]:
-    """Критичность с учётом стадии. Потенциальная угроза → на уровень ниже."""
-    base = SEVERITY.get(threat_type, SEVERITY["other"])
-    emoji, level, rec = base
+def _severity_for_class(base_severity: str, stage: str) -> tuple[str, str, str]:
+    """Критичность с учётом стадии. Потенциальная угроза → MODERATE."""
     if stage == "potential":
-        # Снижаем: CRITICAL -> MODERATE, HIGH -> MODERATE, остальные как есть.
-        if level == "CRITICAL":
-            return ("🟡", "MODERATE", "Попередження: можлива загроза. Бути напоготові.")
-        if level == "HIGH":
-            return ("🟡", "MODERATE", "Попередження: можлива загроза. Бути напоготові.")
-    return base
+        return ("🟡", "MODERATE", "Попередження: можлива загроза. Бути напоготові.")
+    if base_severity == "CRITICAL":
+        return ("🔴", "CRITICAL", "НЕМЕДЛЕННО в укрытие!")
+    if base_severity == "HIGH":
+        return ("🟠", "HIGH", "Угроза. Немедленно в укрытие.")
+    if base_severity == "ALL_CLEAR":
+        return ("🟢", "ALL CLEAR", "Отбой. Можно выходить.")
+    return ("🟡", "MODERATE", "Будьте напоготові.")
 
 
-# Типовое время подлёта по типам оружия (если нет истории по региону).
-# Основано на физике: баллистика ~3-5 мин, КАБ ~5-10, крылатая ракета ~15-30, БПЛА ~30-60.
-_TYPICAL_ETA = {
-    "missile": "~5–30 хв (балістика швидше, крилаті — довше)",
-    "uav": "~20–60 хв",
-    "artillery": "<5 хв",
-}
+# Старые словари больше не нужны — берем из weapon_classes.
+_TYPICAL_ETA = {}
 
 
 def _typical_eta(threat_type: str) -> str:
-    """Типовое ориентировочное время подлёта, если нет истории по региону."""
-    return _TYPICAL_ETA.get(threat_type, "~невідомо")
+    """Заглушка — используется weapon_eta() из weapon_classes."""
+    return "~невідомо"
 
 
 def _build_analysis(db: Database, region: str, threat_type: str) -> str:
