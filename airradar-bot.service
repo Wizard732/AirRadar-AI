@@ -1,0 +1,15 @@
+[Unit]
+Description=AirRadar Telegram bot
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/airradar
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/airradar/.venv/bin/python main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

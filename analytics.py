@@ -17,6 +17,7 @@ import time
 from datetime import datetime
 
 from database import Database
+from dynamic_forecast import estimate_dynamic_eta, estimate_impact_risk
 from forecast import escalation_risk, hourly_risk, shelter_window
 from weapon_classes import classify_weapon, weapon_eta, weapon_label, weapon_severity
 from eta import estimate_eta
@@ -82,31 +83,27 @@ def build_rich_alert(
     if regions:
         lines.append(f"📍 Регіон: {region_name(regions[0])}")
 
-    # ETA — для классов с оружием в полёте, только imminent/unknown.
-    # Для быстрых классов (балістика/гіперзвук/КАБ/РСЗО/артилерія/ФПВ) — всегда
-    # типовое из класса, т.к. БД хранит смешанные пары и врёт (16 мин для балістики).
+    # Только наблюдаемая статистика: медиана и квантили вместо фиксированной вилки.
     weapon_has_eta = weapon in ("ballistic", "cruise_missile", "kab", "shahed", "fpv", "mlrs", "artillery")
-    fast_weapons = ("ballistic", "kab", "mlrs", "artillery", "fpv")  # им нельзя доверять смешанный ETA
-    if weapon_has_eta and stage in ("imminent", "unknown"):
-        typical = weapon_eta(weapon)
-        if weapon in fast_weapons:
-            # Быстрое оружие — всегда типовое из класса (точнее смешанного ETA).
-            lines.append(f"⏱ ETA: {typical}")
-        elif regions:
-            # Для крылатых/БПЛА — пробуем по региону.
-            eta_db_type = "missile" if weapon == "cruise_missile" else "uav"
-            est = estimate_eta(db, regions[0], weapon_type=eta_db_type)
-            if est["available"] and est["avg_seconds"]:
-                mins = int(est["avg_seconds"] / 60)
-                lo = max(1, mins // 2)
-                hi = mins * 2
-                lines.append(
-                    f"⏱ ETA: ~{mins} хв (за {est['samples']} істор. пар)  [~{lo} – ~{hi} хв]"
-                )
-            else:
-                lines.append(f"⏱ Орієнтовний ETA: {typical}")
+    if weapon_has_eta and stage in ("imminent", "unknown") and regions:
+        est = estimate_dynamic_eta(db, regions[0], weapon)
+        if est.get("available"):
+            median = round(est["median_seconds"] / 60)
+            low = max(1, round(est["p20_seconds"] / 60))
+            high = max(low, round(est["p80_seconds"] / 60))
+            lines.append(f"⏱ Історичний ETA: ~{median} хв ({low}–{high} хв; {est['samples']} зіставлень)")
         else:
-            lines.append(f"⏱ Орієнтовний ETA: {typical}")
+            lines.append("⏱ ETA: недостатньо порівнюваних спостережень")
+
+        risk = estimate_impact_risk(db, regions[0], weapon)
+        if risk.get("available"):
+            percent = round(float(risk["probability"]) * 100)
+            lines.append(
+                f"📊 Імовірність підтвердженого влучання ≤{risk['horizon_minutes']} хв: "
+                f"{percent}% ({risk['successes']}/{risk['samples']} подібних випадків)"
+            )
+        else:
+            lines.append("📊 Ризик: недостатньо порівнюваних спостережень")
 
     if weapon != "stand_down":
         icon = "🚨" if level == "CRITICAL" else "⚠️"

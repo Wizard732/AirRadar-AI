@@ -30,6 +30,7 @@ from database import Database
 from fast_filter import clean_signature, matches_keywords
 from regions import detect_region
 from sticker import classify_threat
+from weapon_classes import classify_weapon
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,6 +67,12 @@ class MessageParser(HTMLParser):
         self._div_depth = 0
 
     def handle_starttag(self, tag: str, attrs) -> None:
+        # В экспортe Telegram перевод строки обычно передан через <br>, а не
+        # текстовый whitespace. Сохраняем разделитель, чтобы слова не склеивались.
+        if tag == "br":
+            if self._in_text_div:
+                self._text_parts.append(" ")
+            return
         if tag != "div":
             return
         self._div_depth += 1
@@ -99,7 +106,9 @@ class MessageParser(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if self._in_text_div:
-            self._text_parts.append(data.strip())
+            # Не срезаем пробелы у каждого узла: Telegram дробит текст на HTML-
+            # элементы, и ``strip()`` склеивал «20:57Повітряна» в один токен.
+            self._text_parts.append(data)
 
     @staticmethod
     def _parse_ts(title: str) -> int | None:
@@ -153,20 +162,35 @@ def import_folder(data_dir: Path, db: Database) -> tuple[int, int]:
             if not matches_keywords(text):
                 continue  # не угроза — пропускаем (экономим место в БД)
             threat_type = classify_threat(text)
+            weapon = classify_weapon(text)
+            lowered = text.lower()
+            if weapon == "stand_down":
+                stage, outcome = "all_clear", "unknown"
+            elif weapon in ("explosion", "artillery", "mlrs") or any(word in lowered for word in ("вибух", "взрыв", "прильот", "прилет", "влучан", "попадан")):
+                stage, outcome = "impact", "impact"
+            elif weapon == "air_defense" or any(word in lowered for word in ("збито", "сбито", "перехоп")):
+                stage, outcome = "intercept", "intercept"
+            elif weapon == "alert":
+                stage, outcome = "alert", "unknown"
+            elif any(word in lowered for word in ("пуск", "запуск", "зліт", "взлет")):
+                stage, outcome = "launch", "unknown"
+            else:
+                stage, outcome = "movement", "unknown"
             regions = detect_region(text) or ["unknown"]
             for slug in regions:
-                db.add_threat(
-                    threat_type=threat_type,
-                    region=slug,
-                    text=text[:500],  # обрезаем длинные
-                    source=f"import:{channel}",
+                # Legacy-журнал оставляем для существующей UI, но timestamp
+                # пишем безопасно отдельным INSERT, без гонки MAX(id).
+                with db._lock:
+                    assert db._conn is not None
+                    db._conn.execute(
+                        "INSERT INTO threats (ts, threat_type, region, text, source) VALUES (?, ?, ?, ?, ?)",
+                        (ts, threat_type, slug, text[:500], f"import:{channel}"),
+                    )
+                    db._conn.commit()
+                db.add_event(
+                    event_ts=ts, weapon_class=weapon, stage=stage, region=slug,
+                    outcome=outcome, text=text, source=f"import:{channel}", confidence=0.75,
                 )
-                # Переопределяем ts на настоящий из архива (add_threat ставит now).
-                db._conn.execute(
-                    "UPDATE threats SET ts = ? WHERE id = (SELECT MAX(id) FROM threats)",
-                    (ts,),
-                )
-                db._conn.commit()
             saved += 1
     return total, saved
 

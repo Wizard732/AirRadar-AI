@@ -1,0 +1,15 @@
+[Unit]
+Description=AirRadar QLoRA training
+After=network-online.target
+Conflicts=airradar-bot.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/airradar
+Environment=CUDA_VISIBLE_DEVICES=0
+ExecStart=/opt/airradar/.venv-train/bin/python train_qlora.py training_data/silver --output models/airradar-qwen7b
+StandardOutput=append:/var/log/airradar-train.log
+StandardError=append:/var/log/airradar-train.log
+
+[Install]
+WantedBy=multi-user.target

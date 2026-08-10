@@ -21,8 +21,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Срок хранения записей в днях (старше автоматически подчищается).
-RETENTION_DAYS = 60
+# Исторические события нужны для ETA/вероятностей; не удаляем их по времени.
+# Операционная очистка касается только дедупликации, а не фактов угроз.
+RETENTION_DAYS = 0
 
 
 class Database:
@@ -78,6 +79,27 @@ class Database:
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_region ON threats(region)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_ts ON threats(ts)")
+            # Нормализованный слой для динамических ETA и вероятности исхода.
+            # Отдельная таблица сохраняет совместимость со старым threats.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS threat_events (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_ts     INTEGER NOT NULL,
+                    ingested_ts  INTEGER NOT NULL,
+                    weapon_class TEXT NOT NULL,
+                    stage        TEXT NOT NULL,
+                    region       TEXT NOT NULL,
+                    direction    TEXT NOT NULL DEFAULT '',
+                    outcome      TEXT NOT NULL DEFAULT 'unknown',
+                    confidence   REAL NOT NULL DEFAULT 0.5,
+                    source       TEXT NOT NULL DEFAULT '',
+                    fingerprint  TEXT NOT NULL UNIQUE,
+                    text         TEXT NOT NULL
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_events_match ON threat_events(region, weapon_class, stage, event_ts)")
             # Журнал дедупликации: отпечатки текстов для отсева повторов
             # между каналами (переживает рестарт, окно до часа и больше).
             cur.execute(
@@ -217,6 +239,44 @@ class Database:
                 self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось записать угрозу в БД: %s", exc)
+
+    def add_event(
+        self,
+        *,
+        event_ts: int,
+        weapon_class: str,
+        stage: str,
+        region: str,
+        text: str,
+        source: str = "",
+        direction: str = "",
+        outcome: str = "unknown",
+        confidence: float = 0.7,
+    ) -> bool:
+        """Сохранить нормализованное событие идемпотентно.
+
+        Возвращает True только для новой записи. fingerprint защищает историю
+        от повторного импорта и репостов с тем же очищенным текстом/временем.
+        """
+        import hashlib
+        fingerprint = hashlib.sha256(
+            f"{event_ts}|{source}|{region}|{weapon_class}|{stage}|{text.lower()}".encode("utf-8")
+        ).hexdigest()
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "INSERT OR IGNORE INTO threat_events "
+                    "(event_ts, ingested_ts, weapon_class, stage, region, direction, outcome, confidence, source, fingerprint, text) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (event_ts, int(time.time()), weapon_class, stage, region, direction, outcome,
+                     max(0.0, min(1.0, confidence)), source, fingerprint, text[:700]),
+                )
+                self._conn.commit()
+                return cur.rowcount > 0
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать нормализованное событие: %s", exc)
+            return False
 
     def alert_start(self, region: str) -> None:
         """Отметить начало тревоги в регионе (если ещё нет активной)."""
@@ -1032,7 +1092,9 @@ class Database:
     #  Очистка
     # ------------------------------------------------------------------
     def cleanup(self) -> int:
-        """Удалить записи старше RETENTION_DAYS. Возвращает число удалённых."""
+        """Удалить старые оперативные записи, но никогда не трогать историю ETA."""
+        if RETENTION_DAYS <= 0:
+            return 0
         cutoff = int(time.time()) - RETENTION_DAYS * 86400
         try:
             with self._lock:

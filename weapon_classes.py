@@ -42,7 +42,7 @@ WEAPON_CLASSES: tuple[dict, ...] = (
         "severity": "HIGH",
         "typical_eta": "~20–60 хв",
         "keywords": (
-            "шахед", "shahed", "шахид",
+            "шахед", "шах", "shahed", "шахид",
             "мопед",            # сленг Shahed
             "геран", "герань", "geran",
             "бандерол", "бандерик",
