@@ -25,16 +25,19 @@ export CUDA_VISIBLE_DEVICES=0
 export PYTHONUNBUFFERED=1
 
 # Smoke-run даёт раннюю ошибку окружения и не начинает полный train вслепую.
-rm -rf training_data/smoke models/smoke
-mkdir -p training_data/smoke
-head -n 10 training_data/silver/train.jsonl > training_data/smoke/train.jsonl
-head -n 2 training_data/silver/validation.jsonl > training_data/smoke/validation.jsonl
 python="/opt/airradar/.venv-train/bin/python"
-"$python" train_qlora.py training_data/smoke --output models/smoke --smoke
+# Smoke-test нужен только перед первым запуском. При рестарте сохраняем прогресс.
+if ! find models/airradar-qwen7b -maxdepth 1 -type d -name 'checkpoint-*' | grep -q .; then
+  rm -rf training_data/smoke models/smoke
+  mkdir -p training_data/smoke
+  head -n 10 training_data/silver/train.jsonl > training_data/smoke/train.jsonl
+  head -n 2 training_data/silver/validation.jsonl > training_data/smoke/validation.jsonl
+  "$python" train_qlora.py training_data/smoke --output models/smoke --smoke
+  echo "[$(date -Is)] Smoke training succeeded"
+fi
 
-echo "[$(date -Is)] Smoke training succeeded; starting full QLoRA"
-rm -rf models/airradar-qwen7b
-"$python" train_qlora.py training_data/silver --output models/airradar-qwen7b
+echo "[$(date -Is)] Starting/resuming full QLoRA"
+"$python" train_qlora.py training_data/silver --output models/airradar-qwen7b --max-samples 4000 --epochs 1 --resume
 
 echo "[$(date -Is)] Full QLoRA succeeded"
 touch models/airradar-qwen7b/TRAINING_COMPLETE

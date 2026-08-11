@@ -5,6 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+Restart=on-failure
+RestartSec=30
 WorkingDirectory=/opt/airradar
 ExecStart=/bin/bash /opt/airradar/overnight_train.sh
 StandardOutput=append:/var/log/airradar-overnight.service.log
