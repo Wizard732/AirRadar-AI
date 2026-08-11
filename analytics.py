@@ -52,6 +52,7 @@ def build_rich_alert(
     summary: str,
     source: str,
     db: Database,
+    confirmation: dict | None = None,
 ) -> str:
     """Собрать обогащённое сообщение об угрозе.
 
@@ -79,6 +80,11 @@ def build_rich_alert(
 
     lines: list[str] = []
     lines.append(f"{emoji} {level}: {title}")
+    if confirmation:
+        if confirmation.get("status") == "confirmed":
+            lines.append(f"✅ Підтверджено {confirmation.get('sources', 2)} незалежними джерелами")
+        else:
+            lines.append("⚪ Не підтверджено: повідомлення одного джерела")
 
     if regions:
         lines.append(f"📍 Регіон: {region_name(regions[0])}")

@@ -100,6 +100,24 @@ class Database:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_events_match ON threat_events(region, weapon_class, stage, event_ts)")
+            # Инциденты объединяют независимые сообщения об одной угрозе.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS incidents (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    incident_key TEXT NOT NULL UNIQUE,
+                    created_ts INTEGER NOT NULL,
+                    updated_ts INTEGER NOT NULL,
+                    weapon_class TEXT NOT NULL,
+                    stage TEXT NOT NULL,
+                    region TEXT NOT NULL,
+                    source_count INTEGER NOT NULL DEFAULT 0,
+                    sources TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'unconfirmed'
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_incidents_recent ON incidents(region, weapon_class, updated_ts)")
             # Журнал дедупликации: отпечатки текстов для отсева повторов
             # между каналами (переживает рестарт, окно до часа и больше).
             cur.execute(
@@ -278,6 +296,53 @@ class Database:
                 return cur.rowcount > 0
         except sqlite3.Error as exc:
             logger.warning("Не удалось записать нормализованное событие: %s", exc)
+            return False
+
+    def register_incident(self, *, event_ts: int, weapon_class: str, stage: str, region: str, source: str) -> dict[str, Any]:
+        """Создать/обновить инцидент и вернуть независимые подтверждения.
+
+        Сообщения в 20-минутном окне с одинаковым оружием/стадией/регионом
+        считаются одним инцидентом. Один источник учитывается лишь один раз.
+        """
+        bucket = event_ts // (20 * 60)
+        key = f"{bucket}:{region}:{weapon_class}:{stage}"
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute("SELECT * FROM incidents WHERE incident_key = ?", (key,)).fetchone()
+                if row is None:
+                    sources = [source] if source else []
+                    self._conn.execute(
+                        "INSERT INTO incidents (incident_key, created_ts, updated_ts, weapon_class, stage, region, source_count, sources, status) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (key, event_ts, event_ts, weapon_class, stage, region, len(sources), ",".join(sources), "unconfirmed"),
+                    )
+                    count, status = len(sources), "unconfirmed"
+                else:
+                    sources = [item for item in row["sources"].split(",") if item]
+                    if source and source not in sources:
+                        sources.append(source)
+                    count = len(sources)
+                    status = "confirmed" if count >= 2 else "unconfirmed"
+                    self._conn.execute(
+                        "UPDATE incidents SET updated_ts=?, source_count=?, sources=?, status=? WHERE incident_key=?",
+                        (event_ts, count, ",".join(sources), status, key),
+                    )
+                self._conn.commit()
+                return {"key": key, "sources": count, "status": status}
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось зарегистрировать инцидент: %s", exc)
+            return {"key": key, "sources": 1, "status": "unconfirmed"}
+
+    def is_channel_disabled(self, channel: str, module: str) -> bool:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT disabled FROM channel_health WHERE channel=? AND module=?", (channel, module)
+                ).fetchone()
+                return bool(row and row["disabled"])
+        except sqlite3.Error:
             return False
 
     def alert_start(self, region: str) -> None:

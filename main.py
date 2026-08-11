@@ -21,6 +21,7 @@ import asyncio
 import logging
 import signal
 import sys
+import time
 
 import aiohttp
 from telethon import TelegramClient, events
@@ -359,24 +360,49 @@ async def _process_message(
         return
 
     source = getattr(event.chat, "username", None) or getattr(event.chat, "id", "?")
+    source = str(source)
+    if db.is_channel_disabled(source, "military"):
+        logger.info("Отключённый источник пропущен: %s", source)
+        return
     logger.info("Новое сообщение от %s: %s", source, text[:80])
     # Отмечаем канал живым (для /status админки).
-    db.channel_seen(str(source), "military")
+    db.channel_seen(source, "military")
 
     try:
         # 3) Сжатие через LLM (fallback на оригинал — внутри summarizer).
         summary = await summarizer.summarize(text)
-        # 4) Тип угрозы (для БД и классификации).
-        threat_type = classify_threat(text)
+        # 4) Один канонический класс для публикации, БД и прогнозов.
+        from analytics import _detect_stage, build_rich_alert
+        from weapon_classes import classify_weapon
+        weapon = classify_weapon(text)
+        stage = _detect_stage(text, weapon)
+        threat_type = classify_threat(text)  # legacy-совместимость existing UI.
+        regions = detect_region(text, channel=source)
+        primary_region = (regions or ["unknown"])[0]
+        confirmation = db.register_incident(
+            event_ts=int(getattr(message, "date", None).timestamp()) if getattr(message, "date", None) else int(time.time()),
+            weapon_class=weapon, stage=stage, region=primary_region, source=source,
+        )
         # 5) Обогащённая публикация: критичность + ETA + анализ по архиву.
-        from analytics import build_rich_alert
-        final_text = build_rich_alert(text, summary, str(source), db)
+        final_text = build_rich_alert(text, summary, source, db, confirmation)
         await publisher.send(final_text)
 
         # 6) Определение регионов и запись в журнал БД.
-        regions = detect_region(text, channel=str(source))
         regions_to_log = regions or ["unknown"]
+        event_ts = int(getattr(message, "date", None).timestamp()) if getattr(message, "date", None) else int(time.time())
+        if weapon == "stand_down":
+            event_stage, outcome = "all_clear", "unknown"
+        elif stage == "past":
+            event_stage, outcome = "impact", "impact"
+        elif weapon == "air_defense":
+            event_stage, outcome = "intercept", "intercept"
+        elif weapon == "alert":
+            event_stage, outcome = "alert", "unknown"
+        else:
+            event_stage, outcome = ("launch" if "пуск" in text.lower() else "movement"), "unknown"
         for slug in regions_to_log:
+            db.add_event(event_ts=event_ts, weapon_class=weapon, stage=event_stage, region=slug,
+                         text=text, source=source, outcome=outcome, confidence=0.8)
             db.add_threat(
                 threat_type=threat_type,
                 region=slug,
@@ -392,12 +418,12 @@ async def _process_message(
                 for slug in regions:
                     db.save_entities(slug, entities)
 
-        # Тревоги: «отбой» закрывает активную тревогу во всех затронутых регионах,
-        # прочие угрозы — открывают (если ещё не открыта).
-        if threat_type == "stand_down":
+        # Тревоги открывают лишь явная сирена/активная угроза, а не последствия
+        # удара, ППО или общая оперативная заметка.
+        if weapon == "stand_down" or threat_type == "stand_down":
             for slug in regions or []:
                 db.alert_end(slug)
-        else:
+        elif weapon == "alert" or stage in ("imminent", "potential"):
             for slug in regions or []:
                 db.alert_start(slug)
 
