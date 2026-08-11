@@ -252,6 +252,7 @@ class Database:
         direction: str = "",
         outcome: str = "unknown",
         confidence: float = 0.7,
+        commit: bool = True,
     ) -> bool:
         """Сохранить нормализованное событие идемпотентно.
 
@@ -272,7 +273,8 @@ class Database:
                     (event_ts, int(time.time()), weapon_class, stage, region, direction, outcome,
                      max(0.0, min(1.0, confidence)), source, fingerprint, text[:700]),
                 )
-                self._conn.commit()
+                if commit:
+                    self._conn.commit()
                 return cur.rowcount > 0
         except sqlite3.Error as exc:
             logger.warning("Не удалось записать нормализованное событие: %s", exc)

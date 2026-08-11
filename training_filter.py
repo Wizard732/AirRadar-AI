@@ -39,6 +39,10 @@ _ACTIVE_MARKERS = (
     "пряму", "наближа", "загроза", "тривога", "тревога", "пуск", "зліт",
     "в повітрі", "в воздухе", "у повітрі", "укритт", "укрыти",
 )
+_OBSERVATION_MARKERS = (
+    "чути", "слышно", "звук", "схоже на", "похоже на", "гуде як", "гудит как",
+)
+
 _IMPACT_MARKERS = (
     "прильот", "прилет", "влучан", "попадан", "обстріл", "обстрел",
     "вибух", "взрыв", "детонац", "удар по", "атака на", "пожеж", "пожар",
@@ -67,6 +71,10 @@ def classify_for_training(text: str) -> FilterResult:
     lowered = cleaned.lower()
     if any(marker in lowered for marker in _SPAM_MARKERS):
         return FilterResult("irrelevant", "promotion_or_fundraiser", cleaned)
+    # Не используем непроверенные слуховые/визуальные впечатления как примеры
+    # для обучения модели, публикующей оперативные сообщения.
+    if "мопед" in lowered and any(marker in lowered for marker in _OBSERVATION_MARKERS):
+        return FilterResult("irrelevant", "unverified_observation", cleaned)
     if any(marker in lowered for marker in _ANALYSIS_MARKERS):
         return FilterResult("irrelevant", "analysis_or_digest", cleaned)
 

@@ -4,6 +4,7 @@ import unittest
 
 from build_silver_dataset import make_target
 from label_training_candidates import valid_label
+from weapon_classes import classify_weapon
 from prepare_training_dataset import target_validation_reason
 from training_filter import classify_for_training
 
@@ -26,6 +27,12 @@ class TrainingFilterTests(unittest.TestCase):
         result = classify_for_training("Аналітика: ворог змінює тактику застосування ракет")
         self.assertEqual(result.category, "irrelevant")
         self.assertEqual(result.reason, "analysis_or_digest")
+
+    def test_moped_sound_is_not_a_confirmed_weapon(self):
+        result = classify_for_training("У Києві чути звук, схожий на мопед")
+        self.assertEqual(result.category, "irrelevant")
+        self.assertEqual(result.reason, "unverified_observation")
+        self.assertEqual(classify_weapon("У Києві чути звук, схожий на мопед"), "unknown")
 
 
 class SilverDatasetTests(unittest.TestCase):

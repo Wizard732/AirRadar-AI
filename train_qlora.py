@@ -44,10 +44,13 @@ def main() -> None:
     tokenizer.pad_token = tokenizer.eos_token
     quantization = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.float16)
     model = AutoModelForCausalLM.from_pretrained(args.base_model, quantization_config=quantization, device_map="auto", torch_dtype=torch.float16)
+    # P100 не поддерживает BF16. 4-bit вычисления модели остаются FP16, но
+    # Trainer запускаем без AMP scaler: свежий accelerate иначе пытается
+    # unscale BF16-градиенты Qwen и аварийно завершается.
     lora = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05, bias="none", task_type="CAUSAL_LM", target_modules=["q_proj", "k_proj", "v_proj", "o_proj"])
     config = SFTConfig(output_dir=str(args.output), num_train_epochs=args.epochs, learning_rate=1e-4,
                        per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=16,
-                       fp16=True, bf16=False, max_length=512, logging_steps=10, eval_strategy="steps",
+                       fp16=False, bf16=False, max_grad_norm=0.0, max_length=512, logging_steps=10, eval_strategy="steps",
                        eval_steps=100, save_steps=100, save_total_limit=2, report_to="none")
     trainer = SFTTrainer(model=model, args=config, train_dataset=dataset["train"], eval_dataset=dataset["validation"],
                          processing_class=tokenizer, peft_config=lora, formatting_func=format_example)

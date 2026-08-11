@@ -148,6 +148,7 @@ def import_folder(data_dir: Path, db: Database) -> tuple[int, int]:
     """
     total = 0
     saved = 0
+    pending_events = 0
     # Канал = имя непосредственной родительской папки файла.
     for html_path in sorted(data_dir.rglob("messages*.html")):
         channel = html_path.parent.name
@@ -178,20 +179,29 @@ def import_folder(data_dir: Path, db: Database) -> tuple[int, int]:
                 stage, outcome = "movement", "unknown"
             regions = detect_region(text) or ["unknown"]
             for slug in regions:
-                # Legacy-журнал оставляем для существующей UI, но timestamp
-                # пишем безопасно отдельным INSERT, без гонки MAX(id).
+                # Одна транзакция на сотни строк быстрее commit на каждый пост
+                # в тысячи раз и не допускает гонку с MAX(id).
                 with db._lock:
                     assert db._conn is not None
                     db._conn.execute(
                         "INSERT INTO threats (ts, threat_type, region, text, source) VALUES (?, ?, ?, ?, ?)",
                         (ts, threat_type, slug, text[:500], f"import:{channel}"),
                     )
-                    db._conn.commit()
                 db.add_event(
                     event_ts=ts, weapon_class=weapon, stage=stage, region=slug,
-                    outcome=outcome, text=text, source=f"import:{channel}", confidence=0.75,
+                    outcome=outcome, text=text, source=f"import:{channel}", confidence=0.75, commit=False,
                 )
+                pending_events += 1
             saved += 1
+            if pending_events >= 500:
+                with db._lock:
+                    assert db._conn is not None
+                    db._conn.commit()
+                pending_events = 0
+    if pending_events:
+        with db._lock:
+            assert db._conn is not None
+            db._conn.commit()
     return total, saved
 
 

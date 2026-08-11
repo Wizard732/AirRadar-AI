@@ -1,0 +1,14 @@
+[Unit]
+Description=AirRadar overnight QLoRA training after database import
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/airradar
+ExecStart=/bin/bash /opt/airradar/overnight_train.sh
+StandardOutput=append:/var/log/airradar-overnight.service.log
+StandardError=append:/var/log/airradar-overnight.service.log
+
+[Install]
+WantedBy=multi-user.target
