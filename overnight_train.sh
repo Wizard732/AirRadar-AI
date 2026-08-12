@@ -23,24 +23,26 @@ test -s training_data/silver/test.jsonl
 
 # Не конкурировать с ботом за GPU во время обучения.
 systemctl stop airradar-bot.service 2>/dev/null || true
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=0,1
+export TOKENIZERS_PARALLELISM=false
 export PYTHONUNBUFFERED=1
 
 # Smoke-run даёт раннюю ошибку окружения и не начинает полный train вслепую.
 python="/opt/airradar/.venv-train/bin/python"
 # Smoke-test нужен только перед первым запуском. При рестарте сохраняем прогресс.
-ADAPTER="$MODEL_ROOT/airradar-qwen7b"
+ADAPTER="$MODEL_ROOT/airradar-qwen7b-ddp2"
+LAUNCH=("$python" -m accelerate.commands.launch --num_processes 2 --num_machines 1 --mixed_precision no)
 if ! find "$ADAPTER" -maxdepth 1 -type d -name 'checkpoint-*' | grep -q . && [ ! -f "$ADAPTER/adapter_model.safetensors" ]; then
-  rm -rf training_data/smoke "$MODEL_ROOT/smoke"
+  rm -rf training_data/smoke "$MODEL_ROOT/smoke-ddp2"
   mkdir -p training_data/smoke
   head -n 10 training_data/silver/train.jsonl > training_data/smoke/train.jsonl
   head -n 2 training_data/silver/validation.jsonl > training_data/smoke/validation.jsonl
-  "$python" train_qlora.py training_data/smoke --output "$MODEL_ROOT/smoke" --smoke
+  "${LAUNCH[@]}" train_qlora.py training_data/smoke --output "$MODEL_ROOT/smoke-ddp2" --smoke
   echo "[$(date -Is)] Smoke training succeeded"
 fi
 
 echo "[$(date -Is)] Starting/resuming full QLoRA on durable storage"
-"$python" train_qlora.py training_data/silver --output "$ADAPTER" --epochs 1 --resume
+"${LAUNCH[@]}" train_qlora.py training_data/silver --output "$ADAPTER" --epochs 1 --resume
 
 echo "[$(date -Is)] Full QLoRA succeeded"
 touch "$ADAPTER/TRAINING_COMPLETE"
