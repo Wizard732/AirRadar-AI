@@ -57,6 +57,11 @@ def main() -> None:
         device_map={"": local_rank},
         torch_dtype=torch.float16,
     )
+    # В связке torch 2.5 + Qwen + DDP reentrant checkpointing иногда даёт
+    # разное число сохранённых тензоров между forward/recompute. Нерentrant
+    # режим устраняет эту ошибку и безопасен для QLoRA.
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    model.enable_input_require_grads()
     # P100 не поддерживает BF16. 4-bit вычисления модели остаются FP16, но
     # Trainer запускаем без AMP scaler: свежий accelerate иначе пытается
     # unscale BF16-градиенты Qwen и аварийно завершается.
