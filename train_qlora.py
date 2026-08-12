@@ -65,7 +65,6 @@ def main() -> None:
                        per_device_train_batch_size=2, per_device_eval_batch_size=1, gradient_accumulation_steps=4,
                        fp16=False, bf16=False, max_grad_norm=0.0, max_length=192, logging_steps=25,
                        eval_strategy="no", save_strategy="steps", save_steps=50, save_total_limit=3,
-                       save_only_model=False, save_safetensors=True,
                        report_to="none")
     trainer = SFTTrainer(model=model, args=config, train_dataset=dataset["train"], eval_dataset=dataset["validation"],
                          processing_class=tokenizer, peft_config=lora, formatting_func=format_example)
