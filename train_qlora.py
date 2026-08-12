@@ -17,7 +17,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--base-model", default="Qwen/Qwen2.5-7B-Instruct")
     parser.add_argument("--epochs", type=float, default=1.0)
-    parser.add_argument("--max-samples", type=int, default=4000, help="Ограничить train-набор для быстрого запуска.")
+    parser.add_argument("--max-samples", type=int, default=0, help="Ограничить train-набор; 0 = весь train.jsonl.")
     parser.add_argument("--resume", action="store_true", help="Продолжить с последнего checkpoint в --output.")
     parser.add_argument("--smoke", action="store_true", help="10 строк / 1 step для проверки окружения.")
     args = parser.parse_args()
@@ -53,9 +53,9 @@ def main() -> None:
     # unscale BF16-градиенты Qwen и аварийно завершается.
     lora = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05, bias="none", task_type="CAUSAL_LM", target_modules=["q_proj", "k_proj", "v_proj", "o_proj"])
     config = SFTConfig(output_dir=str(args.output), num_train_epochs=args.epochs, learning_rate=1e-4,
-                       per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=16,
-                       fp16=False, bf16=False, max_grad_norm=0.0, max_length=256, logging_steps=10,
-                       eval_strategy="no", save_strategy="steps", save_steps=25, save_total_limit=3,
+                       per_device_train_batch_size=2, per_device_eval_batch_size=1, gradient_accumulation_steps=8,
+                       fp16=False, bf16=False, max_grad_norm=0.0, max_length=192, logging_steps=25,
+                       eval_strategy="no", save_strategy="steps", save_steps=100, save_total_limit=3,
                        report_to="none")
     trainer = SFTTrainer(model=model, args=config, train_dataset=dataset["train"], eval_dataset=dataset["validation"],
                          processing_class=tokenizer, peft_config=lora, formatting_func=format_example)

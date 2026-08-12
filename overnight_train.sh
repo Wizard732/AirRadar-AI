@@ -4,7 +4,9 @@
 set -Eeuo pipefail
 
 cd /opt/airradar
-mkdir -p training_data models
+# Результаты обучения живут на хостовом диске: они переживают рестарт CT 100.
+MODEL_ROOT=/mnt/airradar-models/training
+mkdir -p training_data "$MODEL_ROOT"
 LOG=training_data/overnight_train.log
 exec >>"$LOG" 2>&1
 
@@ -27,20 +29,19 @@ export PYTHONUNBUFFERED=1
 # Smoke-run даёт раннюю ошибку окружения и не начинает полный train вслепую.
 python="/opt/airradar/.venv-train/bin/python"
 # Smoke-test нужен только перед первым запуском. При рестарте сохраняем прогресс.
-if ! find models/airradar-qwen7b -maxdepth 1 -type d -name 'checkpoint-*' | grep -q .; then
-  rm -rf training_data/smoke models/smoke
+ADAPTER="$MODEL_ROOT/airradar-qwen7b"
+if ! find "$ADAPTER" -maxdepth 1 -type d -name 'checkpoint-*' | grep -q . && [ ! -f "$ADAPTER/adapter_model.safetensors" ]; then
+  rm -rf training_data/smoke "$MODEL_ROOT/smoke"
   mkdir -p training_data/smoke
   head -n 10 training_data/silver/train.jsonl > training_data/smoke/train.jsonl
   head -n 2 training_data/silver/validation.jsonl > training_data/smoke/validation.jsonl
-  "$python" train_qlora.py training_data/smoke --output models/smoke --smoke
+  "$python" train_qlora.py training_data/smoke --output "$MODEL_ROOT/smoke" --smoke
   echo "[$(date -Is)] Smoke training succeeded"
 fi
 
-echo "[$(date -Is)] Starting/resuming full QLoRA"
-"$python" train_qlora.py training_data/silver --output models/airradar-qwen7b --max-samples 4000 --epochs 1 --resume
+echo "[$(date -Is)] Starting/resuming full QLoRA on durable storage"
+"$python" train_qlora.py training_data/silver --output "$ADAPTER" --epochs 1 --resume
 
 echo "[$(date -Is)] Full QLoRA succeeded"
-touch models/airradar-qwen7b/TRAINING_COMPLETE
-# Сливаем адаптер, импортируем в Ollama и сразу переключаем бота на новую модель.
-"$python" deploy_trained_model.py
-echo "[$(date -Is)] Bot switched to the trained model"
+touch "$ADAPTER/TRAINING_COMPLETE"
+# Активация запускается отдельно после проверки адаптера; не удаляет результат.
