@@ -57,18 +57,18 @@ def main() -> None:
         device_map={"": local_rank},
         torch_dtype=torch.float16,
     )
-    # В связке torch 2.5 + Qwen + DDP reentrant checkpointing иногда даёт
-    # разное число сохранённых тензоров между forward/recompute. Нерentrant
-    # режим устраняет эту ошибку и безопасен для QLoRA.
-    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    model.enable_input_require_grads()
+    # TRL + torch 2.5 даёт checkpoint assertion на двух P100. При коротком
+    # контексте отключаем gradient checkpointing полностью: DDP становится
+    # стабильным, а VRAM удерживается batch=1 и max_length=128.
+    model.gradient_checkpointing_disable()
+    model.config.use_cache = True
     # P100 не поддерживает BF16. 4-bit вычисления модели остаются FP16, но
     # Trainer запускаем без AMP scaler: свежий accelerate иначе пытается
     # unscale BF16-градиенты Qwen и аварийно завершается.
     lora = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05, bias="none", task_type="CAUSAL_LM", target_modules=["q_proj", "k_proj", "v_proj", "o_proj"])
     config = SFTConfig(output_dir=str(args.output), num_train_epochs=args.epochs, learning_rate=1e-4,
-                       per_device_train_batch_size=2, per_device_eval_batch_size=1, gradient_accumulation_steps=4,
-                       fp16=False, bf16=False, max_grad_norm=0.0, max_length=192, logging_steps=25,
+                       per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=8,
+                       fp16=False, bf16=False, max_grad_norm=0.0, max_length=128, logging_steps=25,
                        eval_strategy="no", save_strategy="steps", save_steps=50, save_total_limit=3,
                        report_to="none")
     trainer = SFTTrainer(model=model, args=config, train_dataset=dataset["train"], eval_dataset=dataset["validation"],
