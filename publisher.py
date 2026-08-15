@@ -46,7 +46,7 @@ class Publisher:
         if self._owns_session and self._session is not None and not self._session.closed:
             await self._session.close()
 
-    async def send(self, text: str) -> bool:
+    async def send(self, text: str) -> dict | None:
         """Отправить текст в целевой канал.
 
         Возвращает True при успехе, False при ошибке (с логированием причины).
@@ -75,7 +75,7 @@ class Publisher:
                 data = await resp.json()
                 if resp.status == 200 and data.get("ok"):
                     logger.info("Опубликовано в %s (%d символов).", self._target, len(text))
-                    return True
+                    return data.get("result") or {"chat": {"id": self._target}, "message_id": 0}
 
                 # Чаще всего: бот не админ / неверный chat_id / кривой Markdown.
                 logger.error(
@@ -108,7 +108,7 @@ class Publisher:
                 data = await resp.json()
                 if resp.status == 200 and data.get("ok"):
                     logger.info("Опубликовано (plain fallback) в %s.", self._target)
-                    return True
+                    return data.get("result") or {"chat": {"id": self._target}, "message_id": 0}
                 logger.error(
                     "Plain-повтор тоже не прошёл [HTTP %s]: %s",
                     resp.status,
@@ -117,6 +117,26 @@ class Publisher:
                 return False
         except aiohttp.ClientError as exc:
             logger.error("Сетевая ошибка plain-повтора: %s", exc)
+            return False
+
+    async def edit(self, chat_id: str, message_id: int, text: str) -> bool:
+        """Update one already published incident message."""
+        if not message_id:
+            return False
+        payload = {"chat_id": chat_id, "message_id": message_id, "text": text[:TG_TEXT_LIMIT],
+                   "disable_web_page_preview": True, "parse_mode": "Markdown"}
+        try:
+            session = await self._get_session()
+            url = self._api_url.rsplit("/", 1)[0] + "/editMessageText"
+            async with session.post(url, json=payload) as resp:
+                data = await resp.json()
+                if resp.status == 200 and data.get("ok"):
+                    logger.info("Обновлена публикация %s/%s.", chat_id, message_id)
+                    return True
+                logger.warning("Не удалось обновить публикацию: %s", data.get("description", data))
+                return False
+        except aiohttp.ClientError as exc:
+            logger.warning("Сетевая ошибка обновления публикации: %s", exc)
             return False
 
     @staticmethod

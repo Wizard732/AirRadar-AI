@@ -140,6 +140,20 @@ class Database:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_incidents_recent ON incidents(region, weapon_class, updated_ts)")
+            for column, definition in (
+                ("origin_region", "TEXT NOT NULL DEFAULT ''"),
+                ("destination_region", "TEXT NOT NULL DEFAULT ''"),
+                ("count_kind", "TEXT NOT NULL DEFAULT 'unspecified'"),
+                ("count_value", "INTEGER"),
+                ("weapon_raw", "TEXT NOT NULL DEFAULT ''"),
+                ("state", "TEXT NOT NULL DEFAULT 'open'"),
+                ("published_chat_id", "TEXT NOT NULL DEFAULT ''"),
+                ("published_message_id", "INTEGER"),
+            ):
+                try:
+                    cur.execute(f"ALTER TABLE incidents ADD COLUMN {column} {definition}")
+                except sqlite3.OperationalError:
+                    pass
             # Доказательства и аудит отделены от старых таблиц: миграция не
             # меняет их смысл и даёт проверяемую историю решений.
             cur.execute(
@@ -474,6 +488,87 @@ class Database:
         except sqlite3.Error as exc:
             logger.warning("Не удалось зарегистрировать инцидент: %s", exc)
             return {"key": key, "sources": 1, "status": "unconfirmed"}
+
+    def merge_incident_fact(
+        self, *, event_ts: int, source: str, source_group: str, fact, text: str,
+        window_seconds: int = 1200, confirmation_sources: int = 2,
+    ) -> dict[str, Any]:
+        """Attach an explicit follow-up to a recent compatible open incident."""
+        cutoff = event_ts - max(60, window_seconds)
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT * FROM incidents WHERE state='open' AND updated_ts>=? "
+                    "AND destination_region=? AND stage=? ORDER BY updated_ts DESC",
+                    (cutoff, fact.destination_region, fact.stage),
+                ).fetchall()
+                row = next((candidate for candidate in rows if candidate["weapon_class"] == fact.weapon_class), None)
+                if row is None and fact.is_delta and fact.weapon_class == "unknown" and len(rows) == 1:
+                    row = rows[0]
+                if row is None:
+                    key = f"{event_ts}:{fact.destination_region}:{fact.weapon_class}:{fact.stage}"
+                    groups = [source_group] if source_group else []
+                    status = "reported"
+                    self._conn.execute(
+                        "INSERT INTO incidents (incident_key, created_ts, updated_ts, weapon_class, stage, region, source_count, sources, status, origin_region, destination_region, count_kind, count_value, weapon_raw, state) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')",
+                        (key, event_ts, event_ts, fact.weapon_class, fact.stage, fact.destination_region,
+                         len(groups), ",".join(groups), status, fact.origin_region, fact.destination_region,
+                         fact.count_kind, fact.count_value, fact.raw_designation),
+                    )
+                    merged, old_status, old_count = False, status, None
+                else:
+                    key = row["incident_key"]
+                    groups = [item for item in row["sources"].split(",") if item]
+                    if source_group and source_group not in groups:
+                        groups.append(source_group)
+                    status = "corroborated" if len(groups) >= confirmation_sources else row["status"]
+                    count_kind, count_value = row["count_kind"], row["count_value"]
+                    if fact.count_kind == "delta" and fact.count_value is not None:
+                        count_value = (count_value or 0) + fact.count_value
+                        count_kind = "reported_total"
+                    elif fact.count_kind == "exact" and count_value is None:
+                        count_kind, count_value = "exact", fact.count_value
+                    elif fact.count_kind == "exact" and count_value != fact.count_value:
+                        count_kind = "conflicting"
+                    self._conn.execute(
+                        "UPDATE incidents SET updated_ts=?, source_count=?, sources=?, status=?, origin_region=?, count_kind=?, count_value=?, weapon_raw=? WHERE incident_key=?",
+                        (event_ts, len(groups), ",".join(groups), status, fact.origin_region or row["origin_region"],
+                         count_kind, count_value, fact.raw_designation or row["weapon_raw"], key),
+                    )
+                    merged, old_status, old_count = True, row["status"], row["count_value"]
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO incident_evidence (incident_key, event_ts, source, source_group, text, model_summary, created_ts) VALUES (?, ?, ?, ?, ?, '', ?)",
+                    (key, event_ts, source, source_group, text[:2000], int(time.time())),
+                )
+                self._conn.commit()
+                return {"key": key, "sources": len(groups), "status": status, "merged": merged,
+                        "material_update": not merged or old_status != status or old_count != fact.count_value or fact.is_delta,
+                        "count_kind": count_kind if merged else fact.count_kind,
+                        "count_value": count_value if merged else fact.count_value,
+                        "destination_region": fact.destination_region}
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось слить факты инцидента: %s", exc)
+            return {"key": "", "sources": 1, "status": "reported", "merged": False, "material_update": False}
+
+    def save_incident_publication(self, incident_key: str, chat_id: str, message_id: int) -> None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute("UPDATE incidents SET published_chat_id=?, published_message_id=? WHERE incident_key=?", (chat_id, message_id, incident_key))
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить публикацию инцидента: %s", exc)
+
+    def incident_publication(self, incident_key: str) -> dict[str, Any] | None:
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute("SELECT published_chat_id, published_message_id FROM incidents WHERE incident_key=?", (incident_key,)).fetchone()
+                return dict(row) if row and row["published_message_id"] else None
+        except sqlite3.Error:
+            return None
 
     def record_inference_audit(
         self, *, event_ts: int, source: str, model: str, raw_output: str,

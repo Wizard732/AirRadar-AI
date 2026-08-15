@@ -80,10 +80,11 @@ def build_rich_alert(
     lines: list[str] = []
     lines.append(f"{emoji} {level}: {title}")
     if confirmation:
-        if confirmation.get("status") == "confirmed":
-            lines.append(f"✅ Підтверджено {confirmation.get('sources', 2)} незалежними джерелами")
+        if confirmation.get("status") in {"corroborated", "officially_confirmed"}:
+            label = "офіційним джерелом" if confirmation.get("status") == "officially_confirmed" else f"{confirmation.get('sources', 2)} незалежними джерелами"
+            lines.append(f"✅ Підтверджено {label}")
         else:
-            lines.append("⚪ Не підтверджено: повідомлення одного джерела")
+            lines.append("⚪ Повідомлення одного джерела; потребує підтвердження")
 
     if regions:
         lines.append(f"📍 Регіон: {region_name(regions[0])}")
@@ -91,7 +92,7 @@ def build_rich_alert(
     # Оценки допустимы только для явной активной угрозы из подтверждённого
     # несколькими источниками инцидента: это не текущий факт и не прогноз для
     # непонятного одиночного поста.
-    is_confirmed = bool(confirmation and confirmation.get("status") == "confirmed")
+    is_confirmed = bool(confirmation and confirmation.get("status") in {"corroborated", "officially_confirmed"})
     weapon_has_eta = weapon in ("ballistic", "cruise_missile", "kab", "shahed", "fpv", "mlrs", "artillery")
     if is_confirmed and weapon_has_eta and stage == "imminent" and regions:
         est = estimate_dynamic_eta(db, regions[0], weapon)

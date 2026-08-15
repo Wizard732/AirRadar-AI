@@ -36,6 +36,7 @@ from fast_filter import clean_signature, matches_keywords
 from health_server import start_health_server
 from publisher import Publisher
 from regions import detect_region
+from incident_fusion import extract_incident_fact
 from source_policy import normalize_source, source_group
 from sticker import get_sticker_header
 
@@ -390,18 +391,30 @@ async def _process_message(
             "air_defense": "explosion", "mlrs": "artillery", "artillery": "artillery",
         }.get(weapon, "missile" if weapon not in {"unknown", "alert", "decoy"} else "other")
         regions = detect_region(text, channel=source)
-        primary_region = (regions or ["unknown"])[0]
-        confirmation = db.register_incident(
-            event_ts=event_ts, weapon_class=weapon, stage=stage, region=primary_region, source=source,
-            source_group=source_group(source, getattr(settings, "source_groups", {})),
-            official=source in getattr(settings, "official_sources", frozenset()),
+        fact = extract_incident_fact(text, weapon, stage)
+        group = source_group(source, getattr(settings, "source_groups", {}))
+        # Fusion owns the target location: in "from Sumy to Kyiv" Kyiv is the incident.
+        confirmation = db.merge_incident_fact(
+            event_ts=event_ts, source=source, source_group=group, fact=fact, text=text,
             window_seconds=getattr(settings, "incident_window_seconds", 1200),
             confirmation_sources=getattr(settings, "confirmation_sources", 2),
-            text=text, model_summary=summary,
         )
-        # 5) Обогащённая публикация: критичность + ETA + анализ по архиву.
-        final_text = build_rich_alert(text, summary, source, db, confirmation)
-        published = await publisher.send(final_text)
+        # 5) Build one evolving, source-grounded incident message.
+        summary_for_render = text if weapon in {"stand_down", "explosion", "air_defense"} or stage == "past" else summary
+        final_text = build_rich_alert(text, summary_for_render, source, db, confirmation)
+        count_kind, count_value = confirmation.get("count_kind"), confirmation.get("count_value")
+        if count_kind == "reported_total" and count_value is not None:
+            final_text += f"\n\n➕ Повідомлено ще; відомо щонайменше: {count_value}."
+        elif count_kind == "conflicting":
+            final_text += "\n\n⚪ Кількість у джерелах різниться; уточнюється."
+        publication = db.incident_publication(confirmation.get("key", ""))
+        if publication and confirmation.get("material_update"):
+            published = await publisher.edit(str(publication["published_chat_id"]), int(publication["published_message_id"]), final_text)
+        else:
+            published = await publisher.send(final_text)
+            if published and confirmation.get("key"):
+                chat = published.get("chat", {})
+                db.save_incident_publication(confirmation["key"], str(chat.get("id", "")), int(published.get("message_id", 0)))
         if not published:
             logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
 
