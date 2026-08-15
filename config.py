@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 
+from source_policy import normalize_source, parse_source_groups
+
 try:
     # python-dotenv опционален: в проде переменные могут задаваться через среду
     from dotenv import load_dotenv
@@ -88,6 +90,13 @@ class Settings:
     # URL Mini App (Web App). Пусто = кнопка Mini App не показывается.
     webapp_url: str = ""
 
+    # Правдивость: независимые группы источников и срок актуальности сообщения.
+    source_groups: dict[str, str] = field(default_factory=dict)
+    official_sources: frozenset[str] = field(default_factory=frozenset)
+    incident_window_seconds: int = 1200
+    active_threat_ttl: int = 1800
+    confirmation_sources: int = 2
+
     # Исходные каналы мониторинга (по умолчанию пусто — проверяется в load_settings)
     source_channels: list[str] = field(default_factory=list)
 
@@ -136,4 +145,11 @@ def load_settings() -> Settings:
         digest_morning_hour=int(os.getenv("DIGEST_MORNING_HOUR", "8")),
         digest_evening_hour=int(os.getenv("DIGEST_EVENING_HOUR", "20")),
         webapp_url=os.getenv("WEBAPP_URL", ""),
+        source_groups=parse_source_groups(os.getenv("SOURCE_GROUPS", "")),
+        official_sources=frozenset(
+            normalize_source(item) for item in _parse_channels(os.getenv("OFFICIAL_SOURCES", ""))
+        ),
+        incident_window_seconds=max(60, int(os.getenv("INCIDENT_WINDOW_SECONDS", "1200"))),
+        active_threat_ttl=max(60, int(os.getenv("ACTIVE_THREAT_TTL", "1800"))),
+        confirmation_sources=max(2, int(os.getenv("CONFIRMATION_SOURCES", "2"))),
     )

@@ -36,6 +36,7 @@ from fast_filter import clean_signature, matches_keywords
 from health_server import start_health_server
 from publisher import Publisher
 from regions import detect_region
+from source_policy import normalize_source, source_group
 from sticker import get_sticker_header
 
 logger = logging.getLogger("airradar")
@@ -359,8 +360,7 @@ async def _process_message(
         logger.debug("Дубликат пропущен: %s", text[:60])
         return
 
-    source = getattr(event.chat, "username", None) or getattr(event.chat, "id", "?")
-    source = str(source)
+    source = normalize_source(str(getattr(event.chat, "username", None) or getattr(event.chat, "id", "?")))
     if db.is_channel_disabled(source, "military"):
         logger.info("Отключённый источник пропущен: %s", source)
         return
@@ -371,9 +371,12 @@ async def _process_message(
     try:
         # 3) Сжатие через LLM (fallback на оригинал — внутри summarizer).
         summary = await summarizer.summarize(text)
+        event_ts = int(getattr(message, "date", None).timestamp()) if getattr(message, "date", None) else int(time.time())
         if is_ignored_summary(summary):
+            db.record_inference_audit(event_ts=event_ts, source=source, model=getattr(summarizer, "_model", "unknown"), raw_output=summary, decision="ignored")
             logger.info("Неподтверждённый звуковой пост пропущен: %s", text[:80])
             return
+        db.record_inference_audit(event_ts=event_ts, source=source, model=getattr(summarizer, "_model", "unknown"), raw_output=summary, decision="accepted")
         # 4) Один канонический класс для публикации, БД и прогнозов.
         from analytics import _detect_stage, build_rich_alert
         from weapon_classes import classify_weapon
@@ -389,16 +392,21 @@ async def _process_message(
         regions = detect_region(text, channel=source)
         primary_region = (regions or ["unknown"])[0]
         confirmation = db.register_incident(
-            event_ts=int(getattr(message, "date", None).timestamp()) if getattr(message, "date", None) else int(time.time()),
-            weapon_class=weapon, stage=stage, region=primary_region, source=source,
+            event_ts=event_ts, weapon_class=weapon, stage=stage, region=primary_region, source=source,
+            source_group=source_group(source, getattr(settings, "source_groups", {})),
+            official=source in getattr(settings, "official_sources", frozenset()),
+            window_seconds=getattr(settings, "incident_window_seconds", 1200),
+            confirmation_sources=getattr(settings, "confirmation_sources", 2),
+            text=text, model_summary=summary,
         )
         # 5) Обогащённая публикация: критичность + ETA + анализ по архиву.
         final_text = build_rich_alert(text, summary, source, db, confirmation)
-        await publisher.send(final_text)
+        published = await publisher.send(final_text)
+        if not published:
+            logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
 
         # 6) Определение регионов и запись в журнал БД.
         regions_to_log = regions or ["unknown"]
-        event_ts = int(getattr(message, "date", None).timestamp()) if getattr(message, "date", None) else int(time.time())
         if weapon == "stand_down":
             event_stage, outcome = "all_clear", "unknown"
         elif stage == "past":
@@ -422,7 +430,7 @@ async def _process_message(
         #     для детальной статистики. Только не-отбой.
         if threat_type != "stand_down" and regions:
             from ai_summarizer import extract_entities
-            entities = await extract_entities(summarizer, text)
+            entities = await extract_entities(summarizer, text, regions)
             if entities:
                 for slug in regions:
                     db.save_entities(slug, entities)
@@ -430,14 +438,16 @@ async def _process_message(
         # Тревоги открывают лишь явная сирена/активная угроза, а не последствия
         # удара, ППО или общая оперативная заметка.
         if weapon == "stand_down" or threat_type == "stand_down":
+            # Отбой остаётся сообщением источника: закрывает локально созданный
+            # статус, но UI не интерпретирует это как независимое «тихо».
             for slug in regions or []:
-                db.alert_end(slug)
-        elif weapon == "alert" or stage in ("imminent", "potential"):
+                db.alert_end(slug, event_ts=event_ts)
+        elif confirmation.get("status") in ("corroborated", "officially_confirmed") and stage == "imminent":
             for slug in regions or []:
-                db.alert_start(slug)
+                db.alert_start(slug, event_ts=event_ts)
 
         # 7) Рассылка по подпискам в ЛС — только для определённых регионов.
-        if bot_client is not None and regions:
+        if bot_client is not None and regions and published:
             await _notify_subscribers(bot_client, db, regions, final_text)
     except Exception as exc:  # pragma: no cover — страховка конвейера
         logger.exception("Сбой обработки сообщения (пропускаем): %s", exc)

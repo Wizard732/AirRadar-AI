@@ -90,6 +90,32 @@ def register_admin_handlers(
         lines.append("/revoke_admin <id> — забрать")
         await event.respond("\n".join(lines), parse_mode="html")
 
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/review(?:\s+(\d+))?$"))
+    async def _review(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        limit = int(event.pattern_match.group(1) or 10)
+        rows = db.review_queue(min(limit, 30))
+        if not rows:
+            await event.respond("✅ Очередь проверки пуста.")
+            return
+        lines = ["🔎 <b>Очередь проверки</b>"]
+        for row in rows:
+            lines.append(f"• <code>{row['incident_key']}</code> | {row['region']} | {row['weapon_class']} | {row['source_count']} ист. | {row['status']}")
+        lines.append("\n/approve <key> <причина> | /reject <key> <причина>")
+        await event.respond("\n".join(lines), parse_mode="html")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/(approve|reject)\s+(\S+)\s+(.+)$"))
+    async def _review_decision(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        action, key, reason = event.pattern_match.group(1), event.pattern_match.group(2), event.pattern_match.group(3)
+        decision = "officially_confirmed" if action == "approve" else "retracted"
+        if db.review_incident(key, decision, reason, event.sender_id):
+            await event.respond("✅ Решение сохранено.")
+        else:
+            await event.respond("⛔ Не удалось сохранить: нужна непустая причина и корректный статус.")
+
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/ban_channel\s+(\S+)"))
     async def _ban(event) -> None:  # noqa: ANN001
         if not _is_admin(event.sender_id):

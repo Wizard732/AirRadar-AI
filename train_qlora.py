@@ -37,10 +37,12 @@ def main() -> None:
         dataset["train"] = dataset["train"].select(range(min(10, len(dataset["train"]))))
     elif args.max_samples:
         dataset["train"] = dataset["train"].select(range(min(args.max_samples, len(dataset["train"]))))
-    system = "Ти військовий редактор. Поверни одне коротке українське повідомлення лише з фактами джерела. Не вигадуй деталей."
+    # Обучение и production должны видеть один и тот же контракт.
+    from ai_summarizer import SYSTEM_PROMPT, _untrusted_source
+    system = SYSTEM_PROMPT
 
     def format_example(row: dict) -> str:
-        messages = [{"role": "system", "content": system}, {"role": "user", "content": row["input"]},
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": _untrusted_source(row["input"])},
                     {"role": "assistant", "content": row["target"]}]
         return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
 
@@ -63,8 +65,9 @@ def main() -> None:
     config = SFTConfig(output_dir=str(args.output), num_train_epochs=args.epochs, learning_rate=1e-4,
                        per_device_train_batch_size=2, per_device_eval_batch_size=1, gradient_accumulation_steps=8,
                        fp16=False, bf16=False, max_grad_norm=0.0, max_length=192, logging_steps=25,
-                       eval_strategy="no", save_strategy="steps", save_steps=50, save_total_limit=3,
-                       report_to="none")
+                       eval_strategy="steps", eval_steps=50, save_strategy="steps", save_steps=50,
+                       save_total_limit=3, load_best_model_at_end=True, metric_for_best_model="eval_loss",
+                       greater_is_better=False, report_to="none")
     trainer = SFTTrainer(model=model, args=config, train_dataset=dataset["train"], eval_dataset=dataset["validation"],
                          processing_class=tokenizer, peft_config=lora, formatting_func=format_example)
     checkpoint = None

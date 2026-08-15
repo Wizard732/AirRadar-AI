@@ -17,7 +17,8 @@ DEFAULT_OLLAMA_MODEL = "airradar-qwen7b"
 
 
 def ollama_generate(model: str, prompt: str) -> str:
-    payload = json.dumps({"model": model, "prompt": prompt, "stream": False,
+    from ai_summarizer import SYSTEM_PROMPT, _untrusted_source
+    payload = json.dumps({"model": model, "system": SYSTEM_PROMPT, "prompt": _untrusted_source(prompt), "stream": False,
                           "options": {"temperature": 0.0, "num_predict": 80}}).encode()
     request = urllib.request.Request("http://127.0.0.1:11434/api/generate", data=payload,
                                      headers={"Content-Type": "application/json"})
@@ -30,14 +31,14 @@ def verify_model(model: str) -> None:
     checks = (
         ("Шах курсом на Суми", ("shahed", "бпла")),
         ("КАБ курсом на Суми", ("каб",)),
-        ("У Києві чути звук, схожий на мопед", ("shahed", "бпла")),
+        ("У Києві чути звук, схожий на мопед", ("ignore",)),
     )
     for prompt, forbidden_or_expected in checks:
         answer = ollama_generate(model, prompt).lower()
         if not answer:
             raise RuntimeError(f"Модель не вернула ответ на: {prompt}")
         if "мопед" in prompt.lower():
-            if any(token in answer for token in forbidden_or_expected):
+            if answer.strip().upper() != "IGNORE":
                 raise RuntimeError(f"Небезопасная идентификация наблюдения: {answer}")
         elif not any(token in answer for token in forbidden_or_expected):
             raise RuntimeError(f"Модель потеряла явный тип оружия: {answer}")
@@ -86,7 +87,8 @@ def main() -> None:
         f"FROM {args.merged.resolve()}\nPARAMETER temperature 0\nPARAMETER num_predict 80\n",
         encoding="utf-8",
     )
-    subprocess.run(["ollama", "create", args.ollama_model, "-f", str(modelfile)], check=True)
+    ollama_env = {**os.environ, "HOME": os.environ.get("HOME") or "/root"}
+    subprocess.run(["ollama", "create", args.ollama_model, "-f", str(modelfile)], check=True, env=ollama_env)
     verify_model(args.ollama_model)
 
     previous_model = switch_env_model(args.env, args.ollama_model)

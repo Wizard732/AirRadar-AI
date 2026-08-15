@@ -195,6 +195,18 @@ _CHANNEL_REGION_MAP: dict[str, str] = {
 }
 
 
+def validate_city_for_regions(city: str, text: str, regions: list[str]) -> str:
+    """Принять город лишь если он упомянут в посте и относится к его области."""
+    candidate = city.strip().lower()
+    lowered = text.lower()
+    if not candidate or candidate not in lowered:
+        return ""
+    for slug in regions:
+        if any(candidate == key or candidate in key for key in REGIONS.get(slug, ("", ()))[1]):
+            return city.strip()
+    return ""
+
+
 def detect_region(text: str, channel: str = "") -> list[str]:
     """Вернуть список slug-ов регионов, упомянутых в тексте.
 

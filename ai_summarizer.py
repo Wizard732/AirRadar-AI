@@ -38,14 +38,20 @@ def is_ignored_summary(text: str) -> bool:
 
 
 def safe_summary(summary: str, source: str) -> str:
-    """Не публиковать форматированный, ссылочный или чрезмерный ответ LLM."""
+    """Принять только короткую однофразную выжимку без явных добавленных фактов."""
     candidate = " ".join(summary.split()).strip()
+    fallback = " ".join(source.split()).strip()[:_MAX_SUMMARY_CHARS]
     if (
         not candidate or len(candidate) > _MAX_SUMMARY_CHARS
+        or len(candidate.split()) > 25 or candidate.count(".") + candidate.count("!") + candidate.count("?") > 1
         or "http://" in candidate.lower() or "https://" in candidate.lower()
         or "<" in candidate or ">" in candidate
     ):
-        return " ".join(source.split()).strip()[:_MAX_SUMMARY_CHARS]
+        return fallback
+    # Любые числа в сжатии должны быть прямо взяты из источника.
+    import re
+    if any(number not in source for number in re.findall(r"\d+(?:[,.]\d+)?", candidate)):
+        return fallback
     return candidate
 
 
@@ -436,6 +442,7 @@ class GroqSummarizer(SummarizerProtocol):
 async def extract_entities(
     summarizer: SummarizerProtocol,
     text: str,
+    regions: list[str] | None = None,
 ) -> dict[str, str]:
     """Извлечь структурированные данные из поста (город, объект, последствия).
 
@@ -457,7 +464,8 @@ async def extract_entities(
         data = json.loads(m.group(0))
         # Принимаем только значения из объявленной схемы. Иначе выдумка LLM
         # попадёт в долговременную статистику как будто это факт.
-        result = {"city": str(data.get("city", "")).strip()[:30]}
+        from regions import validate_city_for_regions
+        result = {"city": validate_city_for_regions(str(data.get("city", ""))[:30], text, regions or [])}
         for field, allowed in _ENTITY_VALUES.items():
             value = str(data.get(field, "")).strip()[:30]
             result[field] = value if value.lower() in allowed else ""

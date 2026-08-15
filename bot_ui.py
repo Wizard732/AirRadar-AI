@@ -195,8 +195,8 @@ def _stats_all_text(db: Database) -> str:
 def _active_text(db: Database) -> str:
     threats = db.active_threats(within_seconds=1800)
     if not threats:
-        return "⏱ <b>Текущие угрозы</b>\n\nЗа последние 30 минут активных угроз не зафиксировано. ✅"
-    lines = ["⏱ <b>Текущие угрозы</b> (за 30 мин)\n"]
+        return "⏱ <b>Подтверждённые активные сообщения</b>\n\nЗа последние 30 минут в источниках бота нет подтверждённых активных сообщений."
+    lines = ["⏱ <b>Подтверждённые активные сообщения</b> (за 30 мин)\n"]
     for t in threats[:15]:
         ago = int((time.time() - t["ts"]) / 60)
         lines.append(
@@ -231,7 +231,7 @@ def _region_stats_text(db: Database, slug: str) -> str:
         avg_line = "Средняя длительность тревоги: недостаточно данных"
 
     is_active = slug in db.active_alert_regions()
-    status = "🔴 Тревога активна" if is_active else "🟢 Тихо"
+    status = "🔴 Подтверждённая тревога активна" if is_active else "⚪ Нет активного статуса от источников бота"
 
     return (
         f"📊 <b>{name}</b> — статистика\n\n"

@@ -100,6 +100,28 @@ class Database:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_events_match ON threat_events(region, weapon_class, stage, event_ts)")
+            # Состояние синхронизации истории Telegram. Курсор хранится отдельно
+            # для каждого канала, а message_key исключает дубли при перекрытии.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS history_sync_messages (
+                    source      TEXT NOT NULL,
+                    message_id  INTEGER NOT NULL,
+                    event_ts    INTEGER NOT NULL,
+                    PRIMARY KEY (source, message_id)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS history_sync_cursors (
+                    source           TEXT PRIMARY KEY,
+                    last_message_id  INTEGER NOT NULL DEFAULT 0,
+                    last_event_ts    INTEGER NOT NULL DEFAULT 0,
+                    synced_ts        INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
             # Инциденты объединяют независимые сообщения об одной угрозе.
             cur.execute(
                 """
@@ -118,6 +140,50 @@ class Database:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_incidents_recent ON incidents(region, weapon_class, updated_ts)")
+            # Доказательства и аудит отделены от старых таблиц: миграция не
+            # меняет их смысл и даёт проверяемую историю решений.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS incident_evidence (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    incident_key TEXT NOT NULL,
+                    event_ts INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    source_group TEXT NOT NULL,
+                    text TEXT NOT NULL,
+                    model_summary TEXT NOT NULL DEFAULT '',
+                    created_ts INTEGER NOT NULL
+                )
+                """
+            )
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_evidence_unique ON incident_evidence(incident_key, source, text)")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS inference_audit (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_ts INTEGER NOT NULL,
+                    source TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    prompt_version TEXT NOT NULL,
+                    raw_output TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    reason TEXT NOT NULL DEFAULT '',
+                    created_ts INTEGER NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS incident_reviews (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    incident_key TEXT NOT NULL,
+                    decision TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    reviewer_id INTEGER NOT NULL,
+                    created_ts INTEGER NOT NULL
+                )
+                """
+            )
             # Журнал дедупликации: отпечатки текстов для отсева повторов
             # между каналами (переживает рестарт, окно до часа и больше).
             cur.execute(
@@ -243,20 +309,81 @@ class Database:
     #  Запись
     # ------------------------------------------------------------------
     def add_threat(
-        self, threat_type: str, region: str, text: str, source: str = ""
+        self, threat_type: str, region: str, text: str, source: str = "", *,
+        event_ts: int | None = None, commit: bool = True,
     ) -> None:
-        """Записать одну угрозу в журнал. Ошибки логируются, не роняют бот."""
+        """Записать угрозу, сохраняя время исходного сообщения при наличии."""
         try:
             with self._lock:
                 assert self._conn is not None
                 self._conn.execute(
                     "INSERT INTO threats (ts, threat_type, region, text, source) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    (int(time.time()), threat_type, region, text, source),
+                    (event_ts if event_ts is not None else int(time.time()), threat_type, region, text, source),
+                )
+                if commit:
+                    self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать угрозу в БД: %s", exc)
+
+    def claim_history_message(self, source: str, message_id: int, event_ts: int) -> bool:
+        """Пометить Telegram-сообщение обработанным; True только при первом импорте."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "INSERT OR IGNORE INTO history_sync_messages (source, message_id, event_ts) VALUES (?, ?, ?)",
+                    (source, message_id, event_ts),
+                )
+                return cur.rowcount > 0
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить ключ сообщения истории: %s", exc)
+            return False
+
+    def update_history_cursor(self, source: str, message_id: int, event_ts: int) -> None:
+        """Продвинуть курсор канала после успешной обработки сообщения."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    """INSERT INTO history_sync_cursors (source, last_message_id, last_event_ts, synced_ts)
+                       VALUES (?, ?, ?, ?)
+                       ON CONFLICT(source) DO UPDATE SET
+                         last_message_id=MAX(last_message_id, excluded.last_message_id),
+                         last_event_ts=MAX(last_event_ts, excluded.last_event_ts),
+                         synced_ts=excluded.synced_ts""",
+                    (source, message_id, event_ts, int(time.time())),
                 )
                 self._conn.commit()
         except sqlite3.Error as exc:
-            logger.warning("Не удалось записать угрозу в БД: %s", exc)
+            logger.warning("Не удалось обновить курсор истории: %s", exc)
+
+    def get_history_cursor(self, source: str) -> tuple[int, int]:
+        """Вернуть (последний Telegram ID, timestamp) для канала."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT last_message_id, last_event_ts FROM history_sync_cursors WHERE source=?", (source,)
+                ).fetchone()
+                return (int(row["last_message_id"]), int(row["last_event_ts"])) if row else (0, 0)
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать курсор истории: %s", exc)
+            return (0, 0)
+
+    def get_history_reconcile_min_id(self, source: str, cutoff_ts: int) -> int:
+        """Вернуть первый ID уже прочитанного сообщения в окне сверки."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT MIN(message_id) AS message_id FROM history_sync_messages WHERE source=? AND event_ts>=?",
+                    (source, cutoff_ts),
+                ).fetchone()
+                return int(row["message_id"] or 0)
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать окно сверки истории: %s", exc)
+            return 0
 
     def add_event(
         self,
@@ -298,41 +425,105 @@ class Database:
             logger.warning("Не удалось записать нормализованное событие: %s", exc)
             return False
 
-    def register_incident(self, *, event_ts: int, weapon_class: str, stage: str, region: str, source: str) -> dict[str, Any]:
+    def register_incident(
+        self, *, event_ts: int, weapon_class: str, stage: str, region: str, source: str,
+        source_group: str = "", official: bool = False, window_seconds: int = 1200,
+        confirmation_sources: int = 2, text: str = "", model_summary: str = "",
+    ) -> dict[str, Any]:
         """Создать/обновить инцидент и вернуть независимые подтверждения.
 
         Сообщения в 20-минутном окне с одинаковым оружием/стадией/регионом
         считаются одним инцидентом. Один источник учитывается лишь один раз.
         """
-        bucket = event_ts // (20 * 60)
+        bucket = event_ts // max(60, window_seconds)
         key = f"{bucket}:{region}:{weapon_class}:{stage}"
+        source_group = source_group or source
         try:
             with self._lock:
                 assert self._conn is not None
                 row = self._conn.execute("SELECT * FROM incidents WHERE incident_key = ?", (key,)).fetchone()
                 if row is None:
-                    sources = [source] if source else []
+                    groups = [source_group] if source_group else []
+                    status = "officially_confirmed" if official else "reported"
                     self._conn.execute(
                         "INSERT INTO incidents (incident_key, created_ts, updated_ts, weapon_class, stage, region, source_count, sources, status) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (key, event_ts, event_ts, weapon_class, stage, region, len(sources), ",".join(sources), "unconfirmed"),
+                        (key, event_ts, event_ts, weapon_class, stage, region, len(groups), ",".join(groups), status),
                     )
-                    count, status = len(sources), "unconfirmed"
                 else:
-                    sources = [item for item in row["sources"].split(",") if item]
-                    if source and source not in sources:
-                        sources.append(source)
-                    count = len(sources)
-                    status = "confirmed" if count >= 2 else "unconfirmed"
+                    groups = [item for item in row["sources"].split(",") if item]
+                    if source_group and source_group not in groups:
+                        groups.append(source_group)
+                    if official or row["status"] == "officially_confirmed":
+                        status = "officially_confirmed"
+                    elif len(groups) >= confirmation_sources:
+                        status = "corroborated"
+                    else:
+                        status = row["status"] if row["status"] in {"disputed", "retracted"} else "reported"
                     self._conn.execute(
                         "UPDATE incidents SET updated_ts=?, source_count=?, sources=?, status=? WHERE incident_key=?",
-                        (event_ts, count, ",".join(sources), status, key),
+                        (event_ts, len(groups), ",".join(groups), status, key),
                     )
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO incident_evidence "
+                    "(incident_key, event_ts, source, source_group, text, model_summary, created_ts) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (key, event_ts, source, source_group, text[:2000], model_summary[:500], int(time.time())),
+                )
                 self._conn.commit()
-                return {"key": key, "sources": count, "status": status}
+                return {"key": key, "sources": len(groups), "status": status, "official": official}
         except sqlite3.Error as exc:
             logger.warning("Не удалось зарегистрировать инцидент: %s", exc)
             return {"key": key, "sources": 1, "status": "unconfirmed"}
+
+    def record_inference_audit(
+        self, *, event_ts: int, source: str, model: str, raw_output: str,
+        decision: str, reason: str = "", prompt_version: str = "v2",
+    ) -> None:
+        """Сохранить объяснимое решение LLM без влияния на публикацию."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO inference_audit (event_ts, source, model, prompt_version, raw_output, decision, reason, created_ts) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (event_ts, source, model, prompt_version, raw_output[:1000], decision, reason[:300], int(time.time())),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать аудит LLM: %s", exc)
+
+    def review_incident(self, incident_key: str, decision: str, reason: str, reviewer_id: int) -> bool:
+        """Зафиксировать решение администратора и обновить статус инцидента."""
+        allowed = {"officially_confirmed", "disputed", "retracted", "resolved"}
+        if decision not in allowed or not reason.strip():
+            return False
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute("UPDATE incidents SET status=?, updated_ts=? WHERE incident_key=?", (decision, int(time.time()), incident_key))
+                self._conn.execute(
+                    "INSERT INTO incident_reviews (incident_key, decision, reason, reviewer_id, created_ts) VALUES (?, ?, ?, ?, ?)",
+                    (incident_key, decision, reason[:500], reviewer_id, int(time.time())),
+                )
+                self._conn.commit()
+                return True
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось проверить инцидент: %s", exc)
+            return False
+
+    def review_queue(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Неподтверждённые и спорные свежие инциденты для админ-проверки."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT incident_key, updated_ts, weapon_class, stage, region, source_count, status "
+                    "FROM incidents WHERE status IN ('reported', 'disputed') ORDER BY updated_ts DESC LIMIT ?", (limit,)
+                ).fetchall()
+                return [dict(row) for row in rows]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось получить очередь проверки: %s", exc)
+            return []
 
     def is_channel_disabled(self, channel: str, module: str) -> bool:
         try:
@@ -345,35 +536,33 @@ class Database:
         except sqlite3.Error:
             return False
 
-    def alert_start(self, region: str) -> None:
+    def alert_start(self, region: str, *, event_ts: int | None = None) -> None:
         """Отметить начало тревоги в регионе (если ещё нет активной)."""
         try:
             with self._lock:
                 assert self._conn is not None
-                # Не создаём дубль, если в регионе уже есть незакрытая тревога.
                 row = self._conn.execute(
                     "SELECT id FROM alerts WHERE region = ? AND ended_ts IS NULL",
                     (region,),
                 ).fetchone()
                 if row is not None:
-                    return  # уже активна
+                    return
                 self._conn.execute(
                     "INSERT INTO alerts (region, started_ts) VALUES (?, ?)",
-                    (region, int(time.time())),
+                    (region, event_ts if event_ts is not None else int(time.time())),
                 )
                 self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось записать старт тревоги: %s", exc)
 
-    def alert_end(self, region: str) -> None:
+    def alert_end(self, region: str, *, event_ts: int | None = None) -> None:
         """Закрыть активную тревогу в регионе (поставить ended_ts)."""
         try:
             with self._lock:
                 assert self._conn is not None
                 self._conn.execute(
-                    "UPDATE alerts SET ended_ts = ? "
-                    "WHERE region = ? AND ended_ts IS NULL",
-                    (int(time.time()), region),
+                    "UPDATE alerts SET ended_ts = ? WHERE region = ? AND ended_ts IS NULL",
+                    (event_ts if event_ts is not None else int(time.time()), region),
                 )
                 self._conn.commit()
         except sqlite3.Error as exc:
@@ -464,25 +653,19 @@ class Database:
             return []
 
     def active_threats(self, within_seconds: int = 1800) -> list[dict[str, Any]]:
-        """Активные угрозы за последние N секунд (по умолчанию 30 мин)."""
+        """Только свежие подтверждённые активные инциденты, не все старые посты."""
         try:
             cutoff = int(time.time()) - within_seconds
             with self._lock:
                 assert self._conn is not None
                 cur = self._conn.execute(
-                    "SELECT ts, threat_type, region, text FROM threats "
-                    "WHERE ts >= ? ORDER BY ts DESC",
+                    "SELECT i.updated_ts AS ts, i.weapon_class AS type, i.region, i.status, "
+                    "(SELECT text FROM incident_evidence e WHERE e.incident_key=i.incident_key ORDER BY e.id DESC LIMIT 1) AS text "
+                    "FROM incidents i WHERE i.updated_ts >= ? AND i.stage IN ('imminent', 'potential') "
+                    "AND i.status IN ('corroborated', 'officially_confirmed') ORDER BY i.updated_ts DESC",
                     (cutoff,),
                 )
-                return [
-                    {
-                        "ts": row["ts"],
-                        "type": row["threat_type"],
-                        "region": row["region"],
-                        "text": row["text"],
-                    }
-                    for row in cur.fetchall()
-                ]
+                return [dict(row) for row in cur.fetchall()]
         except sqlite3.Error as exc:
             logger.warning("Не удалось прочитать активные угрозы: %s", exc)
             return []
