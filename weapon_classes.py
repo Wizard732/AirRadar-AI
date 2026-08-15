@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from fast_filter import contains_keyword
+
 WEAPON_CLASSES: tuple[dict, ...] = (
     # ==================================================================
     # 1. БЕСПИЛОТНИКИ / ДРОНЫ
@@ -343,8 +345,15 @@ def classify_weapon(text: str) -> str:
     if not text:
         return "unknown"
     lowered = text.lower()
+    # Отбой — управляющее сообщение, а не ракетная угроза, даже если оно
+    # упоминает завершившуюся «ракетную опасность».
+    stand_down = _BY_SLUG["stand_down"]
+    if any(contains_keyword(lowered, kw) for kw in stand_down["keywords"]):
+        return "stand_down"
     for cls in WEAPON_CLASSES:
-        if any(kw in lowered for kw in cls["keywords"]):
+        if cls["slug"] == "stand_down":
+            continue
+        if any(contains_keyword(lowered, kw) for kw in cls["keywords"]):
             return cls["slug"]
     return "unknown"
 

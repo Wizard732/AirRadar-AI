@@ -28,7 +28,7 @@ from telethon import TelegramClient, events
 from telethon.tl.custom import Message
 
 import config
-from ai_summarizer import SummarizerProtocol, make_summarizer
+from ai_summarizer import SummarizerProtocol, is_ignored_summary, make_summarizer
 from bot_ui import register_handlers
 from database import Database
 from dedup import DedupCache
@@ -36,7 +36,7 @@ from fast_filter import clean_signature, matches_keywords
 from health_server import start_health_server
 from publisher import Publisher
 from regions import detect_region
-from sticker import classify_threat, get_sticker_header
+from sticker import get_sticker_header
 
 logger = logging.getLogger("airradar")
 
@@ -371,12 +371,21 @@ async def _process_message(
     try:
         # 3) Сжатие через LLM (fallback на оригинал — внутри summarizer).
         summary = await summarizer.summarize(text)
+        if is_ignored_summary(summary):
+            logger.info("Неподтверждённый звуковой пост пропущен: %s", text[:80])
+            return
         # 4) Один канонический класс для публикации, БД и прогнозов.
         from analytics import _detect_stage, build_rich_alert
         from weapon_classes import classify_weapon
         weapon = classify_weapon(text)
         stage = _detect_stage(text, weapon)
-        threat_type = classify_threat(text)  # legacy-совместимость existing UI.
+        # Старый журнал ожидает ограниченный набор типов. Маппинг от
+        # канонического класса не даёт двум разным классификаторам спорить.
+        threat_type = {
+            "stand_down": "stand_down", "shahed": "uav", "uav": "uav",
+            "fpv": "uav", "recon_drone": "uav", "explosion": "explosion",
+            "air_defense": "explosion", "mlrs": "artillery", "artillery": "artillery",
+        }.get(weapon, "missile" if weapon not in {"unknown", "alert", "decoy"} else "other")
         regions = detect_region(text, channel=source)
         primary_region = (regions or ["unknown"])[0]
         confirmation = db.register_incident(

@@ -22,7 +22,6 @@ from forecast import escalation_risk, hourly_risk, shelter_window
 from weapon_classes import classify_weapon, weapon_eta, weapon_label, weapon_severity
 from eta import estimate_eta
 from regions import detect_region, region_name
-from sticker import classify_threat
 
 # Уровни критичности по типу угрозы.
 SEVERITY = {
@@ -89,9 +88,12 @@ def build_rich_alert(
     if regions:
         lines.append(f"📍 Регіон: {region_name(regions[0])}")
 
-    # Только наблюдаемая статистика: медиана и квантили вместо фиксированной вилки.
+    # Оценки допустимы только для явной активной угрозы из подтверждённого
+    # несколькими источниками инцидента: это не текущий факт и не прогноз для
+    # непонятного одиночного поста.
+    is_confirmed = bool(confirmation and confirmation.get("status") == "confirmed")
     weapon_has_eta = weapon in ("ballistic", "cruise_missile", "kab", "shahed", "fpv", "mlrs", "artillery")
-    if weapon_has_eta and stage in ("imminent", "unknown") and regions:
+    if is_confirmed and weapon_has_eta and stage == "imminent" and regions:
         est = estimate_dynamic_eta(db, regions[0], weapon)
         if est.get("available"):
             median = round(est["median_seconds"] / 60)
@@ -112,8 +114,11 @@ def build_rich_alert(
             lines.append("📊 Ризик: недостатньо порівнюваних спостережень")
 
     if weapon != "stand_down":
-        icon = "🚨" if level == "CRITICAL" else "⚠️"
-        lines.append(f"{icon} {recommendation}")
+        if is_confirmed and stage == "imminent":
+            icon = "🚨" if level == "CRITICAL" else "⚠️"
+            lines.append(f"{icon} {recommendation}")
+        else:
+            lines.append("ℹ️ Автоматична оцінка: повідомлення ще потребує підтвердження.")
 
     lines.append("")
     lines.append(summary[:300])
@@ -166,17 +171,16 @@ def _detect_stage(text: str, threat_type: str) -> str:
 
     # Признаки непосредственной угрозы.
     imminent_markers = (
-        "пуск", "пуски", "лет", "курсом", "в направлении", "у напрямку",
-        "рух", "йдé", "сброш", "зафіксован", "в повітр",
+        "пуск", "пуски", "летит", "летять", "летить", "летят", "курсом",
+        "в направлении", "у напрямку", "рух", "йдé", "сброш", "зафіксован", "в повітр",
     )
-    # ПРИОРИТЕТ: imminent проверяем ПЕРВЫМ. «БПЛА на Киев» — это imminent,
-    # даже если где-то рядом есть слово «прильот» (оно может быть в другом контексте).
-    if any(m in lowered for m in imminent_markers):
-        return "imminent"
-
-    # Проверяем past только если НЕТ imminent-маркеров.
+    # Факт попадания/разрушений важнее общих слов о движении. Раньше «лет»
+    # совпадало даже внутри «прилетела» и превращало последствия в активную угрозу.
     if any(m in lowered for m in past_markers):
         return "past"
+
+    if any(m in lowered for m in imminent_markers):
+        return "imminent"
 
     # Признаки потенциальной угрозы (без факта пуска).
     potential_markers = (

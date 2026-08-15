@@ -16,6 +16,7 @@ register_handlers(). Текст сообщений — HTML (parse_mode=HTML).
 
 from __future__ import annotations
 
+import html
 import logging
 import time
 
@@ -200,7 +201,7 @@ def _active_text(db: Database) -> str:
         ago = int((time.time() - t["ts"]) / 60)
         lines.append(
             f"{TYPE_LABELS.get(t['type'], '🚨')} {region_name(t['region'])} "
-            f"— {ago} мин назад\n   <i>{t['text'][:60]}</i>"
+            f"— {ago} мин назад\n   <i>{html.escape(t['text'][:60])}</i>"
         )
     return "\n".join(lines)
 
@@ -245,30 +246,29 @@ def _region_hist_text(db: Database, slug: str) -> str:
     name = region_name(slug)
     items = db.recent_threats(slug, limit=5)
     if not items:
-        return f"💥 <b>{name}</b> — история ударов\n\nЗаписей пока нет."
-    lines = [f"💥 <b>{name}</b> — последние удары\n"]
+        return f"🗂 <b>{name}</b> — последние сообщения\n\nЗаписей пока нет."
+    lines = [f"🗂 <b>{name}</b> — последние сообщения\n"]
     for it in items:
         when = time.strftime("%d.%m %H:%M", time.localtime(it["ts"]))
-        lines.append(f"{TYPE_LABELS.get(it['type'], '🚨')} {when}\n   <i>{it['text'][:70]}</i>")
+        lines.append(f"{TYPE_LABELS.get(it['type'], '🚨')} {when}\n   <i>{html.escape(it['text'][:70])}</i>")
     return "\n".join(lines)
 
 
 def _region_cons_text(db: Database, slug: str) -> str:
-    """Последствия: берём последние explosion-события в регионе как индикатор."""
+    """Показать сообщения о взрывах как непроверенные сообщения, не как факт удара."""
     name = region_name(slug)
     # Переиспользуем recent_threats, но фильтруем по типу explosion через отдельный запрос.
     items = [t for t in db.recent_threats(slug, limit=10) if t["type"] == "explosion"]
     if not items:
         return (
             f"🔥 <b>{name}</b> — последствия\n\n"
-            "Зафиксированных взрывов/прилетов пока нет.\n"
-            "Бот отмечает последствия, когда в каналах появляются сообщения "
-            "о взрывах в этом регионе."
+            "Сообщений о взрывах/прилётах пока нет.\n"
+            "Это сообщения источников, а не независимое подтверждение последствий."
         )
-    lines = [f"🔥 <b>{name}</b> — зафиксированные последствия\n"]
+    lines = [f"🔥 <b>{name}</b> — сообщения о последствиях\n"]
     for it in items[:5]:
         when = time.strftime("%d.%m %H:%M", time.localtime(it["ts"]))
-        lines.append(f"💥 {when}\n   <i>{it['text'][:70]}</i>")
+        lines.append(f"💥 {when}\n   <i>{html.escape(it['text'][:70])}</i>")
     return "\n".join(lines)
 
 
@@ -287,6 +287,10 @@ def register_handlers(bot: TelegramClient, db: Database, admin_id: int, webapp_u
     admin_id: Telegram user id, которому разрешено меню.
     webapp_url: если задан — в меню показывается кнопка Mini App.
     """
+    if getattr(bot, "_airradar_ui_handlers_registered", False):
+        logger.warning("UI-обработчики уже зарегистрированы; повторная регистрация пропущена")
+        return
+    bot._airradar_ui_handlers_registered = True
 
     def _is_admin(user_id: int) -> bool:
         return db.is_admin(user_id, admin_id)
