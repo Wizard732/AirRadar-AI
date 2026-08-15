@@ -89,6 +89,7 @@ class Settings:
 
     # URL Mini App (Web App). Пусто = кнопка Mini App не показывается.
     webapp_url: str = ""
+    map_webapp_url: str = ""
 
     # Правдивость: независимые группы источников и срок актуальности сообщения.
     source_groups: dict[str, str] = field(default_factory=dict)
@@ -145,6 +146,7 @@ def load_settings() -> Settings:
         digest_morning_hour=int(os.getenv("DIGEST_MORNING_HOUR", "8")),
         digest_evening_hour=int(os.getenv("DIGEST_EVENING_HOUR", "20")),
         webapp_url=os.getenv("WEBAPP_URL", ""),
+        map_webapp_url=os.getenv("MAP_WEBAPP_URL", ""),
         source_groups=parse_source_groups(os.getenv("SOURCE_GROUPS", "")),
         official_sources=frozenset(
             normalize_source(item) for item in _parse_channels(os.getenv("OFFICIAL_SOURCES", ""))

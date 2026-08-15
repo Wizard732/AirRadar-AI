@@ -114,7 +114,7 @@ async def run() -> None:
             settings.tg_api_id,
             settings.tg_api_hash,
         )
-        register_handlers(bot_client, db, settings.admin_id, settings.webapp_url)
+        register_handlers(bot_client, db, settings.admin_id, settings.webapp_url, settings.map_webapp_url)
         # Interests-модуль: команды /add_channel, /my_channels + кнопки тем.
         from interests_ui import register_interests_handlers
         register_interests_handlers(bot_client, db, settings.admin_id)

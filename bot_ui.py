@@ -85,14 +85,18 @@ def _main_menu_kb():
     ]
 
 
-def _main_menu_with_webapp(webapp_url: str):
+def _main_menu_with_webapp(webapp_url: str, map_webapp_url: str = ""):
     """Главное меню + кнопка-WebApp (Mini App открывается по URL).
 
     Telethon 1.44 не имеет Button.webapp — используем KeyboardButtonWebView
     напрямую (это и есть нативный тип Telegram для Web App кнопок).
     """
-    return [
-        [KeyboardButtonWebView(text="⚙️ Настройки (Mini App)", url=webapp_url)],
+    rows = []
+    if map_webapp_url:
+        rows.append([KeyboardButtonWebView(text="🗺 Live threat map", url=map_webapp_url)])
+    if webapp_url:
+        rows.append([KeyboardButtonWebView(text="⚙️ Settings (Mini App)", url=webapp_url)])
+    return rows + [
         [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
         [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
         [
@@ -281,7 +285,9 @@ def _region_eta_text(db: Database, slug: str) -> str:
 #  Регистрация обработчиков
 # =====================================================================
 
-def register_handlers(bot: TelegramClient, db: Database, admin_id: int, webapp_url: str = "") -> None:
+def register_handlers(
+    bot: TelegramClient, db: Database, admin_id: int, webapp_url: str = "", map_webapp_url: str = ""
+) -> None:
     """Навесить на bot-клиента обработчики /start и нажатий кнопок.
 
     admin_id: Telegram user id, которому разрешено меню.
@@ -296,7 +302,7 @@ def register_handlers(bot: TelegramClient, db: Database, admin_id: int, webapp_u
         return db.is_admin(user_id, admin_id)
 
     def _menu_kb():
-        return _main_menu_with_webapp(webapp_url) if webapp_url else _main_menu_kb()
+        return _main_menu_with_webapp(webapp_url, map_webapp_url) if (webapp_url or map_webapp_url) else _main_menu_kb()
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/start"))
     async def _start(event: events.NewMessage.Event) -> None:  # noqa: ANN001

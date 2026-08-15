@@ -754,7 +754,7 @@ class Database:
             with self._lock:
                 assert self._conn is not None
                 cur = self._conn.execute(
-                    "SELECT i.updated_ts AS ts, i.weapon_class AS type, i.region, i.status, "
+                    "SELECT i.updated_ts AS ts, i.weapon_class AS type, i.region, i.status, i.source_count, "
                     "(SELECT text FROM incident_evidence e WHERE e.incident_key=i.incident_key ORDER BY e.id DESC LIMIT 1) AS text "
                     "FROM incidents i WHERE i.updated_ts >= ? AND i.stage IN ('imminent', 'potential') "
                     "AND i.status IN ('corroborated', 'officially_confirmed') ORDER BY i.updated_ts DESC",

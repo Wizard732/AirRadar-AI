@@ -11,6 +11,7 @@ import asyncio
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
@@ -52,12 +53,14 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
                 "type": t["type"],
                 "region": t["region"],
                 "text": t["text"][:200],
-                "age_min": (now - t["ts"]) // 60,
+                "status": t.get("status", "corroborated"),
+                "sources": t.get("source_count", 2),
+                "age_min": max(0, (now - t["ts"]) // 60),
             })
         return web.json_response({"threats": result, "count": len(result)})
     except Exception as exc:  # noqa: BLE001
         logger.warning("API /api/threats error: %s", exc)
-        return web.json_response({"threats": [], "error": str(exc)})
+        return web.json_response({"threats": [], "error": "temporarily unavailable"}, status=503)
 
 
 async def _api_stats(request: web.Request) -> web.Response:  # noqa: ANN001
@@ -90,6 +93,8 @@ async def _serve_forever(port: int) -> None:
     app.router.add_get("/health", _health)
     app.router.add_get("/api/threats", _api_threats)
     app.router.add_get("/api/stats", _api_stats)
+    map_path = Path(__file__).with_name("miniapp") / "map.html"
+    app.router.add_get("/map", lambda request: web.FileResponse(map_path))
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
