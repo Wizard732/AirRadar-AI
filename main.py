@@ -372,7 +372,7 @@ async def _process_message(
     try:
         # 3) Classify before LLM: ordinary local news must never become a
         # fabricated weapon alert because a context-only filter matched it.
-        from analytics import _detect_stage, build_rich_alert
+        from analytics import _detect_stage
         from weapon_classes import classify_weapon
         weapon = classify_weapon(text)
         stage = _detect_stage(text, weapon)
@@ -405,14 +405,12 @@ async def _process_message(
             window_seconds=getattr(settings, "incident_window_seconds", 1200),
             confirmation_sources=getattr(settings, "confirmation_sources", 2),
         )
-        # 5) Build one evolving, source-grounded incident message.
-        summary_for_render = text if weapon in {"stand_down", "explosion", "air_defense"} or stage == "past" else summary
-        final_text = build_rich_alert(text, summary_for_render, source, db, confirmation)
-        count_kind, count_value = confirmation.get("count_kind"), confirmation.get("count_value")
-        if count_kind == "reported_total" and count_value is not None:
-            final_text += f"\n\n➕ Повідомлено ще; відомо щонайменше: {count_value}."
-        elif count_kind == "conflicting":
-            final_text += "\n\n⚪ Кількість у джерелах різниться; уточнюється."
+        # 5) Public alert is deterministic: only direct source facts and
+        # clearly labelled uncertainty, never model forecasts or archive risks.
+        from alert_renderer import render_evidence_alert
+        final_text = render_evidence_alert(
+            text=text, source=source, event_ts=event_ts, fact=fact, confirmation=confirmation
+        )
         publication = db.incident_publication(confirmation.get("key", ""))
         if publication and confirmation.get("material_update"):
             published = await publisher.edit(str(publication["published_chat_id"]), int(publication["published_message_id"]), final_text)
