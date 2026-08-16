@@ -55,11 +55,14 @@ async def sync_channel(client: TelegramClient, db: Database, channel: str, since
     entity = await client.get_entity(channel)
     source = str(getattr(entity, "username", None) or getattr(entity, "id", channel))
     last_id, _ = db.get_history_cursor(source)
-    reconcile_from = datetime.now(timezone.utc) - timedelta(days=reconcile_days)
-    reconcile_min_id = db.get_history_reconcile_min_id(source, int(reconcile_from.timestamp()))
-    # Telethon ID курсор надёжнее даты: offset_date исключает день и может пропустить
-    # позднюю публикацию. При ежедневном запуске заново читается короткое окно ID.
-    min_id = max(0, reconcile_min_id - 1) if reconcile_min_id else last_id
+    # A zero-day recovery run uses only the cursor. Daily reconciliation may
+    # intentionally replay a wider recent window to repair missed deliveries.
+    if reconcile_days:
+        reconcile_from = datetime.now(timezone.utc) - timedelta(days=reconcile_days)
+        reconcile_min_id = db.get_history_reconcile_min_id(source, int(reconcile_from.timestamp()))
+        min_id = max(0, reconcile_min_id - 1) if reconcile_min_id else last_id
+    else:
+        min_id = last_id
     if since is not None:
         min_id = 0
 
@@ -145,8 +148,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error("--limit должен быть положительным")
-    if args.reconcile_days < 1:
-        parser.error("--reconcile-days должен быть не меньше 1")
+    if args.reconcile_days < 0:
+        parser.error("--reconcile-days должен быть не меньше 0")
     asyncio.run(run(args))
 
 
