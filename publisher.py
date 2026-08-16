@@ -61,12 +61,12 @@ class Publisher:
             text = text[:TG_TEXT_LIMIT]
             logger.warning("Сообщение обрезано до %d символов перед отправкой.", TG_TEXT_LIMIT)
 
+        # Channel posts and LLM output are untrusted. Plain text prevents a
+        # broken `[` or `**` from making Telegram reject a real alert.
         payload = {
             "chat_id": self._target,
             "text": text,
-            "disable_web_page_preview": True,  # чистый вид без превью ссылок
-            # Markdown включён, т.к. заголовок из sticker.py содержит **bold**.
-            "parse_mode": "Markdown",
+            "disable_web_page_preview": True,
         }
 
         try:
@@ -124,7 +124,7 @@ class Publisher:
         if not message_id:
             return False
         payload = {"chat_id": chat_id, "message_id": message_id, "text": text[:TG_TEXT_LIMIT],
-                   "disable_web_page_preview": True, "parse_mode": "Markdown"}
+                   "disable_web_page_preview": True}
         try:
             session = await self._get_session()
             url = self._api_url.rsplit("/", 1)[0] + "/editMessageText"

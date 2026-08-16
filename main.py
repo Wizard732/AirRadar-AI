@@ -340,7 +340,7 @@ async def _process_message(
     message: Message = event.message
     text = (message.text or message.message or "").strip()
     # Если есть фото — распознаём текст с него (OCR, ТЗ 5.1) и объединяем с подписью.
-    if getattr(message, "photo", None) is not None and http_session is not None and groq_api_key:
+    if getattr(message, "photo", None) is not None and http_session is not None and groq_api_key and vision_model.strip():
         from media_ocr import extract_text_with_ocr
         text = await extract_text_with_ocr(
             event, http_session, groq_api_key, vision_model, timeout=settings.http_timeout

@@ -40,6 +40,9 @@ async def extract_text_with_ocr(
         return ""
 
     caption = (message.text or message.message or "").strip()
+    # Empty means OCR is intentionally disabled in configuration.
+    if not vision_model.strip():
+        return caption
 
     # Есть ли фото в сообщении?
     photo = getattr(message, "photo", None)
