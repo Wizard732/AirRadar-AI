@@ -114,7 +114,10 @@ async def run(args: argparse.Namespace) -> None:
     db = Database(settings.db_path)
     channels = [args.channel] if args.channel else settings.source_channels
     total = {"read": 0, "saved": 0, "skipped": 0, "unknown": 0}
-    client = TelegramClient(f"{settings.session_name}_history", settings.tg_api_id, settings.tg_api_hash)
+    # Reuse the authenticated live session. A systemd recovery job has no TTY
+    # to complete a separate *_history login, and Telegram permits another
+    # authenticated connection for the same account.
+    client = TelegramClient(settings.session_name, settings.tg_api_id, settings.tg_api_hash)
     await client.start()
     try:
         for channel in channels:
