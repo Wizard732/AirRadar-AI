@@ -177,7 +177,7 @@ def _stats_all_text(db: Database) -> str:
     week = now - 7 * 86400
 
     def render(since: float, label: str) -> str:
-        counts = db.threat_counts(region=None, since=since)
+        counts = db.confirmed_incident_counts(region=None, since=int(since))
         total = sum(counts.values())
         parts = [f"<b>{label}</b> (всего {total})"]
         for t, c in sorted(counts.items(), key=lambda x: -x[1]):
@@ -188,7 +188,7 @@ def _stats_all_text(db: Database) -> str:
     active_regions = ", ".join(region_name(r["region"]) for r in active[:10]) or "нет"
 
     return (
-        "📊 <b>Общая статистика</b>\n\n"
+        "📊 <b>Подтверждённые инциденты</b>\n\n"
         f"{render(day, 'За 24 часа')}\n\n"
         f"{render(week, 'За неделю')}\n\n"
         f"🔴 <b>Активные угрозы (30 мин):</b> {len(active)}\n"
@@ -217,7 +217,7 @@ def _region_stats_text(db: Database, slug: str) -> str:
     name = region_name(slug)
 
     def render(since: float, label: str) -> str:
-        counts = db.threat_counts(region=slug, since=since)
+        counts = db.confirmed_incident_counts(region=slug, since=int(since))
         total = sum(counts.values())
         if not total:
             return f"<b>{label}</b>: данных пока нет"
@@ -226,14 +226,11 @@ def _region_stats_text(db: Database, slug: str) -> str:
             parts.append(f"  {TYPE_LABELS.get(t, t)}: {c}")
         return "\n".join(parts)
 
-    avg = db.avg_alert_duration(slug)
-    if avg is not None:
-        mins = avg / 60
-        avg_str = f"~{mins:.0f} мин" if mins < 60 else f"~{mins / 60:.1f} ч"
-        avg_line = f"Средняя длительность тревоги: <b>{avg_str}</b>"
-    else:
-        avg_line = "Средняя длительность тревоги: недостаточно данных"
+    # Legacy alert intervals may come from old raw posts, so do not present
+    # their duration as a reliable prediction or operational fact.
+    avg_line = "Длительность тревог: показывается только по официальным данным"
 
+    db.expire_stale_alerts()
     is_active = slug in db.active_alert_regions()
     status = "🔴 Подтверждённая тревога активна" if is_active else "⚪ Нет активного статуса от источников бота"
 
@@ -259,20 +256,21 @@ def _region_hist_text(db: Database, slug: str) -> str:
 
 
 def _region_cons_text(db: Database, slug: str) -> str:
-    """Показать сообщения о взрывах как непроверенные сообщения, не как факт удара."""
+    """Show only corroborated/official impact evidence from the last day."""
     name = region_name(slug)
-    # Переиспользуем recent_threats, но фильтруем по типу explosion через отдельный запрос.
-    items = [t for t in db.recent_threats(slug, limit=10) if t["type"] == "explosion"]
+    items = db.confirmed_consequences(slug, since=int(time.time()) - 86400)
     if not items:
         return (
-            f"🔥 <b>{name}</b> — последствия\n\n"
-            "Сообщений о взрывах/прилётах пока нет.\n"
-            "Это сообщения источников, а не независимое подтверждение последствий."
+            f"🔥 <b>{name}</b> — підтверджені наслідки\n\n"
+            "Немає підтверджених повідомлень про наслідки за останні 24 години."
         )
-    lines = [f"🔥 <b>{name}</b> — сообщения о последствиях\n"]
-    for it in items[:5]:
+    lines = [f"🔥 <b>{name}</b> — підтверджені наслідки (24 год)\n"]
+    for it in items:
         when = time.strftime("%d.%m %H:%M", time.localtime(it["ts"]))
-        lines.append(f"💥 {when}\n   <i>{html.escape(it['text'][:70])}</i>")
+        lines.append(
+            f"💥 {when} · {it['source_count']} незалежних джерел\n"
+            f"   <i>{html.escape((it['text'] or '')[:160])}</i>"
+        )
     return "\n".join(lines)
 
 

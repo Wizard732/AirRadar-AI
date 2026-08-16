@@ -765,6 +765,61 @@ class Database:
             logger.warning("Не удалось прочитать активные угрозы: %s", exc)
             return []
 
+    def confirmed_incident_counts(self, region: str | None = None, since: int = 0) -> dict[str, int]:
+        """Count unique corroborated/official incidents, never raw channel posts."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                query = (
+                    "SELECT weapon_class, COUNT(*) c FROM incidents WHERE updated_ts>=? "
+                    "AND status IN ('corroborated', 'officially_confirmed') "
+                    "AND state='open' AND stage IN ('imminent', 'potential')"
+                )
+                params: list[Any] = [since]
+                if region:
+                    query += " AND region=?"
+                    params.append(region)
+                query += " GROUP BY weapon_class"
+                rows = self._conn.execute(query, params).fetchall()
+                return {row["weapon_class"]: row["c"] for row in rows}
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать подтверждённые инциденты: %s", exc)
+            return {}
+
+    def confirmed_consequences(self, region: str, limit: int = 5, since: int = 0) -> list[dict[str, Any]]:
+        """Return only corroborated/official impact reports with raw evidence."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT i.updated_ts AS ts, i.weapon_class AS type, i.source_count, i.status, "
+                    "(SELECT text FROM incident_evidence e WHERE e.incident_key=i.incident_key ORDER BY e.id DESC LIMIT 1) AS text "
+                    "FROM incidents i WHERE i.region=? AND i.updated_ts>=? AND i.stage='past' "
+                    "AND i.status IN ('corroborated', 'officially_confirmed') AND i.state='open' "
+                    "ORDER BY i.updated_ts DESC LIMIT ?",
+                    (region, since, limit),
+                ).fetchall()
+                return [dict(row) for row in rows]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать подтверждённые последствия: %s", exc)
+            return []
+
+    def expire_stale_alerts(self, max_age_seconds: int = 6 * 3600) -> int:
+        """Close only stale local alert records; no claim of an official all-clear."""
+        try:
+            now = int(time.time())
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "UPDATE alerts SET ended_ts=? WHERE ended_ts IS NULL AND started_ts<?",
+                    (now, now - max_age_seconds),
+                )
+                self._conn.commit()
+                return cur.rowcount
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось закрыть устаревшие тревоги: %s", exc)
+            return 0
+
     def avg_alert_duration(self, region: str) -> float | None:
         """Средняя длительность тревоги в регионе (сек), или None если данных мало."""
         try:

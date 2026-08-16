@@ -1,0 +1,11 @@
+[Unit]
+Description=Run AirRadar recent recovery synchronization every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=airradar-history-sync-5min.service
+
+[Install]
+WantedBy=timers.target
