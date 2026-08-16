@@ -7,4 +7,4 @@ After=network-online.target
 Type=oneshot
 WorkingDirectory=/root/AirRadar-AI
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/flock -n /tmp/airradar-history-sync.lock /root/AirRadar-AI/.venv/bin/python sync_history.py --reconcile-days 0
+ExecStart=/usr/bin/flock -n /tmp/airradar-history-sync.lock /root/AirRadar-AI/.venv/bin/python sync_history.py --reconcile-days 1 --limit 500
