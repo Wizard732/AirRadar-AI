@@ -130,7 +130,9 @@ def build_rich_alert(
         lines.append("")
         lines.append(casualties)
 
-    if regions and weapon != "stand_down":
+    # Archive statistics are useful only for a corroborated active class, not
+    # for a single unclassified report that could be ordinary local news.
+    if is_confirmed and stage == "imminent" and regions and weapon not in {"stand_down", "unknown"}:
         region = regions[0]
         analysis = _build_analysis(db, region, weapon)
         if analysis:

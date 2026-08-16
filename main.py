@@ -370,19 +370,25 @@ async def _process_message(
     db.channel_seen(source, "military")
 
     try:
-        # 3) Сжатие через LLM (fallback на оригинал — внутри summarizer).
-        summary = await summarizer.summarize(text)
+        # 3) Classify before LLM: ordinary local news must never become a
+        # fabricated weapon alert because a context-only filter matched it.
+        from analytics import _detect_stage, build_rich_alert
+        from weapon_classes import classify_weapon
+        weapon = classify_weapon(text)
+        stage = _detect_stage(text, weapon)
         event_ts = int(getattr(message, "date", None).timestamp()) if getattr(message, "date", None) else int(time.time())
+        if weapon == "unknown":
+            logger.info("Неклассифицированный пост пропущен: %s", text[:80])
+            db.record_inference_audit(event_ts=event_ts, source=source, model=getattr(summarizer, "_model", "unknown"), raw_output="", decision="rejected", reason="unknown_weapon")
+            return
+        # 4) Сжатие через LLM только для уже распознанной угрозы.
+        summary = await summarizer.summarize(text)
         if is_ignored_summary(summary):
             db.record_inference_audit(event_ts=event_ts, source=source, model=getattr(summarizer, "_model", "unknown"), raw_output=summary, decision="ignored")
             logger.info("Неподтверждённый звуковой пост пропущен: %s", text[:80])
             return
         db.record_inference_audit(event_ts=event_ts, source=source, model=getattr(summarizer, "_model", "unknown"), raw_output=summary, decision="accepted")
-        # 4) Один канонический класс для публикации, БД и прогнозов.
-        from analytics import _detect_stage, build_rich_alert
-        from weapon_classes import classify_weapon
-        weapon = classify_weapon(text)
-        stage = _detect_stage(text, weapon)
+        # 5) One canonical class for publication, storage and forecasts.
         # Старый журнал ожидает ограниченный набор типов. Маппинг от
         # канонического класса не даёт двум разным классификаторам спорить.
         threat_type = {

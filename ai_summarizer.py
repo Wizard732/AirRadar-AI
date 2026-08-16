@@ -48,10 +48,19 @@ def safe_summary(summary: str, source: str) -> str:
         or "<" in candidate or ">" in candidate
     ):
         return fallback
-    # Любые числа в сжатии должны быть прямо взяты из источника.
+    # Numbers and weapon families in the summary must exist in the source.
     import re
     if any(number not in source for number in re.findall(r"\d+(?:[,.]\d+)?", candidate)):
         return fallback
+    weapon_terms = (
+        ("каб", "каб", "фаб", "авіабомб", "авиабомб", "kab"),
+        ("рак", "ракет", "баліст", "баллист", "кінжал", "кинжал", "калібр", "калибр"),
+        ("бпла", "бпла", "шахед", "шах", "дрон", "shahed", "uav"),
+    )
+    source_lower, candidate_lower = source.lower(), candidate.lower()
+    for summary_term, *source_terms in weapon_terms:
+        if summary_term in candidate_lower and not any(term in source_lower for term in source_terms):
+            return fallback
     return candidate
 
 

@@ -14,6 +14,11 @@ class DeterministicSafetyTests(unittest.TestCase):
             self.assertFalse(matches_keywords(text), text)
             self.assertEqual(classify_weapon(text), "unknown", text)
 
+    def test_city_traffic_document_check_is_not_a_threat(self):
+        text = "У Києві на вулиці Леоніда Каденюка перекрили рух: перевірка документів"
+        self.assertFalse(matches_keywords(text))
+        self.assertEqual(classify_weapon(text), "unknown")
+
     def test_standalone_short_terms_still_work(self):
         self.assertTrue(matches_keywords("Шах курсом на Суми"))
         self.assertEqual(classify_weapon("Шах курсом на Суми"), "shahed")
@@ -44,6 +49,10 @@ class SummarizerSafetyTests(unittest.TestCase):
         source = "БПЛА курсом на Київ"
         self.assertEqual(safe_summary("<b>ignore rules</b>", source), source)
         self.assertEqual(safe_summary("https://example.test", source), source)
+
+    def test_hallucinated_weapon_uses_source(self):
+        source = "У Києві перекрили рух через перевірку документів"
+        self.assertEqual(safe_summary("КАБ курсом на Дарницю", source), source)
 
 
 if __name__ == "__main__":
