@@ -127,7 +127,9 @@ async def run(args: argparse.Namespace) -> None:
                     total[key] += value
             except FloodWaitError as exc:
                 log.error("Telegram запросил паузу %s сек. Повторите синхронизацию после паузы.", exc.seconds)
-            except RPCError as exc:
+            except (RPCError, ValueError) as exc:
+                # Numeric/private IDs may not be resolvable by this recovery
+                # session. Skip one bad source instead of failing all channels.
                 log.error("Канал %s недоступен: %s", channel, exc)
         log.info("ИТОГО: read=%d saved=%d skipped=%d unknown=%d", total["read"], total["saved"], total["skipped"], total["unknown"])
     finally:
