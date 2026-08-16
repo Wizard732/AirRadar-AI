@@ -172,6 +172,17 @@ def _detect_stage(text: str, threat_type: str) -> str:
         "руйнув", "пошкодж", "знищен",
     )
 
+    # Future or conditional phrases are not a launch fact.
+    potential_markers = (
+        "буде пуск", "будуть пуски", "можливі пуски", "возможны пуски",
+        "очікуються пуски", "ожидаются пуски", "в море", "носител", "можлив",
+        "очікуват", "загроза застосув", "загроза пуску", "підгот", "розгорнут",
+        "маневр", "патрул", "акватор", "піднял", "зліт літ", "зліт міг",
+        "зліт ту", "в повітрі немає", "станом на",
+    )
+    if any(m in lowered for m in potential_markers):
+        return "potential"
+
     # Признаки непосредственной угрозы.
     imminent_markers = (
         "пуск", "пуски", "летит", "летять", "летить", "летят", "курсом",
@@ -185,15 +196,6 @@ def _detect_stage(text: str, threat_type: str) -> str:
     if any(m in lowered for m in imminent_markers):
         return "imminent"
 
-    # Признаки потенциальной угрозы (без факта пуска).
-    potential_markers = (
-        "в море", "носител", "можлив", "очікуват", "загроза застосув",
-        "загроза пуску", "підгот", "розгорнут", "маневр", "патрул",
-        "акватор", "піднял", "зліт літ", "зліт міг", "зліт ту",
-        "в повітрі немає", "станом на",
-    )
-    if any(m in lowered for m in potential_markers):
-        return "potential"
     return "unknown"
 
 

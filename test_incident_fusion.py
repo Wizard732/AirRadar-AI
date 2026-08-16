@@ -16,6 +16,16 @@ class IncidentFusionTests(unittest.TestCase):
         self.db.close()
         os.unlink(self.file.name)
 
+    def test_aircraft_designation_is_not_a_count(self):
+        fact = extract_incident_fact("Активність Су-34/35", "tac_aviation", "potential")
+        self.assertEqual(fact.count_kind, "unspecified")
+        self.assertIsNone(fact.count_value)
+
+    def test_explicit_uav_count_is_extracted(self):
+        fact = extract_incident_fact("34 БпЛА на Київ", "uav", "imminent")
+        self.assertEqual(fact.count_kind, "exact")
+        self.assertEqual(fact.count_value, 34)
+
     def test_destination_is_preferred_over_origin(self):
         fact = extract_incident_fact("БПЛА з Сум у напрямку Києва", "uav", "imminent")
         self.assertEqual(fact.origin_region, "sumska")

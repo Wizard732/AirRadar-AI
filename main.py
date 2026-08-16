@@ -405,7 +405,14 @@ async def _process_message(
             window_seconds=getattr(settings, "incident_window_seconds", 1200),
             confirmation_sources=getattr(settings, "confirmation_sources", 2),
         )
-        # 5) Public alert is deterministic: only direct source facts and
+        # 5) Keep weak/predictive reports as internal evidence. Public alerts
+        # require an active, recognised incident corroborated independently.
+        public_status = confirmation.get("status") in {"corroborated", "officially_confirmed"}
+        public_class = weapon not in {"aviation", "tac_aviation", "strat_aviation", "alert"}
+        if stage != "imminent" or not public_status or not public_class:
+            logger.info("Неподтверждённый/потенциальный пост не опубликован: %s", text[:80])
+            return
+        # Public alert is deterministic: only direct source facts and
         # clearly labelled uncertainty, never model forecasts or archive risks.
         from alert_renderer import render_evidence_alert
         final_text = render_evidence_alert(

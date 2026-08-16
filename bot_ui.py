@@ -182,7 +182,7 @@ def _stats_all_text(db: Database) -> str:
         parts = [f"<b>{label}</b> (всего {total})"]
         for t, c in sorted(counts.items(), key=lambda x: -x[1]):
             parts.append(f"  {TYPE_LABELS.get(t, t)}: {c}")
-        return "\n".join(parts) if total else f"<b>{label}</b>: данных пока нет"
+        return "\n".join(parts) if total else f"<b>{label}</b>: підтверджених інцидентів не зафіксовано"
 
     active = db.active_threats(within_seconds=1800)
     active_regions = ", ".join(region_name(r["region"]) for r in active[:10]) or "нет"
@@ -220,7 +220,7 @@ def _region_stats_text(db: Database, slug: str) -> str:
         counts = db.confirmed_incident_counts(region=slug, since=int(since))
         total = sum(counts.values())
         if not total:
-            return f"<b>{label}</b>: данных пока нет"
+            return f"<b>{label}</b>: підтверджених інцидентів не зафіксовано"
         parts = [f"<b>{label}</b> (всего {total})"]
         for t, c in sorted(counts.items(), key=lambda x: -x[1]):
             parts.append(f"  {TYPE_LABELS.get(t, t)}: {c}")
@@ -239,7 +239,8 @@ def _region_stats_text(db: Database, slug: str) -> str:
         f"{render(day, 'За 24 часа')}\n\n"
         f"{render(week, 'За неделю')}\n\n"
         f"{avg_line}\n"
-        f"Статус: {status}"
+        f"Статус: {status}\n"
+        "Показано лише інциденти, підтверджені незалежними або офіційними джерелами."
     )
 
 

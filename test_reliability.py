@@ -30,6 +30,10 @@ class DeterministicSafetyTests(unittest.TestCase):
             "stand_down",
         )
 
+    def test_future_launch_is_potential_not_active(self):
+        self.assertEqual(_detect_stage("Будуть пуски ракет", "cruise_missile"), "potential")
+        self.assertEqual(_detect_stage("Зафіксовано пуски ракет", "cruise_missile"), "imminent")
+
     def test_completed_impact_is_not_imminent(self):
         self.assertEqual(
             _detect_stage("Ракета прилетіла, є пошкодження", "cruise_missile"),

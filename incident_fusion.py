@@ -28,11 +28,18 @@ class IncidentFact:
 
 
 def _number(text: str) -> int | None:
-    match = re.search(r"(?<!\w)(\d{1,3})(?!\w)", text)
+    """Extract a count only when a number explicitly counts a threat object."""
+    objects = r"(?:бпла|дрон(?:ів|и|а)?|шахед(?:ів|и|а)?|ракет(?:а|и|и)?|ціл(?:ь|і|ей))"
+    match = re.search(rf"(?<!\w)(\d{{1,3}})\s+{objects}(?!\w)", text, re.IGNORECASE)
     if match:
         return int(match.group(1))
+    # Elliptical updates such as «ще 2 на Київ» may omit the object, but
+    # explicit additive language prevents model/designation numbers matching.
+    delta = re.search(r"\b(?:ще|ещё|додатково|another|more)\s+(\d{1,3})(?!\w)", text, re.IGNORECASE)
+    if delta:
+        return int(delta.group(1))
     for word, value in _NUMBER_WORDS.items():
-        if re.search(rf"(?<!\w){re.escape(word)}(?!\w)", text):
+        if re.search(rf"(?<!\w){re.escape(word)}\s+{objects}(?!\w)", text, re.IGNORECASE):
             return value
     return None
 
