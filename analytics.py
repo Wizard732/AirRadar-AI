@@ -172,11 +172,20 @@ def _detect_stage(text: str, threat_type: str) -> str:
         "руйнув", "пошкодж", "знищен",
     )
 
+    # Monitoring channels use fixed formulas to warn of an active ballistic
+    # or KAB threat; those are immediate warnings, not forecasts.
+    imminent_formulas = (
+        "загроза застосуван", "загроза балістики", "загроза баллистики",
+        "загроза каб", "загроза ракет",
+    )
+    if any(m in lowered for m in imminent_formulas):
+        return "imminent"
+
     # Future or conditional phrases are not a launch fact.
     potential_markers = (
         "буде пуск", "будуть пуски", "можливі пуски", "возможны пуски",
-        "очікуються пуски", "ожидаются пуски", "в море", "носител", "можлив",
-        "очікуват", "загроза застосув", "загроза пуску", "підгот", "розгорнут",
+        "очікуються пуски", "ожидаются пуски", "загроза пуску", "в море",
+        "носител", "можлив", "очікуват", "підгот", "розгорнут",
         "маневр", "патрул", "акватор", "піднял", "зліт літ", "зліт міг",
         "зліт ту", "в повітрі немає", "станом на",
     )
