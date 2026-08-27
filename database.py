@@ -45,7 +45,11 @@ class Database:
     #  Подключение и схема
     # ------------------------------------------------------------------
     def _connect(self) -> None:
-        self._conn = sqlite3.connect(self._path, check_same_thread=False)
+        # WAL + busy timeout keep the live bot and the five-minute recovery
+        # sync from failing each other with "database is locked".
+        self._conn = sqlite3.connect(self._path, check_same_thread=False, timeout=30)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA busy_timeout=30000")
         self._conn.row_factory = sqlite3.Row
 
     def _init_schema(self) -> None:

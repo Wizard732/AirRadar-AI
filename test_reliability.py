@@ -34,6 +34,12 @@ class DeterministicSafetyTests(unittest.TestCase):
         self.assertEqual(_detect_stage("Будуть пуски ракет", "cruise_missile"), "potential")
         self.assertEqual(_detect_stage("Зафіксовано пуски ракет", "cruise_missile"), "imminent")
 
+    def test_single_source_active_uav_is_publishable_class(self):
+        # Publication gating keeps only recognized active threats; the alert
+        # text itself labels single-source status.
+        text = "1 реактивний БпЛА на Берестин"
+        self.assertNotEqual(classify_weapon(text), "unknown")
+
     def test_completed_impact_is_not_imminent(self):
         self.assertEqual(
             _detect_stage("Ракета прилетіла, є пошкодження", "cruise_missile"),
