@@ -47,6 +47,9 @@ class DeterministicSafetyTests(unittest.TestCase):
         # text itself labels single-source status.
         text = "1 реактивний БпЛА на Берестин"
         self.assertNotEqual(classify_weapon(text), "unknown")
+        # Fast posts often omit motion verbs, so the stage stays unknown but
+        # the class is recognized and must remain publishable.
+        self.assertEqual(_detect_stage(text, "uav"), "unknown")
 
     def test_completed_impact_is_not_imminent(self):
         self.assertEqual(

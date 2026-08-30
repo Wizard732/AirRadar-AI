@@ -358,6 +358,7 @@ def register_handlers(
 
             elif data.startswith(CB_REGION_SELECT):
                 slug = data[len(CB_REGION_SELECT):]
+                await event.answer()
                 if slug in REGIONS:
                     sub = db.is_subscribed(event.sender_id, slug)
                     await _safe_edit(_region_menu_text(slug), _region_menu_kb(slug, sub))

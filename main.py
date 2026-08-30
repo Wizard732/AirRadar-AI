@@ -406,10 +406,13 @@ async def _process_message(
             confirmation_sources=getattr(settings, "confirmation_sources", 2),
         )
         # 5) Publish active recognised threats immediately; a single source is
-        # allowed and clearly labelled in the alert. Predictive or generic
-        # aviation/alert noise stays internal.
+        # allowed and clearly labelled in the alert. Fast monitoring posts
+        # like «3 БпЛА на Путивль» have no motion verb, so stage "unknown"
+        # is still actionable. Predictive or generic aviation noise stays
+        # internal, while all-clear must always reach the channel.
         public_class = weapon not in {"aviation", "tac_aviation", "strat_aviation", "alert"}
-        if stage != "imminent" or not public_class:
+        publishable = weapon == "stand_down" or (stage in {"imminent", "unknown"} and public_class)
+        if not publishable:
             logger.info("Неподтверждённый/потенциальный пост не опубликован: %s", text[:80])
             return
         # Public alert is deterministic: only direct source facts and
