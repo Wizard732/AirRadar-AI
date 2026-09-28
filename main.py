@@ -487,16 +487,13 @@ async def _process_message(
         # internal, while all-clear must always reach the channel.
         public_class = weapon not in {"aviation", "tac_aviation", "strat_aviation", "alert"}
         publishable = weapon == "stand_down" or (stage in {"imminent", "unknown"} and public_class)
+        # Непубликуемое (последствия удара, ППО, авиация) НЕ прерывает
+        # конвейер ранним return: журнал БД ниже обязан зафиксировать
+        # impact-событие, иначе ETA и статистика региона не получают
+        # пары пуск→прилёт. Публикация при этом по-прежнему закрыта.
         if not publishable:
             logger.info("Неподтверждённый/потенциальный пост не опубликован: %s", text[:80])
-            return
-        # Public alert is deterministic: only direct source facts and
-        # clearly labelled uncertainty, never model forecasts or archive risks.
-        # Публикация идёт через агрегатор: сообщения одного инцидента
-        # (регион+оружие) в окне склеиваются в один пост. Критичные классы,
-        # отбой и материальные обновления уходят мгновенно (байпас).
-        # DB-логирование ниже остаётся per-message.
-        if aggregator is not None:
+        elif aggregator is not None:
             await aggregator.submit(
                 PendingAlert(
                     text=text, source=source, event_ts=event_ts, fact=fact,
@@ -541,6 +538,7 @@ async def _process_message(
                 region=slug,
                 text=summary,
                 source=str(source),
+                event_ts=event_ts,
             )
         # 6б) Извлечение сущностей (город/объект/последствия/оружие/ППО) —
         #     для детальной статистики. Только не-отбой.

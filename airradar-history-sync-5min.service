@@ -5,7 +5,7 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/root/AirRadar-AI
+WorkingDirectory=/opt/airradar
 Environment=PYTHONUNBUFFERED=1
-ExecStartPre=/bin/cp /root/AirRadar-AI/airradar.session /tmp/airradar_history.session
-ExecStart=/usr/bin/flock -n /tmp/airradar-history-sync.lock /root/AirRadar-AI/.venv/bin/python sync_history.py --reconcile-days 0 --limit 100
+ExecStartPre=/bin/cp /opt/airradar/airradar.session /tmp/airradar_history.session
+ExecStart=/usr/bin/flock -n /tmp/airradar-history-sync.lock /opt/airradar/.venv/bin/python sync_history.py --reconcile-days 0 --limit 100

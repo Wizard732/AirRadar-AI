@@ -24,7 +24,7 @@ from telethon import Button, TelegramClient, events
 from telethon.errors import MessageNotModifiedError
 
 from database import Database
-from eta import estimate_eta, format_eta
+from eta import build_eta_text
 from regions import (
     REGIONS,
     ZONE_NAMES,
@@ -354,8 +354,8 @@ def _region_cons_text(db: Database, slug: str) -> str:
 
 
 def _region_eta_text(db: Database, slug: str) -> str:
-    est = estimate_eta(db, slug)
-    return format_eta(est, region_name(slug))
+    # Каскад: пары threats → события threat_events → риск прилёта → справка.
+    return build_eta_text(db, slug, region_name(slug))
 
 
 def _city_results_kb(matches: list[str]) -> list:
