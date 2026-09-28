@@ -3,17 +3,20 @@
 Главное меню Interests:
   📰 Темы → список 15 тем, кнопки подписки (🔔/🔕)
   📡 Мои каналы → список добавленных user-каналов
-  ➕ Добавить канал — подсказка про команду /add_channel
+  🔍 Мои интересы → свободные интересы (семантический поиск)
   🏠 Главное меню — возврат к выбору модуля
 
 Команды (текстом):
   /add_channel @username — подписать аккаунт на канал для парсинга
   /my_channels — список каналов
+  /del_channel @username — удалить канал
 """
 
 from __future__ import annotations
 
+import html
 import logging
+import re
 
 from telethon import Button, TelegramClient, events
 from telethon.errors import MessageNotModifiedError
@@ -30,6 +33,24 @@ CB_INT_TOPIC_TOGGLE = "itt:"  # подписка на тему: itt:crypto
 CB_INT_CHANNELS = "ic:"    # мои каналы
 
 PAGE_SIZE = 8
+
+# Валидное имя канала: буква в начале, 4–64 символа [A-Za-z0-9_].
+_CHANNEL_RE = re.compile(r"^@?[A-Za-z][A-Za-z0-9_]{3,63}$")
+
+
+def normalize_channel(raw: str) -> str | None:
+    """Привести ввод канала к '@username' или вернуть None, если невалидно.
+
+    Принимает: @username, username, https://t.me/username, t.me/username.
+    """
+    value = (raw or "").strip()
+    # Ссылки t.me / telegram.me (с схемой и без).
+    link = re.match(r"^(?:https?://)?t(?:elegram)?\.me/([A-Za-z][A-Za-z0-9_]{3,63})/?$", value, re.IGNORECASE)
+    if link:
+        return "@" + link.group(1)
+    if _CHANNEL_RE.match(value):
+        return value if value.startswith("@") else "@" + value
+    return None
 
 
 def _interests_main_kb() -> list:
@@ -90,7 +111,7 @@ def _channels_text(channels: list[str]) -> str:
         )
     lines = ["📡 <b>Мои каналы</b>\n"]
     for ch in channels:
-        lines.append(f"• <code>{ch}</code>")
+        lines.append(f"• <code>{ch}</code> — удалить: <code>/del_channel {ch}</code>")
     lines.append("\nДобавить ещё: <code>/add_channel @username</code>")
     return "\n".join(lines)
 
@@ -140,15 +161,59 @@ def register_interests_handlers(bot: TelegramClient, db: Database, admin_id: int
         lines.append("/del_interest … — удалить")
         await event.respond("\n".join(lines), parse_mode="html")
 
-    @bot.on(events.NewMessage(incoming=True, pattern=r"^/add_channel\s+(\S+)"))
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/add_channel(?:\s+(.+))?$"))
     async def _add_channel(event) -> None:  # noqa: ANN001
         if not _is_admin(event.sender_id):
             return
-        channel = event.pattern_match.group(1).strip()
+        raw = (event.pattern_match.group(1) or "").strip()
+        if not raw:
+            await event.respond(
+                "📡 <b>Добавление канала</b>\n\n"
+                "Формат: <code>/add_channel @username</code>\n"
+                "Принимаются также <code>t.me/username</code> и просто <code>username</code>.",
+                parse_mode="html",
+            )
+            return
+        channel = normalize_channel(raw)
+        if channel is None:
+            await event.respond(
+                f"⚠️ <code>{html.escape(raw)}</code> не похоже на имя канала.\n"
+                "Правильно: <code>/add_channel @username</code> "
+                "(только латиница, цифры и _; публичный канал).",
+                parse_mode="html",
+            )
+            return
+        if channel in db.user_channels(event.sender_id):
+            await event.respond(
+                f"ℹ️ Канал <code>{channel}</code> уже добавлен.",
+                parse_mode="html",
+            )
+            return
         db.add_user_channel(event.sender_id, channel)
         await event.respond(
-            f"✅ Канал <code>{channel}</code> добавлен. Бот начнёт анализировать его посты.",
+            f"✅ Канал <code>{channel}</code> добавлен. Посты начнут приходить, "
+            f"когда бот-аккаунт увидит канал (обычно сразу; максимум — пару минут).\n"
+            f"Удалить: <code>/del_channel {channel}</code>",
             parse_mode="html",
+        )
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/del_channel\s+(\S+)"))
+    async def _del_channel(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        raw = event.pattern_match.group(1).strip()
+        channel = normalize_channel(raw)
+        channels = db.user_channels(event.sender_id)
+        target = channel if channel in channels else raw
+        if target not in channels:
+            await event.respond(
+                f"ℹ️ Канала <code>{html.escape(raw)}</code> нет в твоём списке.",
+                parse_mode="html",
+            )
+            return
+        db.remove_user_channel(event.sender_id, target)
+        await event.respond(
+            f"🗑 Канал <code>{target}</code> удалён.", parse_mode="html"
         )
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/my_channels"))

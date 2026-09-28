@@ -22,11 +22,30 @@ import time
 
 from telethon import Button, TelegramClient, events
 from telethon.errors import MessageNotModifiedError
-from telethon.tl.types import KeyboardButtonWebView
 
 from database import Database
 from eta import estimate_eta, format_eta
-from regions import REGIONS, all_region_slugs, region_name
+from regions import (
+    REGIONS,
+    ZONE_NAMES,
+    all_region_slugs,
+    find_regions_by_text,
+    region_name,
+)
+
+
+def _webapp_button(text: str, url: str):
+    """Кнопка-WebApp, совместимая с telethon 1.36–1.44 и 1.45+.
+
+    В 1.45 схема TL переехала на единый KeyboardInlineButton с
+    InlineButtonTypeWebView, а старый KeyboardButtonWebView исчез.
+    """
+    try:
+        from telethon.tl.types import KeyboardButtonWebView  # telethon < 1.45
+        return KeyboardButtonWebView(text=text, url=url)
+    except ImportError:
+        from telethon.tl.types import InlineButtonTypeWebView, KeyboardInlineButton
+        return KeyboardInlineButton(text, InlineButtonTypeWebView(url))
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +60,8 @@ CB_REGION_ETA = "ret:"   # ETA региона: ret:kyivska
 CB_REGION_HIST = "rhi:"  # история ударов региона: rhi:kyivska
 CB_REGION_CONS = "rco:"  # последствия региона: rco:kyivska
 CB_REGION_SUB = "rsb:"   # подписка на регион: rsb:kyivska
+CB_ZONE_SUB = "zsb:"     # подписка на берег Киева: zsb:kyiv_left / zsb:kyiv_right
+CB_MY_SUBS = "mysubs"    # мои подписки (регионы + берега Киева)
 CB_MAIN = "main"         # главное меню
 CB_STATS_ALL = "sall"    # общая статистика
 CB_ACTIVE = "active"     # текущие угрозы
@@ -76,6 +97,7 @@ CB_INTERESTS = "interests"  # переход в Interests-модуль
 def _main_menu_kb():
     return [
         [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
+        [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS)],
         [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
         [
             Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
@@ -86,18 +108,15 @@ def _main_menu_kb():
 
 
 def _main_menu_with_webapp(webapp_url: str, map_webapp_url: str = ""):
-    """Главное меню + кнопка-WebApp (Mini App открывается по URL).
-
-    Telethon 1.44 не имеет Button.webapp — используем KeyboardButtonWebView
-    напрямую (это и есть нативный тип Telegram для Web App кнопок).
-    """
+    """Главное меню + кнопка-WebApp (Mini App открывается по URL)."""
     rows = []
     if map_webapp_url:
-        rows.append([KeyboardButtonWebView(text="🗺 Live threat map", url=map_webapp_url)])
+        rows.append([_webapp_button("🗺 Live threat map", map_webapp_url)])
     if webapp_url:
-        rows.append([KeyboardButtonWebView(text="⚙️ Settings (Mini App)", url=webapp_url)])
+        rows.append([_webapp_button("⚙️ Settings (Mini App)", webapp_url)])
     return rows + [
         [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
+        [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS)],
         [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
         [
             Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
@@ -133,12 +152,29 @@ def _regions_kb(page: int):
     return rows
 
 
-def _region_menu_kb(slug: str, subscribed: bool = False):
-    """Меню конкретного региона. Кнопка подписки меняется в зависимости от статуса."""
-    sub_btn = Button.inline(
-        "🔕 Отписаться" if subscribed else "🔔 Подписаться",
-        data=CB_REGION_SUB + slug,
-    )
+def _region_menu_kb(slug: str, subscribed: bool = False, zones: tuple[bool, bool] | None = None):
+    """Меню конкретного региона. Кнопка подписки меняется в зависимости от статуса.
+
+    Для Киева (kyivska) вместо одной кнопки — две кнопки-берега
+    (лівий/правий) с toggle и ✅ если подписан. zones = (лівий, правий).
+    """
+    if slug == "kyivska":
+        left, right = zones or (False, False)
+        sub_row = [
+            Button.inline(
+                ("✅ " if left else "🔔 ") + "Лівий берег",
+                data=CB_ZONE_SUB + "kyiv_left",
+            ),
+            Button.inline(
+                ("✅ " if right else "🔔 ") + "Правий берег",
+                data=CB_ZONE_SUB + "kyiv_right",
+            ),
+        ]
+    else:
+        sub_row = [Button.inline(
+            "🔕 Отписаться" if subscribed else "🔔 Подписаться",
+            data=CB_REGION_SUB + slug,
+        )]
     return [
         [
             Button.inline("📊 Статистика тревог", data=CB_REGION_STATS + slug),
@@ -148,7 +184,7 @@ def _region_menu_kb(slug: str, subscribed: bool = False):
             Button.inline("💥 История ударов", data=CB_REGION_HIST + slug),
             Button.inline("🔥 Последствия", data=CB_REGION_CONS + slug),
         ],
-        [sub_btn],
+        sub_row,
         [Button.inline("◀️ К списку областей", data=CB_REGION_PAGE + "0")],
         [Button.inline("🏠 Главное меню", data=CB_MAIN)],
     ]
@@ -162,11 +198,47 @@ def _main_text() -> str:
     return (
         "📍 <b>AirRadar AI — главное меню</b>\n\n"
         "Выбери раздел кнопками ниже. Здесь доступна статистика угроз, "
-        "ETA (время прилёта) и история ударов по областям Украины."
+        "ETA (время прилёта) и история ударов по областям Украины.\n\n"
+        "💡 Чтобы получать алерты в ЛС: <b>Военные алерты</b> → область → "
+        "🔔 Подписаться. Или команда <code>/city &lt;город&gt;</code>."
     )
 
 
+def _my_subs_text(subs: list[str]) -> str:
+    if not subs:
+        return (
+            "🔔 <b>Мої підписки</b>\n\n"
+            "Пока пусто. Открой <b>Военные алерты</b> → выбери область → "
+            "🔔 Подписаться, и алерты этого региона будут приходить в ЛС.\n\n"
+            "Для Киева подписка — по берегам: <code>/city Дарниця</code>."
+        )
+    lines = ["🔔 <b>Мої підписки</b>\n", "Алерты этих регионов приходят в ЛС:\n"]
+    for slug in subs:
+        lines.append(f"• {region_name(slug)}")
+    lines.append("\nНажми на регион, чтобы открыть его меню (подписка/отписка).")
+    return "\n".join(lines)
+
+
+def _my_subs_kb(subs: list[str]) -> list:
+    """Кнопки подписанных регионов (2 в ряд) + возврат в меню."""
+    rows = []
+    for i in range(0, len(subs), 2):
+        rows.append([
+            Button.inline(region_name(slug), data=CB_REGION_SELECT + slug)
+            for slug in subs[i : i + 2]
+        ])
+    rows.append([Button.inline("➕ Добавить область", data=CB_REGION_PAGE + "0")])
+    rows.append([Button.inline("🏠 Главное меню", data=CB_MAIN)])
+    return rows
+
+
 def _region_menu_text(slug: str) -> str:
+    if slug == "kyivska":
+        return (
+            f"📍 <b>{region_name(slug)}</b>\n\n"
+            "Выбери, что показать. Подписка — по берегам Днепра "
+            "(Лівий/Правий), алерты Киева приходят в ЛС по выбранному берегу."
+        )
     return f"📍 <b>{region_name(slug)}</b>\n\nВыбери, что показать:"
 
 
@@ -280,6 +352,19 @@ def _region_eta_text(db: Database, slug: str) -> str:
     return format_eta(est, region_name(slug))
 
 
+def _city_results_kb(matches: list[str]) -> list:
+    """Кнопки результатов /city: выбор региона + мои подписки."""
+    rows = []
+    for i in range(0, len(matches[:6]), 2):
+        rows.append([
+            Button.inline(region_name(slug), data=CB_REGION_SELECT + slug)
+            for slug in matches[i : i + 2]
+        ])
+    rows.append([Button.inline("🔔 Мої підписки", data=CB_MY_SUBS)])
+    rows.append([Button.inline("🏠 Главное меню", data=CB_MAIN)])
+    return rows
+
+
 # =====================================================================
 #  Регистрация обработчиков
 # =====================================================================
@@ -307,6 +392,33 @@ def register_handlers(
     async def _start(event: events.NewMessage.Event) -> None:  # noqa: ANN001
         # Меню доступно всем пользователям (подписки, статистика, алерты).
         await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb())
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/city\s+(.+)$"))
+    async def _city(event: events.NewMessage.Event) -> None:  # noqa: ANN001
+        """Подписка на регион/берег по названию города: /city Дарниця.
+
+        Находит подходящие регионы/зоны и сразу подписывает (toggle —
+        повторная команда отписывает). Ответ — кнопки, чтобы можно было
+        открыть меню региона или отписаться.
+        """
+        query = (event.pattern_match.group(1) or "").strip()
+        matches = find_regions_by_text(query)
+        if not matches:
+            await event.respond(
+                f"🔎 Не нашёл «{html.escape(query)}». Попробуй область или район, "
+                "например: <code>/city Дніпро</code>, <code>/city Дарниця</code>.",
+                parse_mode="html",
+            )
+            return
+        # Подписываем на первый (самый точный) результат, остальные — кнопками.
+        slug = matches[0]
+        if db.is_subscribed(event.sender_id, slug):
+            db.unsubscribe(event.sender_id, slug)
+            answer = "🔕 Отписка от " + region_name(slug)
+        else:
+            db.subscribe(event.sender_id, slug)
+            answer = "🔔 Подписка на " + region_name(slug)
+        await event.respond(answer, parse_mode="html", buttons=_city_results_kb(matches))
 
     @bot.on(events.CallbackQuery())
     async def _callback(event) -> None:  # noqa: ANN001
@@ -341,6 +453,11 @@ def register_handlers(
                 text = format_detailed_stats(db, days=7)
                 await _safe_edit(text, _menu_kb())
 
+            elif data == CB_MY_SUBS:
+                # Мои подписки: регионы + берега Киева одним списком.
+                subs = db.user_subscriptions(event.sender_id)
+                await _safe_edit(_my_subs_text(subs), _my_subs_kb(subs))
+
             elif data == CB_ACTIVE:
                 await _safe_edit(_active_text(db), _menu_kb())
 
@@ -361,31 +478,77 @@ def register_handlers(
                 await event.answer()
                 if slug in REGIONS:
                     sub = db.is_subscribed(event.sender_id, slug)
-                    await _safe_edit(_region_menu_text(slug), _region_menu_kb(slug, sub))
+                    zones = None
+                    if slug == "kyivska":
+                        zones = (
+                            db.is_subscribed(event.sender_id, "kyiv_left"),
+                            db.is_subscribed(event.sender_id, "kyiv_right"),
+                        )
+                    await _safe_edit(_region_menu_text(slug), _region_menu_kb(slug, sub, zones))
 
             elif data.startswith(CB_REGION_STATS):
                 slug = data[len(CB_REGION_STATS):]
                 await event.answer()
                 sub = db.is_subscribed(event.sender_id, slug)
-                await _safe_edit(_region_stats_text(db, slug), _region_menu_kb(slug, sub))
+                zones = None
+                if slug == "kyivska":
+                    zones = (
+                        db.is_subscribed(event.sender_id, "kyiv_left"),
+                        db.is_subscribed(event.sender_id, "kyiv_right"),
+                    )
+                await _safe_edit(_region_stats_text(db, slug), _region_menu_kb(slug, sub, zones))
 
             elif data.startswith(CB_REGION_ETA):
                 slug = data[len(CB_REGION_ETA):]
                 await event.answer()
                 sub = db.is_subscribed(event.sender_id, slug)
-                await _safe_edit(_region_eta_text(db, slug), _region_menu_kb(slug, sub))
+                zones = None
+                if slug == "kyivska":
+                    zones = (
+                        db.is_subscribed(event.sender_id, "kyiv_left"),
+                        db.is_subscribed(event.sender_id, "kyiv_right"),
+                    )
+                await _safe_edit(_region_eta_text(db, slug), _region_menu_kb(slug, sub, zones))
 
             elif data.startswith(CB_REGION_HIST):
                 slug = data[len(CB_REGION_HIST):]
                 await event.answer()
                 sub = db.is_subscribed(event.sender_id, slug)
-                await _safe_edit(_region_hist_text(db, slug), _region_menu_kb(slug, sub))
+                zones = None
+                if slug == "kyivska":
+                    zones = (
+                        db.is_subscribed(event.sender_id, "kyiv_left"),
+                        db.is_subscribed(event.sender_id, "kyiv_right"),
+                    )
+                await _safe_edit(_region_hist_text(db, slug), _region_menu_kb(slug, sub, zones))
 
             elif data.startswith(CB_REGION_CONS):
                 slug = data[len(CB_REGION_CONS):]
                 await event.answer()
                 sub = db.is_subscribed(event.sender_id, slug)
-                await _safe_edit(_region_cons_text(db, slug), _region_menu_kb(slug, sub))
+                zones = None
+                if slug == "kyivska":
+                    zones = (
+                        db.is_subscribed(event.sender_id, "kyiv_left"),
+                        db.is_subscribed(event.sender_id, "kyiv_right"),
+                    )
+                await _safe_edit(_region_cons_text(db, slug), _region_menu_kb(slug, sub, zones))
+
+            elif data.startswith(CB_ZONE_SUB):
+                # Toggle подписки на берег Киева (kyiv_left / kyiv_right).
+                zone = data[len(CB_ZONE_SUB):]
+                if zone in ZONE_NAMES:
+                    if db.is_subscribed(event.sender_id, zone):
+                        db.unsubscribe(event.sender_id, zone)
+                        await event.answer("🔕 Отписка от «" + region_name(zone) + "»")
+                    else:
+                        db.subscribe(event.sender_id, zone)
+                        await event.answer("🔔 Подписка на «" + region_name(zone) + "»")
+                zones = (
+                    db.is_subscribed(event.sender_id, "kyiv_left"),
+                    db.is_subscribed(event.sender_id, "kyiv_right"),
+                )
+                await _safe_edit(_region_menu_text("kyivska"), _region_menu_kb("kyivska", False, zones))
 
             elif data.startswith(CB_REGION_SUB):
                 slug = data[len(CB_REGION_SUB):]
@@ -397,7 +560,13 @@ def register_handlers(
                     db.subscribe(event.sender_id, slug)
                     await event.answer("🔔 Подписка на " + region_name(slug))
                 sub = db.is_subscribed(event.sender_id, slug)
-                await _safe_edit(_region_menu_text(slug), _region_menu_kb(slug, sub))
+                zones = None
+                if slug == "kyivska":
+                    zones = (
+                        db.is_subscribed(event.sender_id, "kyiv_left"),
+                        db.is_subscribed(event.sender_id, "kyiv_right"),
+                    )
+                await _safe_edit(_region_menu_text(slug), _region_menu_kb(slug, sub, zones))
 
         except Exception as exc:  # noqa: BLE001 — не роняем меню на ошибке рендера
             logger.exception("Ошибка обработки callback %s: %s", data, exc)

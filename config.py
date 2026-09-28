@@ -91,12 +91,20 @@ class Settings:
     webapp_url: str = ""
     map_webapp_url: str = ""
 
+    # Наш канал для пассивной рекламы: к каждому посту-алерту прикрепляется
+    # inline-кнопка «🔔 Підписатися» на этот URL. Пусто = без кнопки.
+    promo_channel_url: str = "https://t.me/AirRadarAI"
+
     # Правдивость: независимые группы источников и срок актуальности сообщения.
     source_groups: dict[str, str] = field(default_factory=dict)
     official_sources: frozenset[str] = field(default_factory=frozenset)
     incident_window_seconds: int = 1200
     active_threat_ttl: int = 1800
     confirmation_sources: int = 2
+
+    # Окно агрегации (сек): сообщения одного инцидента (регион+оружие)
+    # склеиваются в один пост. Критичные/отбой публикуются мгновенно.
+    aggregate_window_sec: int = 35
 
     # Исходные каналы мониторинга (по умолчанию пусто — проверяется в load_settings)
     source_channels: list[str] = field(default_factory=list)
@@ -147,6 +155,7 @@ def load_settings() -> Settings:
         digest_evening_hour=int(os.getenv("DIGEST_EVENING_HOUR", "20")),
         webapp_url=os.getenv("WEBAPP_URL", ""),
         map_webapp_url=os.getenv("MAP_WEBAPP_URL", ""),
+        promo_channel_url=os.getenv("PROMO_CHANNEL_URL", "https://t.me/AirRadarAI"),
         source_groups=parse_source_groups(os.getenv("SOURCE_GROUPS", "")),
         official_sources=frozenset(
             normalize_source(item) for item in _parse_channels(os.getenv("OFFICIAL_SOURCES", ""))
@@ -154,4 +163,5 @@ def load_settings() -> Settings:
         incident_window_seconds=max(60, int(os.getenv("INCIDENT_WINDOW_SECONDS", "1200"))),
         active_threat_ttl=max(60, int(os.getenv("ACTIVE_THREAT_TTL", "1800"))),
         confirmation_sources=max(2, int(os.getenv("CONFIRMATION_SOURCES", "2"))),
+        aggregate_window_sec=max(5, int(os.getenv("AGGREGATE_WINDOW_SEC", "35"))),
     )

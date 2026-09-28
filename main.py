@@ -24,18 +24,20 @@ import sys
 import time
 
 import aiohttp
-from telethon import TelegramClient, events
+from telethon import Button, TelegramClient, events
 from telethon.tl.custom import Message
 
 import config
+from aggregator import AlertAggregator, PendingAlert
 from ai_summarizer import SummarizerProtocol, is_ignored_summary, make_summarizer
+from alert_renderer import render_evidence_alert
 from bot_ui import register_handlers
 from database import Database
 from dedup import DedupCache
 from fast_filter import clean_signature, matches_keywords
 from health_server import start_health_server
 from publisher import Publisher
-from regions import detect_region
+from regions import detect_kyiv_zone, detect_region, region_name
 from incident_fusion import extract_incident_fact
 from source_policy import normalize_source, source_group
 from sticker import get_sticker_header
@@ -95,6 +97,7 @@ async def run() -> None:
         target_channel=settings.target_channel,
         timeout=settings.http_timeout,
         session=http_session,
+        promo_url=settings.promo_channel_url,
     )
     # Сохраняем ссылку для /summary (ручной запуск сводки из admin_ui).
     global _publisher_ref
@@ -103,6 +106,13 @@ async def run() -> None:
     # Дедупликация: гибрид in-memory + SQLite. Переживает рестарт и ловит
     # поздние репосты между каналами (окно в БД — до 1 часа).
     dedup = DedupCache(ttl=settings.dedup_ttl, db=db)
+
+    # Агрегатор: сообщения одного инцидента в окне AGGREGATE_WINDOW_SEC
+    # уходят в канал одним постом (критичные/отбой — мгновенно, байпасом).
+    aggregator = AlertAggregator(
+        settings.aggregate_window_sec,
+        lambda items: _publish_items(db, publisher, bot_client, items),
+    )
 
     # --- второй клиент: бот @AirRadar_AI_bot (Bot API) для интерактивного меню ---
     # Читает /start и нажатия inline-кнопок в личке. Публикацией в канал
@@ -207,32 +217,90 @@ async def run() -> None:
         await _process_message(
             event, summarizer, publisher, dedup, db, bot_client,
             http_session, settings.groq_api_key, settings.groq_vision_model, settings,
+            aggregator,
         )
 
     # --- Interests-модуль: обработчик постов из user-каналов ---
-    # User-каналы добавляются пользователями через /add_channel. Резолвятся из БД.
+    # Каналы добавляются пользователями через /add_channel и должны начать
+    # парситься БЕЗ рестарта. Поэтому: один обработчик на все сообщения с
+    # дешёвым фильтром по числовому id + фоновая задача, раз в минуту
+    # подтягивающая новые каналы из БД (обход диалогов).
     from interests_handler import process_interests_message
-    interests_channels = db.all_interests_channels()
-    interests_resolved: list = []
-    if interests_channels:
-        logger.info("Interests: резолвлю %d user-каналов…", len(interests_channels))
+
+    interests_ids: set[int] = set()        # «голые» id чатов user-каналов
+    interests_resolved_keys: set[str] = set()  # ключи каналов, уже найденные в диалогах
+
+    def _channel_key(raw: str) -> str:
+        """Нормализовать '@Name' / 'name' / '-100123' / '123' к ключу сверки."""
+        v = (raw or "").strip().lower().lstrip("@")
+        if v.startswith("-100") and v[4:].isdigit():
+            return v[4:]
+        if v.startswith("-") and v[1:].isdigit():
+            return v[1:]
+        return v
+
+    async def _resolve_new_interests_channels() -> None:
+        """Найти в диалогах user-каналы, добавленные с прошлого обхода."""
+        wanted = {_channel_key(ch) for ch in db.all_interests_channels()}
+        missing = wanted - interests_resolved_keys
+        if not missing:
+            return
+        found: dict[str, int] = {}
         async for dialog in client.iter_dialogs():
+            if not missing:
+                break
             ent = dialog.entity
             uname = (getattr(ent, "username", None) or "").lower()
             eid = getattr(ent, "id", None)
-            for ch in interests_channels:
-                ch_low = ch.strip().lower().lstrip("@")
-                if (uname and uname == ch_low) or (eid is not None and str(eid) == ch_low.lstrip("-").lstrip("100")):
-                    interests_resolved.append(ent)
-        logger.info("Interests: доступно user-каналов: %d/%d", len(interests_resolved), len(interests_channels))
-
-    if interests_resolved:
-        @client.on(events.NewMessage(chats=interests_resolved))
-        async def interests_handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
-            await process_interests_message(
-                event, summarizer, dedup, db, bot_client,
-                http_session, settings.groq_api_key, settings.groq_vision_model,
+            for ch in list(missing):
+                if (uname and uname == ch) or (eid is not None and str(eid) == ch):
+                    found[ch] = int(eid)
+                    missing.discard(ch)
+        for ch, eid in found.items():
+            interests_resolved_keys.add(ch)
+            if eid not in interests_ids:
+                interests_ids.add(eid)
+                logger.info("Interests: подключён user-канал id=%s", eid)
+        if missing:
+            logger.info(
+                "Interests: жду подписки аккаунта на каналы: %s",
+                ", ".join(sorted(missing)),
             )
+
+    async def _interests_refresh_loop(interval: int = 60) -> None:
+        """Раз в минуту подтягивать новые user-каналы без рестарта."""
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await _resolve_new_interests_channels()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 — фоновая задача не должна падать
+                logger.exception("Сбой обновления user-каналов Interests")
+
+    @client.on(events.NewMessage())
+    async def interests_handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
+        cid = event.chat_id
+        if cid is None:
+            return
+        if cid < 0:
+            # Маркированный id (-100…) → «голый» id канала для сверки.
+            s = str(cid)
+            cid = int(s[4:]) if s.startswith("-100") else int(s[1:])
+        if cid not in interests_ids:
+            return
+        await process_interests_message(
+            event, summarizer, dedup, db, bot_client,
+            http_session, settings.groq_api_key, settings.groq_vision_model,
+        )
+
+    # Первичный резолв user-каналов + фоновая синхронизация новых (/add_channel).
+    await _resolve_new_interests_channels()
+    if interests_ids:
+        logger.info("Interests: подключено user-каналов: %d", len(interests_ids))
+    interests_task = asyncio.create_task(
+        _interests_refresh_loop(), name="interests-refresh"
+    )
 
     # --- фоновый healthcheck Ollama ---
     health_task = asyncio.create_task(
@@ -306,11 +374,17 @@ async def run() -> None:
                 await digest_task
             except asyncio.CancelledError:
                 pass
+        interests_task.cancel()
+        try:
+            await interests_task
+        except asyncio.CancelledError:
+            pass
 
         logger.info("Отключаю Telethon и закрываю сессии…")
         if bot_client is not None:
             await bot_client.disconnect()
         await client.disconnect()
+        await aggregator.aclose()
         await summarizer.aclose()
         await publisher.aclose()
         await http_session.close()
@@ -329,6 +403,7 @@ async def _process_message(
     groq_api_key: str = "",
     vision_model: str = "",
     settings=None,
+    aggregator: AlertAggregator | None = None,
 ) -> None:
     """Полный конвейер обработки одного входящего сообщения.
 
@@ -417,20 +492,34 @@ async def _process_message(
             return
         # Public alert is deterministic: only direct source facts and
         # clearly labelled uncertainty, never model forecasts or archive risks.
-        from alert_renderer import render_evidence_alert
-        final_text = render_evidence_alert(
-            text=text, source=source, event_ts=event_ts, fact=fact, confirmation=confirmation
-        )
-        publication = db.incident_publication(confirmation.get("key", ""))
-        if publication and confirmation.get("material_update"):
-            published = await publisher.edit(str(publication["published_chat_id"]), int(publication["published_message_id"]), final_text)
+        # Публикация идёт через агрегатор: сообщения одного инцидента
+        # (регион+оружие) в окне склеиваются в один пост. Критичные классы,
+        # отбой и материальные обновления уходят мгновенно (байпас).
+        # DB-логирование ниже остаётся per-message.
+        if aggregator is not None:
+            await aggregator.submit(
+                PendingAlert(
+                    text=text, source=source, event_ts=event_ts, fact=fact,
+                    confirmation=confirmation, regions=regions,
+                )
+            )
         else:
-            published = await publisher.send(final_text)
-            if published and confirmation.get("key"):
-                chat = published.get("chat", {})
-                db.save_incident_publication(confirmation["key"], str(chat.get("id", "")), int(published.get("message_id", 0)))
-        if not published:
-            logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
+            # Fallback без агрегатора (прямые вызовы в тестах): прежнее поведение.
+            final_text = render_evidence_alert(
+                text=text, source=source, event_ts=event_ts, fact=fact, confirmation=confirmation
+            )
+            publication = db.incident_publication(confirmation.get("key", ""))
+            if publication and confirmation.get("material_update"):
+                published = await publisher.edit(str(publication["published_chat_id"]), int(publication["published_message_id"]), final_text)
+            else:
+                published = await publisher.send(final_text)
+                if published and confirmation.get("key"):
+                    chat = published.get("chat", {})
+                    db.save_incident_publication(confirmation["key"], str(chat.get("id", "")), int(published.get("message_id", 0)))
+            if not published:
+                logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
+            if bot_client is not None and regions and published:
+                await _notify_subscribers(bot_client, db, regions, final_text)
 
         # 6) Определение регионов и запись в журнал БД.
         regions_to_log = regions or ["unknown"]
@@ -472,13 +561,65 @@ async def _process_message(
         elif confirmation.get("status") in ("corroborated", "officially_confirmed") and stage == "imminent":
             for slug in regions or []:
                 db.alert_start(slug, event_ts=event_ts)
-
-        # 7) Рассылка по подпискам в ЛС — только для определённых регионов.
-        if bot_client is not None and regions and published:
-            await _notify_subscribers(bot_client, db, regions, final_text)
+        # Рассылка по подпискам выполняется в _publish_items после публикации
+        # (агрегированный пост — одна рассылка по объединённым регионам).
     except Exception as exc:  # pragma: no cover — страховка конвейера
         logger.exception("Сбой обработки сообщения (пропускаем): %s", exc)
         db.channel_error(str(source), "military", str(exc))
+
+
+async def _publish_items(db: Database, publisher: Publisher, bot_client, items: list) -> None:
+    """Опубликовать набор агрегированных сообщений одним постом.
+
+    Рендер идёт от последнего элемента (самое свежее состояние инцидента),
+    источники собираются уникальные по порядку поступления. Если инцидент уже
+    публиковался — обновляем существующий пост (edit), иначе отправляем новый
+    и сохраняем message_id для всех ключей набора. Затем — одна рассылка
+    подписчикам по объединённым регионам.
+    """
+    if not items:
+        return
+    last = items[-1]
+    sources: list[str] = []
+    for item in items:
+        if item.source not in sources:
+            sources.append(item.source)
+    final_text = render_evidence_alert(
+        text=last.text, source=last.source, sources=sources,
+        event_ts=last.event_ts, fact=last.fact, confirmation=last.confirmation,
+    )
+    # Уже публиковали один из инцидентов набора? Перебираем ключи с конца.
+    publication = None
+    for item in reversed(items):
+        key = item.confirmation.get("key", "")
+        if key:
+            publication = db.incident_publication(key)
+            if publication:
+                break
+    if publication and last.confirmation.get("material_update"):
+        published = await publisher.edit(
+            str(publication["published_chat_id"]), int(publication["published_message_id"]), final_text
+        )
+    else:
+        published = await publisher.send(final_text)
+        if published:
+            chat = published.get("chat", {})
+            for item in items:
+                key = item.confirmation.get("key", "")
+                if key:
+                    db.save_incident_publication(
+                        key, str(chat.get("id", "")), int(published.get("message_id", 0))
+                    )
+    if not published:
+        logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
+        return
+    regions: list[str] = []
+    for item in items:
+        for slug in item.regions:
+            if slug not in regions:
+                regions.append(slug)
+    if bot_client is not None and regions:
+        await _notify_subscribers(bot_client, db, regions, final_text)
 
 
 async def _notify_subscribers(bot_client, db: Database, regions: list[str], text: str) -> None:
@@ -487,29 +628,44 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     Работает «best effort»: ошибки отправки (пользователь заблокировал бота и
     т.п.) логируются, но не роняют рассылку остальным. Текст отправляется как
     plain (без parse_mode), т.к. markdown в постах каналов часто ломается на
-    спецсимволах, что молча блокировало всю рассылку.
-    """
-    from regions import region_name as _rname
+    спецсимволах, что молча блокировало всю рассылку. К личному сообщению
+    прикрепляется кнопка подписки на наш канал (пассивная реклама).
 
+    Київ-зоны: для slug='kyivska' определяем берег (detect_kyiv_zone).
+    Если берег определён — рассылаем его подписчикам + подписчикам «всего
+    Киева», иначе — подписчикам обоих берегов. Подписчики kyivska (город
+    целиком) получают все киевские алерты независимо от берега.
+    """
     # Собираем уникальных подписчиков по всем регионам сообщения.
     notified: set[int] = set()
     sent_count = 0
+    buttons = Button.url("🔔 Підписатися", "https://t.me/AirRadarAI")
     for slug in regions:
-        for user_id in db.get_subscribers(slug):
-            if user_id in notified:
-                continue
-            notified.add(user_id)
-            try:
-                await bot_client.send_message(user_id, text, link_preview=False)
-                sent_count += 1
-            except Exception as exc:  # noqa: BLE001 — один неудачный не стопит остальных
-                logger.debug("Не удалось отправить подписку %s: %s", user_id, exc)
+        targets = [slug]
+        if slug == "kyivska":
+            zone = detect_kyiv_zone(text)
+            targets = (
+                ["kyivska", zone] if zone
+                else ["kyivska", "kyiv_left", "kyiv_right"]
+            )
+        for target in targets:
+            for user_id in db.get_subscribers(target):
+                if user_id in notified:
+                    continue
+                notified.add(user_id)
+                try:
+                    await bot_client.send_message(
+                        user_id, text, link_preview=False, buttons=buttons
+                    )
+                    sent_count += 1
+                except Exception as exc:  # noqa: BLE001 — один неудачный не стопит остальных
+                    logger.debug("Не удалось отправить подписку %s: %s", user_id, exc)
     if sent_count:
         logger.info("Рассылка по подпискам: отправлено %d получателям (регионы: %s)",
-                    sent_count, ", ".join(_rname(s) for s in regions))
+                    sent_count, ", ".join(region_name(s) for s in regions))
 
 
-async def _healthcheck_loop(summarizer: AISummarizer, interval: int) -> None:
+async def _healthcheck_loop(summarizer: SummarizerProtocol, interval: int) -> None:
     """Периодический пинг Ollama — раннее обнаружение падения локального ИИ."""
     try:
         while True:

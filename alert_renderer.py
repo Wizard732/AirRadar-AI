@@ -1,4 +1,18 @@
-"""Evidence-first public alerts: direct source facts, never forecasts."""
+"""Evidence-first public alerts: direct source facts, never forecasts.
+
+Компактный формат публичного поста:
+    🔴 Київ та область | БПЛА
+    🕒 09:21
+    📍 Рух: цілі прямують з Сумська обл. на Київ та область   (если известен маршрут)
+    ⚠️ Статус: підтверджено 2 незалежними джерелами
+    <текст источника, ≤300 знаков>
+    📡 Джерело: AirRadar AI
+    [кнопка 🔔 Підписатися → https://t.me/AirRadarAI]
+
+Без ETA-прогнозов и вероятностей. Только прямые факты источника. Имена
+исходных каналов в пост НЕ попадают: строка «Джерело» — это наш канал
+(пассивный брендинг), а кнопка подписки прикрепляется Publisher'ом.
+"""
 
 from __future__ import annotations
 
@@ -6,53 +20,93 @@ import time
 
 from incident_fusion import IncidentFact
 from regions import region_name
-from weapon_classes import weapon_label
+from weapon_classes import weapon_severity
+
+# Короткие UA-названия классов оружия для публичных постов (без эмодзи-
+# заголовков weapon_label — эмодзи задаётся отдельно по критичности).
+WEAPON_SHORT: dict[str, str] = {
+    "fpv": "БПЛА (FPV)",
+    "shahed": "БПЛА (Shahed)",
+    "recon_drone": "БПЛА (розвідка)",
+    "uav": "БПЛА",
+    "ballistic": "Балістика",
+    "cruise_missile": "Крилаті ракети",
+    "air_missile": "Авіаційні ракети",
+    "coastal_missile": "Берегові ракети",
+    "kab": "КАБ",
+    "tac_aviation": "Тактична авіація",
+    "strat_aviation": "Стратегічна авіація",
+    "aviation": "Авіація",
+    "mlrs": "РСЗО",
+    "artillery": "Артилерія",
+    "explosion": "Прильот/вибух",
+    "air_defense": "Робота ППО",
+    "decoy": "Хибна ціль",
+    "alert": "Тривога",
+    "stand_down": "Відбій",
+}
+
+# Эмодзи по базовой критичности класса оружия.
+_SEVERITY_EMOJI: dict[str, str] = {
+    "CRITICAL": "🔴",
+    "HIGH": "🔴",
+    "MODERATE": "🟡",
+    "LOW": "⚪",
+    "ALL_CLEAR": "🟢",
+}
+
+# Строка источника в посте: всегда наш канал (пассивный брендинг вместо
+# упоминания исходного канала мониторинга). Кнопка «Підписатися» вешается
+# Publisher'ом (см. publisher.py, promo_url).
+SOURCE_BRAND_LINE = "📡 Джерело: AirRadar AI"
 
 
 def _status(confirmation: dict) -> str:
     status = confirmation.get("status", "reported")
     if status == "officially_confirmed":
-        return "повідомлено офіційним джерелом"
+        return "підтверджено офіційним джерелом"
     if status == "corroborated":
         return f"підтверджено {confirmation.get('sources', 2)} незалежними джерелами"
-    return "повідомлено одним джерелом; потребує незалежного підтвердження"
+    return "повідомлення одного джерела"
+
+
+def _region_title(fact: IncidentFact) -> str:
+    """Регион для заголовка; 'unknown'/пустой не показываем."""
+    region = fact.destination_region
+    if region and region != "unknown":
+        return region_name(region)
+    return ""
 
 
 def render_evidence_alert(
-    *, text: str, source: str, event_ts: int, fact: IncidentFact, confirmation: dict
+    *, text: str, source: str, event_ts: int, fact: IncidentFact, confirmation: dict,
+    sources: list[str] | None = None,
 ) -> str:
-    """Render only explicit source facts and clearly marked unknowns."""
+    """Render only explicit source facts and clearly marked unknowns.
+
+    sources: список уникальных источников набора (агрегатор). В пост не
+    выводится — источники учитываются только в строке статуса и в БД.
+    """
     when = time.strftime("%H:%M", time.localtime(event_ts))
-    title = weapon_label(fact.weapon_class)
-    region = fact.destination_region
-    count = "не зазначено"
-    if confirmation.get("count_kind") == "reported_total":
-        count = f"щонайменше {confirmation.get('count_value')} повідомлено"
-    elif confirmation.get("count_kind") == "exact" and confirmation.get("count_value") is not None:
-        count = str(confirmation["count_value"])
-    elif confirmation.get("count_kind") == "conflicting":
-        count = "у джерелах різниться; точне число невідоме"
-    lines = [
-        f"{title}",
-        "",
-        f"Статус: {_status(confirmation)}",
-        f"Час повідомлення: {when}",
-    ]
-    if region and region != "unknown":
-        lines.append(f"Регіон: {region_name(region)}")
-    lines.extend(["", "Що повідомило джерело:", text[:700], "", "Відомо:"])
-    lines.append(f"• Тип: {weapon_label(fact.weapon_class)}")
-    if fact.destination_region and fact.destination_region != "unknown":
-        lines.append(f"• Напрямок/регіон: {region_name(fact.destination_region)}")
-    if fact.origin_region:
-        lines.append(f"• Звідки: {region_name(fact.origin_region)}")
-    lines.append(f"• Кількість: {count}")
-    if fact.raw_designation:
-        lines.append(f"• Назва з джерела: {fact.raw_designation}")
-    unknown = ["точне місце", "подальший рух або наслідки"]
-    if count == "не зазначено":
-        unknown.insert(0, "точна кількість")
-    lines.extend(["", "Не підтверджено або невідомо:"])
-    lines.extend(f"• {item}" for item in unknown)
-    lines.extend(["", f"Джерело: @{source}" if source and not source.lstrip("-").isdigit() else "Джерело: моніторинг"])
+
+    if fact.weapon_class == "stand_down":
+        # Отбой — отдельная короткая ветка, публикуется всегда и мгновенно.
+        place = _region_title(fact)
+        head = "🟢 ВІДБІЙ" + (f" — {place}" if place else "") + f" — {when}"
+        return "\n".join([head, SOURCE_BRAND_LINE])[:4000]
+
+    weapon = WEAPON_SHORT.get(fact.weapon_class, fact.weapon_class)
+    emoji = _SEVERITY_EMOJI.get(weapon_severity(fact.weapon_class), "⚪")
+    place = _region_title(fact)
+    lines = [f"{emoji} {place} | {weapon}" if place else f"{emoji} {weapon}"]
+    lines.append(f"🕒 {when}")
+    if fact.origin_region and fact.destination_region and fact.destination_region != "unknown":
+        lines.append(
+            f"📍 Рух: цілі прямують з {region_name(fact.origin_region)} "
+            f"на {region_name(fact.destination_region)}"
+        )
+    lines.append(f"⚠️ Статус: {_status(confirmation)}")
+    # Текст источника — недоверенные данные: одна строка, без разметки.
+    lines.append(" ".join(text.split())[:300])
+    lines.append(SOURCE_BRAND_LINE)
     return "\n".join(lines)[:4000]
