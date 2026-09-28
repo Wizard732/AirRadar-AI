@@ -108,10 +108,16 @@ def _main_menu_kb():
 
 
 def _main_menu_with_webapp(webapp_url: str, map_webapp_url: str = ""):
-    """Главное меню + кнопка-WebApp (Mini App открывается по URL)."""
+    """Главное меню + кнопка-WebApp (Mini App открывается по URL).
+
+    Рядом с WebApp-кнопкой добавляется обычная URL-кнопка: карта всегда
+    открывается и в браузере, даже если Telegram-клиент не поддерживает
+    WebApp-кнопки или домен не привязан к боту.
+    """
     rows = []
     if map_webapp_url:
         rows.append([_webapp_button("🗺 Live threat map", map_webapp_url)])
+        rows.append([Button.url("🌐 Відкрити карту в браузері", map_webapp_url)])
     if webapp_url:
         rows.append([_webapp_button("⚙️ Settings (Mini App)", webapp_url)])
     return rows + [

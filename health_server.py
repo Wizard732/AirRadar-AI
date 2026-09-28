@@ -36,14 +36,20 @@ async def _health(request: web.Request) -> web.Response:  # noqa: ANN001
 
 
 async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
-    """Отдать активные угрозы за последние 30 минут для карты.
+    """Отдать активные угрозы для карты.
 
-    Возвращает JSON: [{ts, type, region, text, age_min}]
+    ?minutes=N (1..120, по умолчанию 30) — глубина окна.
+    Возвращает JSON: {window_min, count, threats: [{ts, type, region, text, age_min}]}
     """
     if _app_db is None:
         return web.json_response({"threats": [], "error": "db not ready"})
     try:
-        threats = _app_db.active_threats(within_seconds=1800)
+        try:
+            minutes = int(request.query.get("minutes", "30")) if request is not None else 30
+        except (ValueError, AttributeError):
+            minutes = 30
+        minutes = max(1, min(120, minutes))
+        threats = _app_db.active_threats(within_seconds=minutes * 60)
         # Добавим возраст в минутах.
         now = int(time.time())
         result = []
@@ -57,7 +63,7 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
                 "sources": t.get("source_count", 2),
                 "age_min": max(0, (now - t["ts"]) // 60),
             })
-        return web.json_response({"threats": result, "count": len(result)})
+        return web.json_response({"threats": result, "count": len(result), "window_min": minutes})
     except Exception as exc:  # noqa: BLE001
         logger.warning("API /api/threats error: %s", exc)
         return web.json_response({"threats": [], "error": "temporarily unavailable"}, status=503)

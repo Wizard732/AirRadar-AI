@@ -73,9 +73,9 @@ class KyivZoneTests(unittest.TestCase):
 
         recipients = sorted(uid for uid, _t, _b in bot.sent)
         self.assertEqual(recipients, [1, 2])
-        # Каждому — кнопка подписки на наш канал.
+        # Кнопки в ЛС больше нет: ссылка на канал живёт в строке «Джерело» поста.
         for _uid, _t, buttons in bot.sent:
-            self.assertTrue(buttons is not None)
+            self.assertIsNone(buttons)
 
     def test_notification_no_zone_goes_to_both_banks(self):
         """Если берег не определён — получают оба берега + город."""

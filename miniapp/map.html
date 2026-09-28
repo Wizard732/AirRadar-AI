@@ -26,6 +26,28 @@
   .leg-dot { width: 10px; height: 10px; border-radius: 50%; }
   .pulse { animation: pulse 1.5s infinite; }
   @keyframes pulse { 0%{opacity:1} 50%{opacity:0.3} 100%{opacity:1} }
+  #filters {
+    position: absolute; top: 52px; right: 10px; z-index: 1000;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .chip {
+    background: rgba(26,26,46,0.92); border: 1px solid #3a3a5c; color: #fff;
+    padding: 6px 10px; border-radius: 16px; font-size: 12px; cursor: pointer;
+    user-select: none; backdrop-filter: blur(8px);
+  }
+  .chip.off { opacity: 0.4; text-decoration: line-through; }
+  #geoBtn {
+    position: absolute; bottom: 52px; right: 10px; z-index: 1000;
+    background: rgba(26,26,46,0.92); border: 1px solid #3a3a5c; color: #fff;
+    padding: 8px 12px; border-radius: 20px; font-size: 13px; cursor: pointer;
+  }
+  #timeline {
+    position: absolute; bottom: 26px; left: 10px; right: 10px; z-index: 1000;
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(26,26,46,0.92); padding: 6px 12px; border-radius: 12px;
+    font-size: 12px;
+  }
+  #timeline input[type=range] { flex: 1; accent-color: #ff9500; }
 </style>
 </head>
 <body>
@@ -36,6 +58,19 @@
 </div>
 
 <div id="map"></div>
+
+<div id="filters">
+  <div class="chip" data-layer="rockets">🔴 Ракети / Балістика</div>
+  <div class="chip" data-layer="uav">🟡 БПЛА / Дрони</div>
+  <div class="chip" data-layer="alerts">🟢 Тривоги / Інше</div>
+</div>
+<button id="geoBtn" type="button">📍 Моє розташування</button>
+
+<div id="timeline">
+  <span>⏱</span>
+  <input id="tlRange" type="range" min="0" max="120" step="5" value="0">
+  <span id="tlLabel">зараз</span>
+</div>
 
 <div id="legend">
   <div class="leg-item"><div class="leg-dot pulse" style="background:#ff3b30"></div> Балістика/ракета</div>
@@ -98,15 +133,60 @@ const TYPE_LABELS = {
 // Same HTTPS origin as this Mini App; never use the user's localhost.
 const API_URL = '/api/threats';
 
+// === Слои-фильтры ===
+const layerOf = t => {
+  if (['ballistic','cruise_missile','missile','mlrs','artillery'].includes(t.type)) return 'rockets';
+  if (['shahed','uav','fpv','recon_drone'].includes(t.type)) return 'uav';
+  return 'alerts';
+};
+const enabled = { rockets: true, uav: true, alerts: true };
+document.querySelectorAll('#filters .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    const layer = chip.dataset.layer;
+    enabled[layer] = !enabled[layer];
+    chip.classList.toggle('off', !enabled[layer]);
+    updateMap();
+  });
+});
+
+// === Таймлайн-плейбэк (0 = сейчас, 120 = 2 часа назад) ===
+let minutesAgo = 0;
+const tlRange = document.getElementById('tlRange');
+const tlLabel = document.getElementById('tlLabel');
+tlRange.addEventListener('input', () => {
+  minutesAgo = parseInt(tlRange.value, 10);
+  tlLabel.textContent = minutesAgo === 0 ? 'зараз' : `−${minutesAgo} хв`;
+  updateMap();
+});
+
 // Инициализация карты
 const map = L.map('map', { zoomControl: false }).setView([48.5, 32.0], 6);
 L.control.zoom({ position: 'topright' }).addTo(map);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-  attribution: 'AirRadar AI',
-  maxZoom: 12,
-}).addTo(map);
+// Esri World Dark Gray — тёмная подложка без API-ключей (CartoDB с 2025
+// требует ключ и отдаёт заглушку «api key required»).
+L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+  {
+    attribution: 'Esri, HERE, Garmin | AirRadar AI',
+    maxZoom: 16,
+  },
+).addTo(map);
 
 let markersLayer = L.layerGroup().addTo(map);
+let geoCircle = null;
+
+// === «Моё местоположение»: центр на пользователе + радиус 10 км ===
+document.getElementById('geoBtn').addEventListener('click', () => {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude: lat, longitude: lon } = pos.coords;
+    map.setView([lat, lon], 10);
+    if (geoCircle) map.removeLayer(geoCircle);
+    geoCircle = L.circle([lat, lon], {
+      radius: 10000, color: '#5ac8fa', weight: 1, fillOpacity: 0.05,
+    }).addTo(map);
+  }, () => {}, { enableHighAccuracy: false, timeout: 8000 });
+});
 
 function escapeHtml(value) {
   const node = document.createElement('span');
@@ -117,11 +197,16 @@ function escapeHtml(value) {
 // === Обновление данных ===
 async function updateMap() {
   try {
-    const resp = await fetch(API_URL);
+    const resp = await fetch(`${API_URL}?minutes=120`);
     const data = await resp.json();
-    const threats = data.threats || [];
+    let threats = (data.threats || []).filter(t => {
+      // Плейбэк: окно ±2 минуты вокруг выбранного момента таймлайна;
+      // «зараз» — всё за последние 30 минут (обычный режим).
+      if (minutesAgo === 0) return t.age_min <= 30;
+      return Math.abs(t.age_min - minutesAgo) <= 2;
+    });
 
-    document.getElementById('counter').textContent = `${data.count || 0} активних загроз`;
+    document.getElementById('counter').textContent = `${threats.length} загроз (${data.window_min || 120} хв)`;
 
     // Очищаем старые маркеры.
     markersLayer.clearLayers();
@@ -129,23 +214,31 @@ async function updateMap() {
     threats.forEach(t => {
       const coords = REGION_COORDS[t.region];
       if (!coords) return;
+      if (!enabled[layerOf(t)]) return;
 
       const color = TYPE_COLORS[t.type] || '#8e8e93';
       const label = TYPE_LABELS[t.type] || t.type;
       const isPulse = t.age_min < 10; // свежие пульсируют
+      // Достоверность: один источник — полупрозрачный «подозрение на цель»,
+      // несколько — плотный маркер.
+      const confirmed = Number(t.sources || 1) >= 2;
+      const opacity = confirmed ? 0.6 : 0.25;
 
       // Маркер региона
       const marker = L.circleMarker(coords, {
         color: color,
         fillColor: color,
-        fillOpacity: 0.6,
+        fillOpacity: opacity,
+        opacity: confirmed ? 1 : 0.4,
         radius: isPulse ? 12 : 8,
         className: isPulse ? 'pulse' : '',
       }).addTo(markersLayer);
 
       // Popup с инфо
       marker.bindPopup(
-        `<b>${escapeHtml(label)}</b><br>${escapeHtml(t.text)}<br><i>${t.age_min} хв тому · ${t.sources || 2} незалежних джерел</i><br><small>Позначка показує центр регіону, не точні координати.</small>`,
+        `<b>${escapeHtml(label)}</b><br>${escapeHtml(t.text)}<br>` +
+        `<i>${t.age_min} хв тому · ${confirmed ? 'підтверджено ' + t.sources + ' джерелами' : 'одне джерело — очікує підтвердження'}</i><br>` +
+        `<small>Позначка показує центр регіону, не точні координати.</small>`,
         { className: 'threat-popup' }
       );
 

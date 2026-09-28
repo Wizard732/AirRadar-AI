@@ -24,7 +24,7 @@ import sys
 import time
 
 import aiohttp
-from telethon import Button, TelegramClient, events
+from telethon import TelegramClient, events
 from telethon.tl.custom import Message
 
 import config
@@ -628,8 +628,7 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     Работает «best effort»: ошибки отправки (пользователь заблокировал бота и
     т.п.) логируются, но не роняют рассылку остальным. Текст отправляется как
     plain (без parse_mode), т.к. markdown в постах каналов часто ломается на
-    спецсимволах, что молча блокировало всю рассылку. К личному сообщению
-    прикрепляется кнопка подписки на наш канал (пассивная реклама).
+    спецсимволах, что молча блокировало всю рассылку.
 
     Київ-зоны: для slug='kyivska' определяем берег (detect_kyiv_zone).
     Если берег определён — рассылаем его подписчикам + подписчикам «всего
@@ -639,7 +638,6 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     # Собираем уникальных подписчиков по всем регионам сообщения.
     notified: set[int] = set()
     sent_count = 0
-    buttons = Button.url("🔔 Підписатися", "https://t.me/AirRadarAI")
     for slug in regions:
         targets = [slug]
         if slug == "kyivska":
@@ -654,9 +652,7 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
                     continue
                 notified.add(user_id)
                 try:
-                    await bot_client.send_message(
-                        user_id, text, link_preview=False, buttons=buttons
-                    )
+                    await bot_client.send_message(user_id, text, link_preview=False)
                     sent_count += 1
                 except Exception as exc:  # noqa: BLE001 — один неудачный не стопит остальных
                     logger.debug("Не удалось отправить подписку %s: %s", user_id, exc)
