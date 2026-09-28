@@ -44,6 +44,46 @@ def _number(text: str) -> int | None:
     return None
 
 
+def _destinations(text: str) -> list[str]:
+    """Все явные цели по маркерам направления (в порядке появления текста).
+
+    Сводки мониторинговых каналов перечисляют несколько направлений
+    («…на Васильків … на Глобине … на Сергіївку»). Заголовок по одному
+    «последнему совпадению» дезинформирует, поэтому сборный пост должен
+    помечаться как мультирегиональный.
+    """
+    lowered = text.lower()
+    found: list[str] = []
+    for marker in _ROUTE_MARKERS:
+        start = 0
+        while True:
+            pos = lowered.find(marker, start)
+            if pos < 0:
+                break
+            start = pos + len(marker)
+            for slug in detect_region(text[start:]):
+                if slug not in found:
+                    found.append(slug)
+                break  # первая область в суффиксе — цель этого маркера
+    return found
+
+
+_ROUTE_MARKERS = (" на ", " до ", " у напрямку ", " в направлении ", " towards ")
+
+
+def _is_roundup(text: str, destinations: list[str]) -> bool:
+    """Сборная сводка: несколько направлений и 3+ области в тексте.
+
+    Цели-города (Васильків, Глобине) могут отсутствовать в словаре — тогда
+    явных целей мало, но областных упоминаний много. Такой пост нельзя
+    подписывать одним «последним» регионом.
+    """
+    if len(destinations) >= 2:
+        return True
+    markers = sum(text.lower().count(m) for m in _ROUTE_MARKERS)
+    return markers >= 2 and len(set(detect_region(text))) >= 3
+
+
 def _route_regions(text: str) -> tuple[str, str]:
     """Use the region after a destination marker as target, never blindly first region."""
     lowered = text.lower()
@@ -93,6 +133,11 @@ def extract_incident_fact(text: str, weapon_class: str, stage: str) -> IncidentF
     else:
         kind = "unspecified"
     origin, destination = _route_regions(text)
+    # Сборный пост (сводка по нескольким областям): честная пометка вместо
+    # случайного «последнего» региона в заголовке.
+    if _is_roundup(text, _destinations(text)):
+        destination = "multi"
+        origin = ""
     # An unknown class is useful only when a source explicitly names a token.
     raw = ""
     if weapon_class == "unknown":

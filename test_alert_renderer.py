@@ -88,6 +88,23 @@ class EvidenceAlertTests(unittest.TestCase):
         self.assertTrue(result.startswith("🟢 ВІДБІЙ — КИЇВ ТА ОБЛАСТЬ — "))
         self.assertIn("📡 Джерело: AirRadar AI", result)
 
+    def test_multi_region_roundup_header(self):
+        # Сборный пост: заголовок «Кілька областей», без ложного региона.
+        roundup = (
+            "Київщина\n2 реактивні БпЛА на Васильків\n"
+            "Полтавщина\n1 реактивний БпЛА на Глобине\n"
+            "Одещина\n1 реактивний БпЛА на Сергіївку"
+        )
+        fact = extract_incident_fact(roundup, "uav", "imminent")
+        result = render_evidence_alert(
+            text=roundup, source="a", event_ts=1_700_000_000,
+            fact=fact, confirmation={"status": "reported", "sources": 1},
+        )
+        self.assertIn("🔴 КІЛЬКА ОБЛАСТЕЙ | БПЛА", result)
+        # Ни один отдельный регион не вынесен в заголовок.
+        self.assertFalse(result.splitlines()[0].startswith("🔴 ПОЛТАВСЬКА"))
+        self.assertFalse(result.splitlines()[0].startswith("🔴 ОДЕСЬКА"))
+
 
 if __name__ == "__main__":
     unittest.main()

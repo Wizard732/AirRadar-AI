@@ -31,6 +31,23 @@ class IncidentFusionTests(unittest.TestCase):
         self.assertEqual(fact.origin_region, "sumska")
         self.assertEqual(fact.destination_region, "kyivska")
 
+    def test_roundup_post_is_marked_multi_region(self):
+        # Сборная сводка по нескольким областям: не присваиваем случайный регион.
+        roundup = (
+            "Київщина\n2 реактивні БпЛА на Васильків\n2 реактивні БпЛА на Чорнобиль\n"
+            "Житомирщина\n1 реактивний БпЛА повз Овруч на Рівненщину\n"
+            "Полтавщина\n1 реактивний БпЛА на Глобине\n"
+            "Миколаївщина\n1 реактивний БпЛА на Вознесенськ\n"
+            "Одещина\n1 реактивний БпЛА на Сергіївку"
+        )
+        fact = extract_incident_fact(roundup, "uav", "imminent")
+        self.assertEqual(fact.destination_region, "multi")
+        self.assertEqual(fact.origin_region, "")
+
+    def test_single_destination_stays_concrete(self):
+        fact = extract_incident_fact("2 реактивні БпЛА на Васильків", "uav", "imminent")
+        self.assertNotEqual(fact.destination_region, "multi")
+
     def test_explicit_delta_updates_one_incident(self):
         first = extract_incident_fact("Шахед на Київ", "shahed", "imminent")
         initial = self.db.merge_incident_fact(event_ts=10000, source="a", source_group="a", fact=first, text="Шахед на Київ")

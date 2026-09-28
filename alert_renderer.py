@@ -72,6 +72,9 @@ def _status(confirmation: dict) -> str:
 def _region_title(fact: IncidentFact) -> str:
     """Регион для заголовка; 'unknown'/пустой не показываем."""
     region = fact.destination_region
+    if region == "multi":
+        # Сборная сводка по нескольким областям — без ложной конкретики.
+        return "Кілька областей"
     if region and region != "unknown":
         return region_name(region)
     return ""

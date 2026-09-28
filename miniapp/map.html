@@ -170,6 +170,7 @@
   <div class="chip" data-layer="rockets">🔴 Ракети</div>
   <div class="chip" data-layer="uav">🟡 БПЛА</div>
   <div class="chip" data-layer="alerts">🟢 Тривоги</div>
+  <div class="chip" data-layer="impacts">💥 Наслідки</div>
   <div class="chip" data-layer="zones">🌀 Зони</div>
   <div class="chip" data-layer="vectors">➤ Вектори</div>
   <div class="chip" data-layer="green">✅ Відбої</div>
@@ -343,9 +344,10 @@ function alertFeedback() {
 const layerOf = t => {
   if (['ballistic','cruise_missile','missile','mlrs','artillery'].includes(t.type)) return 'rockets';
   if (['shahed','uav','fpv','recon_drone'].includes(t.type)) return 'uav';
+  if (t.type === 'explosion') return 'impacts';
   return 'alerts';
 };
-const enabled = { rockets: true, uav: true, alerts: true };
+const enabled = { rockets: true, uav: true, alerts: true, impacts: true };
 
 document.querySelectorAll('#filters .chip').forEach(chip => {
   chip.addEventListener('click', () => {
@@ -472,10 +474,10 @@ const TRANSIT_TARGETS = {
 // Упомянутые в тексте города → регион-цель (уточняет вектор)
 const CITY_HINTS = {
   kyivska: ['київ', 'киев', 'бровар', 'боярк', 'ірпінь', 'ирпень', 'буч', 'васильк', 'фастів', 'бориспіл', 'біла церкв', 'дарниц', 'оболон', 'поділ', 'деснян', 'святошин', 'вишгород'],
-  poltavska: ['полтав', 'кременчук', 'миргород'],
+  poltavska: ['полтав', 'кременчук', 'миргород', 'глобине'],
   dnipropetrovska: ['дніпро', 'днепр', 'кривий ріг', 'кривор', 'нікопіл', 'павлоград', 'кам\'янськ'],
   kharkivska: ['харк', 'ізюм', 'куп\'янськ'],
-  odeska: ['одес', 'білгород-дністров'],
+  odeska: ['одес', 'білгород-дністров', 'сергіїв'],
   mykolaivska: ['микола', 'никола'],
   vinnytska: ['вінниц', 'винниц'],
   zaporizka: ['запоріж', 'запорож'],
@@ -483,6 +485,18 @@ const CITY_HINTS = {
   cherkaska: ['черкас'],
   zhytomyrska: ['житом', 'коростен'],
 };
+
+// === Ориентировочный ETA подлёта (скорость типа, км/ч) ===
+// Помечается «орієнтовно»: это оценка по прямой, а не прогноз.
+const ETA_KMH = {
+  shahed: 170, uav: 170, fpv: 130, recon_drone: 130,
+  cruise_missile: 870, missile: 870, ballistic: 3000,
+};
+function etaMinutes(from, to, type) {
+  const km = distanceKm(from, to);
+  const v = ETA_KMH[type] || 170;
+  return Math.max(1, Math.round(km / v * 60));
+}
 
 function guessTargetRegion(text, sourceSlug) {
   const lower = (text || '').toLowerCase();
@@ -517,9 +531,75 @@ function threatsAtScrub() {
   });
 }
 
+// Отбой закрывает инцидент: угрозы региона, СТАРШЕЕ отбоя, скрываем сразу,
+// не ждём 30 минут. Свежее угрозы после отбоя продолжают показываться.
+function standDownAgeByRegion(cache) {
+  const m = new Map();
+  cache.forEach(t => {
+    if (t.type !== 'stand_down') return;
+    const prev = m.get(t.region);
+    if (prev === undefined || t.age_min < prev) m.set(t.region, t.age_min);
+  });
+  return m;
+}
+
+// === Анимация активных векторов: точка летит вдоль луча со шлейфом ===
+let animDots = [];
+let animRaf = null;
+let animLastTs = null;
+const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function resetAnim() { animDots = []; }
+
+function spawnAnimDots(from, to, color, type) {
+  if (REDUCED_MOTION) return;
+  const dots = [];
+  for (let i = 0; i < 4; i++) {
+    dots.push(L.circleMarker(from, {
+      radius: i === 0 ? 4.5 : Math.max(1.5, 3 - i * 0.5),
+      color: i === 0 ? '#fff' : color, weight: i === 0 ? 1 : 0,
+      fillColor: color, fillOpacity: i === 0 ? 0.95 : 0.38 - i * 0.09,
+      interactive: false,
+    }).addTo(vectorLayer));
+  }
+  animDots.push({ dots, from, to, t: Math.random(), step: (ETA_KMH[type] || 170) >= 800 ? 1 / 1400 : 1 / 2600 });
+  ensureAnim();
+}
+
+function animLoop(ts) {
+  if (!animDots.length) { animRaf = null; animLastTs = null; return; }
+  if (animLastTs == null) animLastTs = ts;
+  const dt = Math.min(60, ts - animLastTs);
+  animLastTs = ts;
+  for (const d of animDots) {
+    d.t += dt * d.step;
+    if (d.t > 1) d.t -= 1;
+    for (let i = 0; i < d.dots.length; i++) {
+      let tt = d.t - i * 0.045;
+      if (tt < 0) tt += 1;
+      d.dots[i].setLatLng([d.from[0] + (d.to[0] - d.from[0]) * tt, d.from[1] + (d.to[1] - d.from[1]) * tt]);
+    }
+  }
+  animRaf = requestAnimationFrame(animLoop);
+}
+
+function ensureAnim() {
+  if (animRaf == null && animDots.length) { animLastTs = null; animRaf = requestAnimationFrame(animLoop); }
+}
+
 function renderAll() {
   const scrubbed = threatsAtScrub();
-  const visible = scrubbed.filter(t => t.type !== 'stand_down' && enabled[layerOf(t)]);
+  const sdAge = standDownAgeByRegion(minutesAgo === 0 ? threatsCache : scrubbed);
+  const closedByRegion = slug => {
+    const age = sdAge.get(slug);
+    return age !== undefined && age <= 40;
+  };
+  // Угроза старше отбоя = инцидент закрыт: не показываем её ни в пинах, ни в зонах.
+  const active = scrubbed.filter(t =>
+    t.type !== 'stand_down' &&
+    !(minutesAgo === 0 && closedByRegion(t.region) && t.age_min > sdAge.get(t.region))
+  );
+  const visible = active.filter(t => enabled[layerOf(t)]);
   const groups = new Map();
   visible.forEach(t => {
     const slug = pinSlugOf(t);
@@ -553,6 +633,7 @@ function renderAll() {
   zoneLayer.clearLayers();
   vectorLayer.clearLayers();
   markersLayer.clearLayers();
+  resetAnim();
 
   let criticalCount = 0;
   groups.forEach((items, slug) => {
@@ -598,8 +679,8 @@ function renderAll() {
       }).addTo(markersLayer);
     }
 
-    // Слой 2: векторный луч — все свежие БПЛА/ракеты. Статичная стрелка с
-    // затухающим хвостом, БЕЗ анимации траекторий (правило продукта).
+    // Слой 2: векторный луч — все свежие БПЛА/ракеты. Статичная линия с
+    // наконечником + анимированная точка со шлейфом (разрешено владельцем).
     // Яркость луча = достоверность: 2+ источника — отчётливый вектор,
     // одно сообщение — бледный пунктир («подозрение на направление»).
     if (fresh && ['uav', 'rockets'].includes(layerOf(top)) && !slug.startsWith('kyiv_')) {
@@ -613,15 +694,18 @@ function renderAll() {
         const len = Math.hypot(dx, dy) || 1;
         const ux = dx / len, uy = dy / len;
         const end = [coords[0] + dx * 0.6, coords[1] + dy * 0.6];
+        const eta = etaMinutes(coords, tc, top.type);
         L.polyline([coords, end], {
           color: color, weight: wMain, opacity: oMain, dashArray: '2 7', lineCap: 'round',
         }).addTo(vectorLayer)
-          .bindTooltip(`➤ ${REGION_NAMES[slug] || slug} → ${REGION_NAMES[target] || target} (орієнтовний напрямок${confirmed ? '' : ', одне джерело'})`, { direction: 'top' });
+          .bindTooltip(`➤ ${REGION_NAMES[slug] || slug} → ${REGION_NAMES[target] || target} · ≈${eta} хв (орієнтовно${confirmed ? '' : ', одне джерело'})`, { direction: 'top' });
         // наконечник стрелки
         const w = 0.05, d = 0.09;
         const left = [end[0] - ux * d - uy * w, end[1] - uy * d + ux * w];
         const right = [end[0] - ux * d + uy * w, end[1] - uy * d - ux * w];
         L.polyline([left, end, right], { color: color, weight: wMain, opacity: oTip }).addTo(vectorLayer);
+        // анимированная точка со шлейфом вдоль луча
+        spawnAnimDots(coords, end, color, top.type);
       }
     }
   });
@@ -682,8 +766,16 @@ function openThreatSheet(slug, items) {
   document.getElementById('sheetTitle').innerHTML =
     `${escapeHtml(REGION_NAMES[slug] || slug)} <span class="lvl" style="color:${lvl.color};background:${lvl.bg}">${lvl.label}</span>`;
   const isBank = slug === 'kyiv_left' || slug === 'kyiv_right';
+  let etaLine = '';
+  if (['uav', 'rockets'].includes(layerOf(top)) && !isBank) {
+    const target = guessTargetRegion(top.text, slug);
+    const tc = target ? REGION_COORDS[target] : null;
+    if (tc) {
+      etaLine = ` · ≈${etaMinutes(REGION_COORDS[slug], tc, top.type)} хв до ${REGION_NAMES[target] || target} (орієнтовно)`;
+    }
+  }
   document.getElementById('sheetMeta').textContent =
-    `${items.length} подія(й) · ${isBank ? 'берег за текстом джерела · ' : ''}${confirmed ? 'підтверджено кількома джерелами' : 'одне джерело — очікує підтвердження'}`;
+    `${items.length} подія(й) · ${isBank ? 'берег за текстом джерела · ' : ''}${confirmed ? 'підтверджено кількома джерелами' : 'одне джерело — очікує підтвердження'}${etaLine}`;
   document.getElementById('sheetBody').innerHTML = items.slice(0, 6).map(t =>
     `<div class="ev"><div class="t">${fmtClock(t.age_min)} · ${t.age_min} хв тому · джерел: ${escapeHtml(t.sources)}</div>` +
     `${escapeHtml(TYPE_LABELS[t.type] || t.type)}<br>${escapeHtml((t.text || '').replaceAll('**', ''))}</div>`
@@ -700,19 +792,32 @@ const PERSONAL_RADIUS_KM = 15;
 document.getElementById('geoBtn').addEventListener('click', () => { tapFeedback(); requestGeo(false); });
 
 function requestGeo(forShelters) {
-  if (!navigator.geolocation) { toast('Геолокація недоступна'); return; }
+  if (!navigator.geolocation) { useMapCenter(forShelters); return; }
   toast('⏳ Визначаю розташування…');
   navigator.geolocation.getCurrentPosition(pos => {
     const { latitude: lat, longitude: lon } = pos.coords;
     userPos = [lat, lon];
     map.setView([lat, lon], 9);
-    if (geoCircle) map.removeLayer(geoCircle);
-    geoCircle = L.circle([lat, lon], {
-      radius: PERSONAL_RADIUS_KM * 1000, color: '#5ac8fa', weight: 1.5,
-      dashArray: '4 6', fillOpacity: 0.04,
-    }).addTo(map);
+    drawGeoCircle();
     if (forShelters) loadShelters();
-  }, () => toast('Не вдалося визначити розташування'), { enableHighAccuracy: false, timeout: 8000 });
+  }, () => useMapCenter(forShelters), { enableHighAccuracy: false, timeout: 8000 });
+}
+
+// Геолокация часто недоступна внутри Telegram WebApp — fallback: центр карты.
+function useMapCenter(forShelters) {
+  const c = map.getCenter();
+  userPos = [c.lat, c.lng];
+  drawGeoCircle();
+  toast('Геолокацію не надано — шукаю біля центру карти');
+  if (forShelters) loadShelters();
+}
+
+function drawGeoCircle() {
+  if (geoCircle) map.removeLayer(geoCircle);
+  geoCircle = L.circle(userPos, {
+    radius: PERSONAL_RADIUS_KM * 1000, color: '#5ac8fa', weight: 1.5,
+    dashArray: '4 6', fillOpacity: 0.04,
+  }).addTo(map);
 }
 
 function checkPersonalRadius(groups) {
@@ -869,7 +974,11 @@ const soundChip = document.querySelector('#filters .chip[data-layer="sound"]');
 if (soundChip && !soundOn) soundChip.textContent = '🔇';
 
 fetchData();
-setInterval(fetchData, 30000);
+setInterval(fetchData, 15000);
+// Возврат на вкладку/в Telegram — мгновенное обновление, не ждём таймер.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') fetchData();
+});
 </script>
 </body>
 </html>
