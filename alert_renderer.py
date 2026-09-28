@@ -19,7 +19,7 @@ import time
 
 from incident_fusion import IncidentFact
 from regions import region_name
-from weapon_classes import weapon_severity
+from weapon_classes import weapon_eta, weapon_severity
 
 # Короткие UA-названия классов оружия для публичных постов (без эмодзи-
 # заголовков weapon_label — эмодзи задаётся отдельно по критичности).
@@ -112,6 +112,11 @@ def render_evidence_alert(
             f"📍 Рух: цілі прямують з {region_name(fact.origin_region)} "
             f"на {region_name(fact.destination_region)}"
         )
+    # Типовое время подлёта по классу оружия. Правило проекта: ETA можно
+    # публиковать только с пометкой «орієнтовно». «—» (нет данных) не показываем.
+    eta = weapon_eta(fact.weapon_class)
+    if eta and eta != "—":
+        lines.append(f"⏱ Типовий підліт: {eta} (орієнтовно)")
     lines.append("")
     lines.append(f"⚠️ Статус: {_status(confirmation)}")
     # Текст источника — недоверенные данные: без разметки, но с сохранением

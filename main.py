@@ -516,7 +516,11 @@ async def _process_message(
             if not published:
                 logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
             if bot_client is not None and regions and published:
-                await _notify_subscribers(bot_client, db, regions, final_text)
+                fkey = confirmation.get("key", "")
+                await _notify_subscribers(
+                    bot_client, db, regions, final_text,
+                    feedback_key=fkey, weapon_class=weapon,
+                )
 
         # 6) Определение регионов и запись в журнал БД.
         regions_to_log = regions or ["unknown"]
@@ -559,6 +563,18 @@ async def _process_message(
         elif confirmation.get("status") in ("corroborated", "officially_confirmed") and stage == "imminent":
             for slug in regions or []:
                 db.alert_start(slug, event_ts=event_ts)
+                # Метрика «випередження сирени»: первый наш пост по региону
+                # в предшествующие 2 часа против старта этого эпизода тревоги.
+                try:
+                    first = db._conn.execute(
+                        "SELECT MIN(event_ts) AS first_ts FROM threat_events "
+                        "WHERE region = ? AND stage IN ('launch', 'movement', 'alert') AND event_ts >= ?",
+                        (slug, event_ts - 7200),
+                    ).fetchone()
+                    if first and first["first_ts"] is not None:
+                        db.record_siren_lead(slug, int(first["first_ts"]), event_ts)
+                except Exception:  # noqa: BLE001 — метрика не должна ронять конвейер
+                    logger.debug("siren_lead: не удалось записать замер (%s)", slug)
         # Рассылка по подпискам выполняется в _publish_items после публикации
         # (агрегированный пост — одна рассылка по объединённым регионам).
     except Exception as exc:  # pragma: no cover — страховка конвейера
@@ -617,10 +633,63 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
             if slug not in regions:
                 regions.append(slug)
     if bot_client is not None and regions:
-        await _notify_subscribers(bot_client, db, regions, final_text)
+        fkey = ""
+        for item in reversed(items):
+            fkey = item.confirmation.get("key", "")
+            if fkey:
+                break
+        await _notify_subscribers(
+            bot_client, db, regions, final_text,
+            feedback_key=fkey, weapon_class=last.fact.weapon_class,
+        )
 
 
-async def _notify_subscribers(bot_client, db: Database, regions: list[str], text: str) -> None:
+# Классы оружия, пропускаемые ночным режимом (23:00–06:00). Отбой проходит
+# всегда (правило: відбій публікується завжди і миттєво).
+NIGHT_CRITICAL_CLASSES = {"ballistic", "cruise_missile", "kab", "air_missile", "coastal_missile"}
+
+# Callback-префиксы фидбека под алертами в ЛС.
+CB_FEEDBACK_USEFUL = "fbu:"
+CB_FEEDBACK_NOISE = "fbn:"
+
+
+def _kyiv_hour() -> int:
+    """Текущий час в Киеве (23:00–06:00 — ночное окно продукта).
+
+    Украине без tzdata на Windows: переходы часов считаются вручную —
+    последнее воскресенье марта/октября, момент 01:00 UTC в обоих случаях.
+    """
+    from datetime import datetime, timedelta, timezone as tz
+    now = datetime.now(tz.utc)
+
+    def _dst_transition(month: int) -> datetime:
+        day = datetime(now.year, month, 31, 1, 0, tzinfo=tz.utc)  # 31 есть у обоих месяцев
+        while day.weekday() != 6:  # воскресенье
+            day -= timedelta(days=1)
+        return day
+
+    eest = _dst_transition(3) <= now < _dst_transition(10)
+    return (now.hour + (3 if eest else 2)) % 24
+
+
+def _is_night_time() -> bool:
+    """Ночное окно 23:00–06:00 по киевскому времени."""
+    hour = _kyiv_hour()
+    return hour >= 23 or hour < 6
+
+
+def _feedback_kb(message_key: str):
+    """Кнопки «✅ корисно / ➖ шум» под алертом в ЛС."""
+    from telethon import Button
+    return [[
+        Button.inline("✅ Корисно", data=CB_FEEDBACK_USEFUL + message_key),
+        Button.inline("➖ Шум", data=CB_FEEDBACK_NOISE + message_key),
+    ]]
+
+
+async def _notify_subscribers(bot_client, db: Database, regions: list[str], text: str,
+                              feedback_key: str = "",
+                              weapon_class: str = "") -> None:
     """Разослать текст всем подписчикам указанных регионов.
 
     Работает «best effort»: ошибки отправки (пользователь заблокировал бота и
@@ -632,7 +701,20 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     Если берег определён — рассылаем его подписчикам + подписчикам «всего
     Киева», иначе — подписчикам обоих берегов. Подписчики kyivska (город
     целиком) получают все киевские алерты независимо от берега.
+
+    Ночной режим (персональный): 23:00–06:00 подписчик без галочки получает
+    только критичные классы (ракеты/балістика/КАБ) — остальное копится в
+    утренний дайджест. Отбой проходит всем всегда.
+
+    feedback_key: ключ поста для кнопок «✅ корисно / ➖ шум» (если задан).
     """
+    # Ночной режим не глушит отбой: определяем по первой строке рендера.
+    is_stand_down = text.startswith("🟢 ВІДБІЙ")
+    night_now = _is_night_time()
+    # Критичный класс ночью доставляется всем; некритичный ночью — только
+    # подписчикам БЕЗ ночного режима.
+    critical = is_stand_down or weapon_class in NIGHT_CRITICAL_CLASSES
+
     # Собираем уникальных подписчиков по всем регионам сообщения.
     notified: set[int] = set()
     sent_count = 0
@@ -649,8 +731,18 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
                 if user_id in notified:
                     continue
                 notified.add(user_id)
+                if night_now and not critical and db.get_night_mode(user_id):
+                    # Ночь, пост некритичный, у пользователя включён ночной
+                    # режим — пропускаем (дайджест утром).
+                    continue
                 try:
-                    await bot_client.send_message(user_id, text, link_preview=False)
+                    if feedback_key:
+                        await bot_client.send_message(
+                            user_id, text, link_preview=False,
+                            buttons=_feedback_kb(feedback_key),
+                        )
+                    else:
+                        await bot_client.send_message(user_id, text, link_preview=False)
                     sent_count += 1
                 except Exception as exc:  # noqa: BLE001 — один неудачный не стопит остальных
                     logger.debug("Не удалось отправить подписку %s: %s", user_id, exc)

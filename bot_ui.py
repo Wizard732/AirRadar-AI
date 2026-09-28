@@ -65,6 +65,7 @@ CB_MY_SUBS = "mysubs"    # мои подписки (регионы + берег�
 CB_MAIN = "main"         # главное меню
 CB_STATS_ALL = "sall"    # общая статистика
 CB_ACTIVE = "active"     # текущие угрозы
+CB_NIGHT_MODE = "night"  # персональный ночной режим (toggle)
 
 # Человекочитаемые подписи типов угроз.
 TYPE_LABELS = {
@@ -206,7 +207,8 @@ def _main_text() -> str:
         "Выбери раздел кнопками ниже. Здесь доступна статистика угроз, "
         "ETA (время прилёта) и история ударов по областям Украины.\n\n"
         "💡 Чтобы получать алерты в ЛС: <b>Военные алерты</b> → область → "
-        "🔔 Подписаться. Или команда <code>/city &lt;город&gt;</code>."
+        "🔔 Подписаться. Или команда <code>/city &lt;город&gt;</code>.\n"
+        "🌙 Нічний режим: 23:00–06:00 в ЛС лише критичні (ракети/балістика/КАБ)."
     )
 
 
@@ -265,12 +267,24 @@ def _stats_all_text(db: Database) -> str:
     active = db.active_threats(within_seconds=1800)
     active_regions = ", ".join(region_name(r["region"]) for r in active[:10]) or "нет"
 
+    # Открытая метрика точности: опережение официальной сирены за неделю.
+    lead = db.siren_lead_stats(days=7)
+    lead_line = ""
+    if lead["episodes"]:
+        lead_min = lead["avg_lead_sec"] / 60
+        lead_line = (
+            f"\n\n⚡ <b>Випередження сирени</b> (7 днів): "
+            f"{lead['before_count']} з {lead['episodes']} епізодів раніше офіційної тривоги"
+            + (f", у середньому на {lead_min:.0f} хв" if lead_min > 0 else "")
+        )
+
     return (
         "📊 <b>Подтверждённые инциденты</b>\n\n"
         f"{render(day, 'За 24 часа')}\n\n"
         f"{render(week, 'За неделю')}\n\n"
         f"🔴 <b>Активные угрозы (30 мин):</b> {len(active)}\n"
         f"Регионы: {active_regions}"
+        f"{lead_line}"
     )
 
 
@@ -391,13 +405,16 @@ def register_handlers(
     def _is_admin(user_id: int) -> bool:
         return db.is_admin(user_id, admin_id)
 
-    def _menu_kb():
-        return _main_menu_with_webapp(webapp_url, map_webapp_url) if (webapp_url or map_webapp_url) else _main_menu_kb()
+    def _menu_kb(user_id: int):
+        rows = _main_menu_with_webapp(webapp_url, map_webapp_url) if (webapp_url or map_webapp_url) else _main_menu_kb()
+        # Персональный ночной режим: 23:00–06:00 в ЛС только критичные классы.
+        state = "увімкнено ✅" if db.get_night_mode(user_id) else "вимкнено"
+        return rows + [[Button.inline(f"🌙 Нічний режим: {state}", data=CB_NIGHT_MODE)]]
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/start"))
     async def _start(event: events.NewMessage.Event) -> None:  # noqa: ANN001
         # Меню доступно всем пользователям (подписки, статистика, алерты).
-        await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb())
+        await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb(event.sender_id))
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/city\s+(.+)$"))
     async def _city(event: events.NewMessage.Event) -> None:  # noqa: ANN001
@@ -448,16 +465,38 @@ def register_handlers(
         try:
             # Маршрутизация по префиксу callback_data.
             if data == CB_MAIN:
-                await _safe_edit(_main_text(), _menu_kb())
+                await _safe_edit(_main_text(), _menu_kb(event.sender_id))
+
+            elif data == CB_NIGHT_MODE:
+                # Toggle персонального ночного режима + перерисовка меню.
+                new_state = not db.get_night_mode(event.sender_id)
+                db.set_night_mode(event.sender_id, new_state)
+                await event.answer(
+                    "🌙 Нічний режим увімкнено: 23:00–06:00 лише критичні"
+                    if new_state
+                    else "🌙 Нічний режим вимкнено"
+                )
+                await _safe_edit(_main_text(), _menu_kb(event.sender_id))
+
+            elif data.startswith("fbu:") or data.startswith("fbn:"):
+                # Фидбек под алертом в ЛС: «✅ корисно / ➖ шум».
+                vote = "useful" if data.startswith("fbu:") else "noise"
+                key = data[4:].strip()
+                if key:
+                    db.add_alert_feedback(key, vote)
+                await event.answer(
+                    "Дякуємо за відгук!" if vote == "useful"
+                    else "Прийнято — працюємо над точністю."
+                )
 
             elif data == CB_STATS_ALL:
-                await _safe_edit(_stats_all_text(db), _menu_kb())
+                await _safe_edit(_stats_all_text(db), _menu_kb(event.sender_id))
 
             elif data == "stats_detail":
                 # Детальная статистика за неделю (все регионы).
                 from stats import format_detailed_stats
                 text = format_detailed_stats(db, days=7)
-                await _safe_edit(text, _menu_kb())
+                await _safe_edit(text, _menu_kb(event.sender_id))
 
             elif data == CB_MY_SUBS:
                 # Мои подписки: регионы + берега Киева одним списком.
@@ -465,7 +504,7 @@ def register_handlers(
                 await _safe_edit(_my_subs_text(subs), _my_subs_kb(subs))
 
             elif data == CB_ACTIVE:
-                await _safe_edit(_active_text(db), _menu_kb())
+                await _safe_edit(_active_text(db), _menu_kb(event.sender_id))
 
             elif data == CB_INTERESTS:
                 # Переход в меню Interests-модуля (его кнопки определяет interests_ui).

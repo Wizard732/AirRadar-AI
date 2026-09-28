@@ -104,6 +104,42 @@ class Database:
                 """
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_events_match ON threat_events(region, weapon_class, stage, event_ts)")
+            # Метрика «випередження сирени»: наш первый пост по эпизоду тревоги
+            # против alert_start того же эпизода. UNIQUE защищает от повторов
+            # (одна тревога — один замер).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS siren_lead (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    region         TEXT NOT NULL,
+                    first_post_ts  INTEGER NOT NULL,
+                    alert_ts       INTEGER NOT NULL,
+                    seconds        INTEGER NOT NULL,
+                    UNIQUE(region, alert_ts)
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_siren_lead_ts ON siren_lead(alert_ts)")
+            # Фидбек подписчиков под алертами: счётчики на пост (ключ — хеш текста).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_feedback (
+                    message_key  TEXT PRIMARY KEY,
+                    ts           INTEGER NOT NULL,
+                    useful       INTEGER NOT NULL DEFAULT 0,
+                    noise        INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            # Ночной режим: персональная настройка (по умолчанию выкл).
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_prefs (
+                    user_id     INTEGER PRIMARY KEY,
+                    night_mode  INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
             # Состояние синхронизации истории Telegram. Курсор хранится отдельно
             # для каждого канала, а message_key исключает дубли при перекрытии.
             cur.execute(
@@ -937,6 +973,113 @@ class Database:
         except sqlite3.Error as exc:
             logger.warning("Не удалось получить подписки: %s", exc)
             return []
+
+    # ------------------------------------------------------------------
+    #  Метрика «випередження сирени» + фидбек + ночной режим
+    # ------------------------------------------------------------------
+    def record_siren_lead(self, region: str, first_post_ts: int, alert_ts: int) -> bool:
+        """Сохранить замер: наш пост против старта официальной тревоги.
+
+        seconds > 0 — мы раньше сирены. UNIQUE(region, alert_ts): одна тревога
+        — один замер, повторы игнорируются.
+        """
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "INSERT OR IGNORE INTO siren_lead (region, first_post_ts, alert_ts, seconds) "
+                    "VALUES (?, ?, ?, ?)",
+                    (region, first_post_ts, alert_ts, alert_ts - first_post_ts),
+                )
+                self._conn.commit()
+                return cur.rowcount > 0
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать замер сирены: %s", exc)
+            return False
+
+    def siren_lead_stats(self, days: int = 7) -> dict:
+        """Сводка опережения сирены за период: {episodes, avg_lead_sec, before_count}.
+
+        before_count — сколько эпизодов мы поймали раньше официальной тревоги
+        (first_post_ts < alert_ts).
+        """
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT COUNT(*) AS episodes, "
+                    "AVG(CASE WHEN seconds > 0 THEN seconds END) AS avg_lead, "
+                    "SUM(CASE WHEN seconds > 0 THEN 1 ELSE 0 END) AS before_count "
+                    "FROM siren_lead WHERE alert_ts >= ?",
+                    (int(time.time()) - days * 86400,),
+                ).fetchone()
+                return {
+                    "episodes": int(row["episodes"] or 0),
+                    "avg_lead_sec": float(row["avg_lead"] or 0),
+                    "before_count": int(row["before_count"] or 0),
+                }
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось посчитать статистику сирены: %s", exc)
+            return {"episodes": 0, "avg_lead_sec": 0.0, "before_count": 0}
+
+    def add_alert_feedback(self, message_key: str, vote: str) -> None:
+        """Учесть голос по посту: vote 'useful' | 'noise' (по одному голосу
+        на пост — счётчик, повторный клик той же кнопки игнорируется)."""
+        if vote not in ("useful", "noise"):
+            return
+        column = "useful" if vote == "useful" else "noise"
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    f"INSERT INTO alert_feedback (message_key, ts, {column}) VALUES (?, ?, 1) "
+                    f"ON CONFLICT(message_key) DO UPDATE SET {column} = {column} + 1",
+                    (message_key, int(time.time())),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось учесть фидбек: %s", exc)
+
+    def get_alert_feedback(self, message_key: str) -> dict:
+        """Счётчики фидбека поста {useful, noise}."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT useful, noise FROM alert_feedback WHERE message_key = ?",
+                    (message_key,),
+                ).fetchone()
+                return {"useful": row["useful"], "noise": row["noise"]} if row else {"useful": 0, "noise": 0}
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать фидбек: %s", exc)
+            return {"useful": 0, "noise": 0}
+
+    def get_night_mode(self, user_id: int) -> bool:
+        """Включён ли ночной режим у пользователя."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT night_mode FROM user_prefs WHERE user_id = ?", (user_id,)
+                ).fetchone()
+                return bool(row["night_mode"]) if row else False
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать night_mode: %s", exc)
+            return False
+
+    def set_night_mode(self, user_id: int, enabled: bool) -> None:
+        """Включить/выключить ночной режим (23:00–06:00 только критичные)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO user_prefs (user_id, night_mode) VALUES (?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET night_mode = ?",
+                    (user_id, 1 if enabled else 0, 1 if enabled else 0),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить night_mode: %s", exc)
 
     # ------------------------------------------------------------------
     #  Interests-модуль: каналы, темы, классификация
