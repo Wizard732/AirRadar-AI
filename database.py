@@ -751,17 +751,33 @@ class Database:
             logger.warning("Не удалось прочитать историю угроз: %s", exc)
             return []
 
-    def active_threats(self, within_seconds: int = 1800) -> list[dict[str, Any]]:
-        """Только свежие подтверждённые активные инциденты, не все старые посты."""
+    def active_threats(
+        self, within_seconds: int = 1800, include_reported: bool = False
+    ) -> list[dict[str, Any]]:
+        """Свежие активные инциденты.
+
+        include_reported=False (по умолчанию) — только подтверждённые 2+
+        независимыми источниками: «Текущие угрозы» бота остаются строгими.
+        include_reported=True — добавляет одиночные `reported`-события и
+        стадию unknown (карта рендерит их полупрозрачно: «одне джерело —
+        очікує підтвердження»), иначе карта пуста, пока источники не
+        сойдутся. `disputed`/`retracted` не отдаются никогда.
+        """
         try:
             cutoff = int(time.time()) - within_seconds
+            if include_reported:
+                stage_sql = "i.stage IN ('imminent', 'potential', 'unknown')"
+                status_sql = "i.status IN ('reported', 'corroborated', 'officially_confirmed')"
+            else:
+                stage_sql = "i.stage IN ('imminent', 'potential')"
+                status_sql = "i.status IN ('corroborated', 'officially_confirmed')"
             with self._lock:
                 assert self._conn is not None
                 cur = self._conn.execute(
                     "SELECT i.updated_ts AS ts, i.weapon_class AS type, i.region, i.status, i.source_count, "
                     "(SELECT text FROM incident_evidence e WHERE e.incident_key=i.incident_key ORDER BY e.id DESC LIMIT 1) AS text "
-                    "FROM incidents i WHERE i.updated_ts >= ? AND i.stage IN ('imminent', 'potential') "
-                    "AND i.status IN ('corroborated', 'officially_confirmed') ORDER BY i.updated_ts DESC",
+                    f"FROM incidents i WHERE i.updated_ts >= ? AND {stage_sql} "
+                    f"AND {status_sql} ORDER BY i.updated_ts DESC",
                     (cutoff,),
                 )
                 return [dict(row) for row in cur.fetchall()]

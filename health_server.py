@@ -49,7 +49,9 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
         except (ValueError, AttributeError):
             minutes = 30
         minutes = max(1, min(120, minutes))
-        threats = _app_db.active_threats(within_seconds=minutes * 60)
+        # Карта показывает и одиночные reported-события (полупрозрачно,
+        # «очікує підтвердження») — иначе при 1 источнике карта пуста.
+        threats = _app_db.active_threats(within_seconds=minutes * 60, include_reported=True)
         # Добавим возраст в минутах.
         now = int(time.time())
         result = []

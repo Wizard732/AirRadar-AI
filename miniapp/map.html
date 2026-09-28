@@ -219,6 +219,7 @@ const REGION_COORDS = {
   ivano_frankivska: [48.92, 24.71], zakarpatska: [48.62, 22.29], mykolaivska: [46.97, 32.00],
   khersonska: [46.64, 32.62], zaporizka: [47.84, 35.14], kirovohradska: [48.51, 32.26],
   donetska: [48.00, 37.80], luhanska: [48.57, 39.31], crimea: [44.95, 34.10],
+  kyiv_left: KYIV_BANK.kyiv_left.coords, kyiv_right: KYIV_BANK.kyiv_right.coords,
 };
 
 const REGION_NAMES = {
@@ -230,7 +231,35 @@ const REGION_NAMES = {
   ivano_frankivska: 'Прикарпаття', zakarpatska: 'Закарпаття', mykolaivska: 'Миколаївщина',
   khersonska: 'Херсонщина', zaporizka: 'Запоріжжя', kirovohradska: 'Кіровоградщина',
   donetska: 'Донеччина', luhanska: 'Луганщина', crimea: 'Крим',
+  kyiv_left: 'Київ — лівий берег', kyiv_right: 'Київ — правий берег',
 };
+
+// Берега Киева: точки пинов + те же ключи, что в regions.detect_kyiv_zone
+// (бот и карта размечают берег одинаково).
+const KYIV_BANK = {
+  kyiv_left: {
+    coords: [50.4668, 30.6380], // Дарниця / Лівобережна
+    keys: ['лівий берег', 'левый берег', 'левый', 'лівобереж', 'лівобережж', 'дарниц',
+      'позняк', 'осокорк', 'харківськ', 'деснянськ', 'троєщин', 'русанів', 'бортнич', 'дніпровськ'],
+  },
+  kyiv_right: {
+    coords: [50.4440, 30.5150], // правобережный центр
+    keys: ['правий берег', 'правый берег', 'правый', 'правобереж', 'правобережж',
+      'оболон', 'печерськ', 'голосіїв', 'теремки', 'святошин', "солом'янск", 'соломянск',
+      'шулявк', 'подол', 'борщагівк', 'жуляни', 'видубичі'],
+  },
+};
+
+// Київские события вешаем на конкретный берег, если источник его назвал.
+function pinSlugOf(t) {
+  if (t.region !== 'kyivska') return t.region;
+  const lower = (t.text || '').toLowerCase();
+  const left = KYIV_BANK.kyiv_left.keys.some(k => lower.includes(k));
+  const right = KYIV_BANK.kyiv_right.keys.some(k => lower.includes(k));
+  if (left && !right) return 'kyiv_left';
+  if (right && !left) return 'kyiv_right';
+  return 'kyivska';
+}
 
 const TYPE_COLORS = {
   ballistic: '#ff3b30', cruise_missile: '#ff3b30', missile: '#ff3b30',
@@ -489,9 +518,10 @@ function renderAll() {
   const visible = scrubbed.filter(t => t.type !== 'stand_down' && enabled[layerOf(t)]);
   const groups = new Map();
   visible.forEach(t => {
-    if (!REGION_COORDS[t.region]) return;
-    if (!groups.has(t.region)) groups.set(t.region, []);
-    groups.get(t.region).push(t);
+    const slug = pinSlugOf(t);
+    if (!REGION_COORDS[slug]) return;
+    if (!groups.has(slug)) groups.set(slug, []);
+    groups.get(slug).push(t);
   });
 
   // Слой 4: зелёные зоны отбоев (последние 40 минут)
@@ -566,7 +596,7 @@ function renderAll() {
 
     // Слой 2: векторный луч — только свежие подтверждённые БПЛА/ракеты.
     // Статичная стрелка с затухающим хвостом, БЕЗ анимации траекторий.
-    if (fresh && confirmed && ['uav', 'rockets'].includes(layerOf(top))) {
+    if (fresh && confirmed && ['uav', 'rockets'].includes(layerOf(top)) && !slug.startsWith('kyiv_')) {
       const target = guessTargetRegion(top.text, slug);
       const tc = target ? REGION_COORDS[target] : null;
       if (tc) {
@@ -642,8 +672,9 @@ function openThreatSheet(slug, items) {
   const confirmed = items.some(t => Number(t.sources || 1) >= 2);
   document.getElementById('sheetTitle').innerHTML =
     `${escapeHtml(REGION_NAMES[slug] || slug)} <span class="lvl" style="color:${lvl.color};background:${lvl.bg}">${lvl.label}</span>`;
+  const isBank = slug === 'kyiv_left' || slug === 'kyiv_right';
   document.getElementById('sheetMeta').textContent =
-    `${items.length} подія(й) · ${confirmed ? 'підтверджено кількома джерелами' : 'одне джерело — очікує підтвердження'}`;
+    `${items.length} подія(й) · ${isBank ? 'берег за текстом джерела · ' : ''}${confirmed ? 'підтверджено кількома джерелами' : 'одне джерело — очікує підтвердження'}`;
   document.getElementById('sheetBody').innerHTML = items.slice(0, 6).map(t =>
     `<div class="ev"><div class="t">${fmtClock(t.age_min)} · ${t.age_min} хв тому · джерел: ${escapeHtml(t.sources)}</div>` +
     `${escapeHtml(TYPE_LABELS[t.type] || t.type)}<br>${escapeHtml(t.text)}</div>`
