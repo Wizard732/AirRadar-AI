@@ -3,113 +3,235 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b0e14">
 <title>AirRadar AI — Карта загроз</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { height: 100%; background: #1a1a2e; font-family: -apple-system, sans-serif; color: #fff; }
-  #map { width: 100%; height: 100vh; z-index: 1; }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: #0b0e14; font-family: -apple-system, 'Segoe UI', sans-serif; color: #fff; overflow: hidden; }
+  #map { width: 100%; height: 100vh; z-index: 1; background: #0b0e14; }
+
+  /* Еле заметная тактическая сетка поверх тайлов (МГРС-стиль) */
+  #tactical-grid {
+    position: absolute; inset: 0; z-index: 2; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(90,200,250,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(90,200,250,0.05) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+
+  /* Красная вспышка рамки при угрозе в личном радиусе */
+  #alert-flash {
+    position: absolute; inset: 0; z-index: 3000; pointer-events: none;
+    box-shadow: inset 0 0 0 3px rgba(255,59,48,0);
+    opacity: 0;
+  }
+  #alert-flash.on { animation: alertflash 1.1s ease-out 2; }
+  @keyframes alertflash {
+    0%   { opacity: 0; box-shadow: inset 0 0 0 3px rgba(255,59,48,0); }
+    30%  { opacity: 1; box-shadow: inset 0 0 70px 10px rgba(255,59,48,0.5); }
+    100% { opacity: 0; box-shadow: inset 0 0 0 3px rgba(255,59,48,0); }
+  }
+
   #header {
-    position: absolute; top: 0; left: 0; right: 0; z-index: 1000;
-    background: rgba(26,26,46,0.92); padding: 10px 16px; backdrop-filter: blur(10px);
+    position: absolute; top: 0; left: 0; right: 0; z-index: 1100;
+    background: rgba(11,14,20,0.94); padding: 10px 16px; backdrop-filter: blur(10px);
     display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid rgba(90,200,250,0.15);
   }
-  #header h1 { font-size: 16px; font-weight: 700; }
-  #header .count { font-size: 13px; color: #ff9f0a; }
+  #header h1 { font-size: 15px; font-weight: 700; letter-spacing: .4px; }
+  #header .count { font-size: 12px; color: #ff9f0a; text-align: right; }
+
+  /* Лента событий (тикер) */
+  #ticker {
+    position: absolute; top: 44px; left: 0; right: 0; z-index: 1090;
+    background: rgba(11,14,20,0.9); border-bottom: 1px solid rgba(90,200,250,0.12);
+    font-size: 12px; color: #9fd0e8; white-space: nowrap; overflow: hidden;
+    max-height: 30px; cursor: pointer; transition: max-height .25s ease;
+    backdrop-filter: blur(8px);
+  }
+  #ticker .scroll { display: inline-block; padding: 7px 0 7px 100vw; animation: tickerscroll 45s linear infinite; }
+  @keyframes tickerscroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+  #ticker.expanded { max-height: 46vh; overflow-y: auto; white-space: normal; }
+  #ticker.expanded .scroll { animation: none; padding: 4px 12px 8px; display: block; white-space: normal; }
+  .tick-line { padding: 6px 0; border-bottom: 1px solid rgba(90,200,250,0.08); }
+  .tick-line b { color: #cfe9f5; }
+
   #legend {
-    position: absolute; bottom: 0; left: 0; right: 0; z-index: 1000;
-    background: rgba(26,26,46,0.92); padding: 8px 16px; font-size: 12px;
-    display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 1100;
+    background: rgba(11,14,20,0.94); padding: 7px 14px; font-size: 10.5px;
+    display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
+    border-top: 1px solid rgba(90,200,250,0.12);
   }
-  .leg-item { display: flex; align-items: center; gap: 4px; }
-  .leg-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .leg-item { display: flex; align-items: center; gap: 4px; color: #c8c8d0; }
+  .leg-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
   .pulse { animation: pulse 1.5s infinite; }
-  @keyframes pulse { 0%{opacity:1} 50%{opacity:0.3} 100%{opacity:1} }
+  @keyframes pulse { 0%{opacity:1} 50%{opacity:0.35} 100%{opacity:1} }
+
   #filters {
-    position: absolute; top: 52px; right: 10px; z-index: 1000;
-    display: flex; flex-direction: column; gap: 6px;
+    position: absolute; top: 82px; right: 8px; z-index: 1080;
+    display: flex; flex-direction: column; gap: 5px; align-items: flex-end;
   }
   .chip {
-    background: rgba(26,26,46,0.92); border: 1px solid #3a3a5c; color: #fff;
-    padding: 6px 10px; border-radius: 16px; font-size: 12px; cursor: pointer;
+    background: rgba(11,14,20,0.92); border: 1px solid rgba(90,200,250,0.25); color: #fff;
+    padding: 5px 9px; border-radius: 15px; font-size: 11.5px; cursor: pointer;
     user-select: none; backdrop-filter: blur(8px);
+    transition: opacity .2s, border-color .2s, transform .1s;
   }
-  .chip.off { opacity: 0.4; text-decoration: line-through; }
-  #geoBtn {
-    position: absolute; bottom: 52px; right: 10px; z-index: 1000;
-    background: rgba(26,26,46,0.92); border: 1px solid #3a3a5c; color: #fff;
-    padding: 8px 12px; border-radius: 20px; font-size: 13px; cursor: pointer;
+  .chip:active { transform: scale(0.96); border-color: #5ac8fa; }
+  .chip.off { opacity: 0.35; text-decoration: line-through; }
+
+  #geoBtn, #shelterBtn, #shareBtn {
+    position: absolute; right: 8px; z-index: 1080;
+    background: rgba(11,14,20,0.92); border: 1px solid rgba(90,200,250,0.25); color: #fff;
+    padding: 8px 11px; border-radius: 20px; font-size: 12.5px; cursor: pointer;
+    backdrop-filter: blur(8px);
   }
+  #shareBtn { bottom: 82px; }
+  #geoBtn { bottom: 122px; }
+  #shelterBtn { bottom: 162px; }
+
   #timeline {
-    position: absolute; bottom: 26px; left: 10px; right: 10px; z-index: 1000;
+    position: absolute; bottom: 30px; left: 8px; right: 8px; z-index: 1080;
     display: flex; align-items: center; gap: 8px;
-    background: rgba(26,26,46,0.92); padding: 6px 12px; border-radius: 12px;
-    font-size: 12px;
+    background: rgba(11,14,20,0.94); padding: 5px 10px; border-radius: 12px;
+    font-size: 11.5px; border: 1px solid rgba(90,200,250,0.15);
   }
-  #timeline input[type=range] { flex: 1; accent-color: #ff9500; }
+  #timeline input[type=range] { flex: 1; accent-color: #ff9500; min-width: 60px; }
+  #playBtn {
+    background: rgba(90,200,250,0.12); border: 1px solid rgba(90,200,250,0.3); color: #5ac8fa;
+    font-size: 14px; cursor: pointer; padding: 3px 10px; border-radius: 10px; line-height: 1.2;
+  }
+
+  /* Bottom Sheet — карточка объекта */
+  #sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2000;
+    background: rgba(15,19,28,0.97); border-top: 1px solid rgba(90,200,250,0.3);
+    border-radius: 16px 16px 0 0; padding: 10px 16px calc(14px + env(safe-area-inset-bottom));
+    transform: translateY(110%); transition: transform .25s ease;
+    backdrop-filter: blur(14px); box-shadow: 0 -8px 32px rgba(0,0,0,0.55);
+  }
+  #sheet.open { transform: translateY(0); }
+  #sheet .grab { width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.25); margin: 0 auto 10px; }
+  #sheet .close {
+    position: absolute; top: 10px; right: 14px; background: none; border: none;
+    color: #8e8e93; font-size: 17px; cursor: pointer;
+  }
+  #sheet h3 { font-size: 15px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; padding-right: 26px; }
+  #sheet .lvl { font-size: 10px; padding: 2px 8px; border-radius: 8px; font-weight: 700; letter-spacing: .5px; }
+  #sheet .meta { font-size: 12px; color: #9fd0e8; margin-bottom: 8px; }
+  #sheet .body {
+    font-size: 13px; color: #e5e5ea; line-height: 1.45; white-space: pre-wrap;
+    max-height: 32vh; overflow-y: auto;
+  }
+  #sheet .body .ev { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  #sheet .body .ev:last-child { border-bottom: none; }
+  #sheet .body .ev .t { color: #9fd0e8; font-size: 11px; }
+  #sheet .note { font-size: 10.5px; color: #667; margin-top: 8px; }
+  #sheet .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  #sheet .actions a {
+    flex: 1; min-width: 130px; text-align: center; text-decoration: none;
+    font-size: 13px; padding: 9px 12px; border-radius: 10px;
+    background: rgba(90,200,250,0.12); border: 1px solid rgba(90,200,250,0.3); color: #fff;
+  }
+
+  #toast {
+    position: absolute; bottom: 88px; left: 50%; transform: translateX(-50%);
+    z-index: 2500; background: rgba(15,19,28,0.95); border: 1px solid rgba(90,200,250,0.3);
+    padding: 8px 16px; border-radius: 20px; font-size: 12.5px; color: #cfe9f5;
+    opacity: 0; pointer-events: none; transition: opacity .25s; max-width: 86vw; text-align: center;
+  }
+  #toast.show { opacity: 1; }
+
+  .leaflet-control-attribution { background: rgba(11,14,20,0.7) !important; color: #666 !important; font-size: 9px !important; }
+  .leaflet-control-attribution a { color: #888 !important; }
+  .leaflet-bar a { background: #161b26 !important; color: #cfe9f5 !important; border-color: rgba(90,200,250,0.2) !important; }
+  .leaflet-tooltip { background: #161b26 !important; border: 1px solid rgba(90,200,250,0.3) !important; color: #cfe9f5 !important; }
 </style>
 </head>
 <body>
 
 <div id="header">
-  <h1>🛡 AirRadar AI — Карта загроз</h1>
+  <h1>🛡 AirRadar AI</h1>
   <div class="count" id="counter">— загроз</div>
 </div>
 
+<div id="ticker" title="Останні події"><div class="scroll" id="tickerInner">⏳ Завантаження подій…</div></div>
+
 <div id="map"></div>
+<div id="tactical-grid"></div>
+<div id="alert-flash"></div>
 
 <div id="filters">
-  <div class="chip" data-layer="rockets">🔴 Ракети / Балістика</div>
-  <div class="chip" data-layer="uav">🟡 БПЛА / Дрони</div>
-  <div class="chip" data-layer="alerts">🟢 Тривоги / Інше</div>
+  <div class="chip" data-layer="rockets">🔴 Ракети</div>
+  <div class="chip" data-layer="uav">🟡 БПЛА</div>
+  <div class="chip" data-layer="alerts">🟢 Тривоги</div>
+  <div class="chip" data-layer="zones">🌀 Зони</div>
+  <div class="chip" data-layer="vectors">➤ Вектори</div>
+  <div class="chip" data-layer="green">✅ Відбої</div>
+  <div class="chip off" data-layer="shields">🛡 Укриття</div>
+  <div class="chip" data-layer="sound">🔊</div>
 </div>
 <button id="geoBtn" type="button">📍 Моє розташування</button>
+<button id="shelterBtn" type="button">🛡 Укриття поруч</button>
+<button id="shareBtn" type="button">📤 Поділитися</button>
 
 <div id="timeline">
-  <span>⏱</span>
+  <button id="playBtn" type="button" title="Плейбэк за 2 години">▶</button>
   <input id="tlRange" type="range" min="0" max="120" step="5" value="0">
   <span id="tlLabel">зараз</span>
 </div>
 
 <div id="legend">
-  <div class="leg-item"><div class="leg-dot pulse" style="background:#ff3b30"></div> Балістика/ракета</div>
-  <div class="leg-item"><div class="leg-dot pulse" style="background:#ff9500"></div> БПЛА/Shahed</div>
+  <div class="leg-item"><div class="leg-dot pulse" style="background:#ff3b30"></div> Балістика</div>
+  <div class="leg-item"><div class="leg-dot pulse" style="background:#ff9500"></div> БПЛА</div>
   <div class="leg-item"><div class="leg-dot" style="background:#ffcc00"></div> КАБ/авіація</div>
   <div class="leg-item"><div class="leg-dot" style="background:#34c759"></div> Відбій</div>
-  <div class="leg-item"><div class="leg-dot" style="background:#ff2d55"></div> Вибух/прильот</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#ff2d55"></div> Вибух</div>
+  <div class="leg-item"><div class="leg-dot" style="background:#8e8e93"></div> Розвідка</div>
+  <div class="leg-item">➤ орієнтовний напрямок</div>
 </div>
 
+<!-- Bottom Sheet -->
+<div id="sheet">
+  <div class="grab" id="sheetGrab"></div>
+  <button class="close" id="sheetClose" type="button">✕</button>
+  <h3 id="sheetTitle">—</h3>
+  <div class="meta" id="sheetMeta"></div>
+  <div class="body" id="sheetBody"></div>
+  <div class="note" id="sheetNote"></div>
+  <div class="actions" id="sheetActions"></div>
+</div>
+
+<div id="toast"></div>
+
 <script>
+'use strict';
+
 // === Координаты центров регионов Украины ===
 const REGION_COORDS = {
-  kyivska: [50.45, 30.52],
-  sumska: [50.91, 34.80],
-  kharkivska: [49.99, 36.23],
-  chernigivska: [51.49, 31.29],
-  odeska: [46.48, 30.73],
-  dnipropetrovska: [48.46, 35.05],
-  zhytomyrska: [50.25, 28.66],
-  vinnytska: [49.23, 28.48],
-  lvivska: [49.84, 24.03],
-  poltavska: [49.59, 34.55],
-  cherkaska: [49.44, 32.06],
-  rivnenska: [50.62, 26.25],
-  volynska: [50.75, 25.33],
-  khmelnytska: [49.42, 27.00],
-  ternopilska: [49.55, 25.59],
-  ivano_frankivska: [48.92, 24.71],
-  zakarpatska: [48.62, 22.29],
-  mykolaivska: [46.97, 32.00],
-  khersonska: [46.64, 32.62],
-  zaporizka: [47.84, 35.14],
-  kirovohradska: [48.51, 32.26],
-  donetska: [48.00, 37.80],
-  luhanska: [48.57, 39.31],
-  crimea: [44.95, 34.10],
+  kyivska: [50.45, 30.52], sumska: [50.91, 34.80], kharkivska: [49.99, 36.23],
+  chernigivska: [51.49, 31.29], odeska: [46.48, 30.73], dnipropetrovska: [48.46, 35.05],
+  zhytomyrska: [50.25, 28.66], vinnytska: [49.23, 28.48], lvivska: [49.84, 24.03],
+  poltavska: [49.59, 34.55], cherkaska: [49.44, 32.06], rivnenska: [50.62, 26.25],
+  volynska: [50.75, 25.33], khmelnytska: [49.42, 27.00], ternopilska: [49.55, 25.59],
+  ivano_frankivska: [48.92, 24.71], zakarpatska: [48.62, 22.29], mykolaivska: [46.97, 32.00],
+  khersonska: [46.64, 32.62], zaporizka: [47.84, 35.14], kirovohradska: [48.51, 32.26],
+  donetska: [48.00, 37.80], luhanska: [48.57, 39.31], crimea: [44.95, 34.10],
 };
 
-// Цвета по типу угрозы
+const REGION_NAMES = {
+  kyivska: 'Київщина', sumska: 'Сумщина', kharkivska: 'Харківщина',
+  chernigivska: 'Чернігівщина', odeska: 'Одещина', dnipropetrovska: 'Дніпропетровщина',
+  zhytomyrska: 'Житомирщина', vinnytska: 'Вінничина', lvivska: 'Львівщина',
+  poltavska: 'Полтавщина', cherkaska: 'Черкащина', rivnenska: 'Рівненщина',
+  volynska: 'Волинь', khmelnytska: 'Хмельниччина', ternopilska: 'Тернопільщина',
+  ivano_frankivska: 'Прикарпаття', zakarpatska: 'Закарпаття', mykolaivska: 'Миколаївщина',
+  khersonska: 'Херсонщина', zaporizka: 'Запоріжжя', kirovohradska: 'Кіровоградщина',
+  donetska: 'Донеччина', luhanska: 'Луганщина', crimea: 'Крим',
+};
+
 const TYPE_COLORS = {
   ballistic: '#ff3b30', cruise_missile: '#ff3b30', missile: '#ff3b30',
   shahed: '#ff9500', uav: '#ff9500', fpv: '#ff9500',
@@ -130,8 +252,59 @@ const TYPE_LABELS = {
   recon_drone: '👁 Розвідка', other: '🚨 Інше',
 };
 
+// Уровень угрозы — классификация по типу события, не прогноз.
+const TYPE_LEVEL = {
+  ballistic: 'critical', cruise_missile: 'critical', missile: 'critical',
+  mlrs: 'critical', artillery: 'critical', explosion: 'critical',
+  shahed: 'high', uav: 'high', fpv: 'high',
+  kab: 'elevated', aviation: 'elevated', alert: 'elevated',
+  air_defense: 'info', recon_drone: 'info', other: 'info',
+  stand_down: 'clear',
+};
+const LEVELS = {
+  critical: { color: '#ff3b30', label: 'КРИТИЧНИЙ', bg: 'rgba(255,59,48,0.18)' },
+  high:     { color: '#ff9500', label: 'ВИСОКИЙ',   bg: 'rgba(255,149,0,0.18)' },
+  elevated: { color: '#ffcc00', label: 'ПІДВИЩЕНИЙ', bg: 'rgba(255,204,0,0.15)' },
+  info:     { color: '#8e8e93', label: 'ІНФО',      bg: 'rgba(142,142,147,0.18)' },
+  clear:    { color: '#34c759', label: 'ВІДБОЙ',    bg: 'rgba(52,199,89,0.15)' },
+};
+const SEVERITY_ORDER = { critical: 5, high: 4, elevated: 3, info: 2, clear: 1 };
+
 // Same HTTPS origin as this Mini App; never use the user's localhost.
 const API_URL = '/api/threats';
+const CHANNEL_URL = 'https://t.me/AirRadarAI';
+
+// === Микро-звуки + хаптика (тактический фидбек) ===
+let soundOn = localStorage.getItem('ar_sound') !== '0';
+let audioCtx = null;
+function beep(freq, dur, vol) {
+  if (!soundOn) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+  } catch (e) { /* звук не критичен */ }
+}
+function haptic(style) {
+  try {
+    const hf = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback;
+    if (hf) { hf.impactOccurred(style || 'light'); }
+    else if (navigator.vibrate) { navigator.vibrate(10); }
+  } catch (e) { /* не критично */ }
+}
+function tapFeedback() { haptic('light'); beep(880, 0.045, 0.025); }
+function alertFeedback() {
+  haptic('heavy'); haptic('rigid');
+  if (navigator.vibrate) { try { navigator.vibrate([60, 60, 60]); } catch (e) {} }
+  beep(240, 0.28, 0.05);
+}
 
 // === Слои-фильтры ===
 const layerOf = t => {
@@ -140,125 +313,523 @@ const layerOf = t => {
   return 'alerts';
 };
 const enabled = { rockets: true, uav: true, alerts: true };
+
 document.querySelectorAll('#filters .chip').forEach(chip => {
   chip.addEventListener('click', () => {
+    tapFeedback();
     const layer = chip.dataset.layer;
+    if (layer === 'sound') {
+      soundOn = !soundOn;
+      localStorage.setItem('ar_sound', soundOn ? '1' : '0');
+      chip.textContent = soundOn ? '🔊' : '🔇';
+      return;
+    }
+    if (layer === 'shields') {
+      chip.classList.toggle('off');
+      if (chip.classList.contains('off')) { sheltersLayer.clearLayers(); return; }
+      if (userPos) loadShelters(); else requestGeo(true);
+      return;
+    }
+    if (layer === 'zones') {
+      chip.classList.toggle('off');
+      if (chip.classList.contains('off')) map.removeLayer(zoneLayer); else zoneLayer.addTo(map);
+      return;
+    }
+    if (layer === 'vectors') {
+      chip.classList.toggle('off');
+      if (chip.classList.contains('off')) map.removeLayer(vectorLayer); else vectorLayer.addTo(map);
+      return;
+    }
+    if (layer === 'green') {
+      chip.classList.toggle('off');
+      if (chip.classList.contains('off')) map.removeLayer(greenLayer); else greenLayer.addTo(map);
+      return;
+    }
+    // Слои типов угроз — фильтруют маркеры.
     enabled[layer] = !enabled[layer];
     chip.classList.toggle('off', !enabled[layer]);
-    updateMap();
+    renderAll();
   });
 });
 
-// === Таймлайн-плейбэк (0 = сейчас, 120 = 2 часа назад) ===
+// === Таймлайн-плейбэк «Машина времени» (0 = сейчас, 120 = 2 часа назад) ===
 let minutesAgo = 0;
+let playTimer = null;
 const tlRange = document.getElementById('tlRange');
 const tlLabel = document.getElementById('tlLabel');
-tlRange.addEventListener('input', () => {
+const playBtn = document.getElementById('playBtn');
+
+function applyScrub() {
   minutesAgo = parseInt(tlRange.value, 10);
   tlLabel.textContent = minutesAgo === 0 ? 'зараз' : `−${minutesAgo} хв`;
-  updateMap();
+  renderAll();
+}
+tlRange.addEventListener('input', () => { stopPlay(); tapFeedback(); applyScrub(); });
+
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; playBtn.textContent = '▶'; }
+}
+function startPlay() {
+  if (playTimer) return;
+  if (minutesAgo === 0) { minutesAgo = 120; tlRange.value = 120; }
+  playBtn.textContent = '⏸';
+  playTimer = setInterval(() => {
+    minutesAgo = Math.max(0, minutesAgo - 10); // 10 мин за тик → ~8.5 сек на 2 часа
+    tlRange.value = minutesAgo;
+    applyScrub();
+    haptic('light');
+    if (minutesAgo === 0) stopPlay();
+  }, 700);
+}
+playBtn.addEventListener('click', () => {
+  tapFeedback();
+  if (playTimer) { stopPlay(); applyScrub(); } else { startPlay(); }
 });
 
-// Инициализация карты
+// === Инициализация карты ===
 const map = L.map('map', { zoomControl: false }).setView([48.5, 32.0], 6);
-L.control.zoom({ position: 'topright' }).addTo(map);
+L.control.zoom({ position: 'topleft' }).addTo(map);
 // Esri World Dark Gray — тёмная подложка без API-ключей (CartoDB с 2025
 // требует ключ и отдаёт заглушку «api key required»).
 L.tileLayer(
   'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-  {
-    attribution: 'Esri, HERE, Garmin | AirRadar AI',
-    maxZoom: 16,
-  },
+  { attribution: 'Esri, HERE, Garmin | AirRadar AI', maxZoom: 16 },
 ).addTo(map);
 
-let markersLayer = L.layerGroup().addTo(map);
-let geoCircle = null;
+const zoneLayer = L.layerGroup().addTo(map);      // Слой 1: пульсирующие зоны угрозы
+const vectorLayer = L.layerGroup().addTo(map);    // Слой 2: векторные лучи
+const greenLayer = L.layerGroup().addTo(map);     // Слой 4: зелёные зоны отбоев
+const markersLayer = L.layerGroup().addTo(map);   // кластерные маркеры регионов
+const sheltersLayer = L.layerGroup();             // Слой 3: укрытия (вкл. по кнопке)
 
-// === «Моё местоположение»: центр на пользователе + радиус 10 км ===
-document.getElementById('geoBtn').addEventListener('click', () => {
-  if (!navigator.geolocation) return;
-  navigator.geolocation.getCurrentPosition(pos => {
-    const { latitude: lat, longitude: lon } = pos.coords;
-    map.setView([lat, lon], 10);
-    if (geoCircle) map.removeLayer(geoCircle);
-    geoCircle = L.circle([lat, lon], {
-      radius: 10000, color: '#5ac8fa', weight: 1, fillOpacity: 0.05,
-    }).addTo(map);
-  }, () => {}, { enableHighAccuracy: false, timeout: 8000 });
-});
+let geoCircle = null;
+let userPos = null;
+let sheltersLoadedFor = null;
 
 function escapeHtml(value) {
   const node = document.createElement('span');
-  node.textContent = value || '';
+  node.textContent = value == null ? '' : String(value);
   return node.innerHTML;
 }
 
-// === Обновление данных ===
-async function updateMap() {
+function fmtClock(ageMin) {
+  const d = new Date(Date.now() - ageMin * 60000);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function distanceKm(a, b) {
+  const R = 6371;
+  const dLat = (b[0] - a[0]) * Math.PI / 180;
+  const dLon = (b[1] - a[1]) * Math.PI / 180;
+  const s = Math.sin(dLat / 2) ** 2 +
+    Math.cos(a[0] * Math.PI / 180) * Math.cos(b[0] * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+// === Ориентировочные направления транзита (география запусков) ===
+const TRANSIT_TARGETS = {
+  sumska: 'kyivska', chernigivska: 'kyivska', zhytomyrska: 'kyivska',
+  kharkivska: 'poltavska', luhanska: 'kharkivska', donetska: 'dnipropetrovska',
+  zaporizka: 'dnipropetrovska', khersonska: 'mykolaivska', crimea: 'odeska',
+  odeska: 'vinnytska',
+};
+// Упомянутые в тексте города → регион-цель (уточняет вектор)
+const CITY_HINTS = {
+  kyivska: ['київ', 'киев', 'бровар', 'боярк', 'ірпінь', 'ирпень', 'буч', 'васильк', 'фастів', 'бориспіл', 'біла церкв', 'дарниц', 'оболон', 'поділ', 'деснян', 'святошин', 'вишгород'],
+  poltavska: ['полтав', 'кременчук', 'миргород'],
+  dnipropetrovska: ['дніпро', 'днепр', 'кривий ріг', 'кривор', 'нікопіл', 'павлоград', 'кам\'янськ'],
+  kharkivska: ['харк', 'ізюм', 'куп\'янськ'],
+  odeska: ['одес', 'білгород-дністров'],
+  mykolaivska: ['микола', 'никола'],
+  vinnytska: ['вінниц', 'винниц'],
+  zaporizka: ['запоріж', 'запорож'],
+  khersonska: ['херсон'],
+  cherkaska: ['черкас'],
+  zhytomyrska: ['житом', 'коростен'],
+};
+
+function guessTargetRegion(text, sourceSlug) {
+  const lower = (text || '').toLowerCase();
+  for (const [slug, hints] of Object.entries(CITY_HINTS)) {
+    if (slug !== sourceSlug && hints.some(h => lower.includes(h))) return slug;
+  }
+  return TRANSIT_TARGETS[sourceSlug] || null;
+}
+
+// === Данные: кэш + рендер без «телепортов» ===
+let threatsCache = [];
+let lastFlashKeys = '';
+
+async function fetchData() {
   try {
     const resp = await fetch(`${API_URL}?minutes=120`);
     const data = await resp.json();
-    let threats = (data.threats || []).filter(t => {
-      // Плейбэк: окно ±2 минуты вокруг выбранного момента таймлайна;
-      // «зараз» — всё за последние 30 минут (обычный режим).
-      if (minutesAgo === 0) return t.age_min <= 30;
-      return Math.abs(t.age_min - minutesAgo) <= 2;
-    });
-
-    document.getElementById('counter').textContent = `${threats.length} загроз (${data.window_min || 120} хв)`;
-
-    // Очищаем старые маркеры.
-    markersLayer.clearLayers();
-
-    threats.forEach(t => {
-      const coords = REGION_COORDS[t.region];
-      if (!coords) return;
-      if (!enabled[layerOf(t)]) return;
-
-      const color = TYPE_COLORS[t.type] || '#8e8e93';
-      const label = TYPE_LABELS[t.type] || t.type;
-      const isPulse = t.age_min < 10; // свежие пульсируют
-      // Достоверность: один источник — полупрозрачный «подозрение на цель»,
-      // несколько — плотный маркер.
-      const confirmed = Number(t.sources || 1) >= 2;
-      const opacity = confirmed ? 0.6 : 0.25;
-
-      // Маркер региона
-      const marker = L.circleMarker(coords, {
-        color: color,
-        fillColor: color,
-        fillOpacity: opacity,
-        opacity: confirmed ? 1 : 0.4,
-        radius: isPulse ? 12 : 8,
-        className: isPulse ? 'pulse' : '',
-      }).addTo(markersLayer);
-
-      // Popup с инфо
-      marker.bindPopup(
-        `<b>${escapeHtml(label)}</b><br>${escapeHtml(t.text)}<br>` +
-        `<i>${t.age_min} хв тому · ${confirmed ? 'підтверджено ' + t.sources + ' джерелами' : 'одне джерело — очікує підтвердження'}</i><br>` +
-        `<small>Позначка показує центр регіону, не точні координати.</small>`,
-        { className: 'threat-popup' }
-      );
-
-    });
-
-    // Обновляем счётчик красным если есть CRITICAL
-    if (threats.some(t => ['ballistic', 'cruise_missile', 'missile', 'explosion', 'mlrs'].includes(t.type))) {
-      document.getElementById('counter').style.color = '#ff3b30';
-    } else {
-      document.getElementById('counter').style.color = '#ff9f0a';
-    }
+    threatsCache = data.threats || [];
+    renderAll();
+    renderTicker();
   } catch (e) {
-    document.getElementById('counter').textContent = '⚠ Помилка з\'єднання';
-    document.getElementById('counter').style.color = '#ff3b30';
+    const counter = document.getElementById('counter');
+    counter.textContent = '⚠ Помилка з\'єднання';
+    counter.style.color = '#ff3b30';
   }
 }
 
-// Первая отрисовка + обновление каждые 30 сек
-updateMap();
-setInterval(updateMap, 30000);
+function threatsAtScrub() {
+  return threatsCache.filter(t => {
+    if (minutesAgo === 0) return t.age_min <= 30; // «зараз» — живое окно 30 мин
+    return Math.abs(t.age_min - minutesAgo) <= 5; // плейбэк: окно вокруг позиции
+  });
+}
+
+function renderAll() {
+  const scrubbed = threatsAtScrub();
+  const visible = scrubbed.filter(t => t.type !== 'stand_down' && enabled[layerOf(t)]);
+  const groups = new Map();
+  visible.forEach(t => {
+    if (!REGION_COORDS[t.region]) return;
+    if (!groups.has(t.region)) groups.set(t.region, []);
+    groups.get(t.region).push(t);
+  });
+
+  // Слой 4: зелёные зоны отбоев (последние 40 минут)
+  greenLayer.clearLayers();
+  if (minutesAgo === 0) {
+    const clearRegions = new Set(
+      threatsCache.filter(t => t.type === 'stand_down' && t.age_min <= 40).map(t => t.region)
+    );
+    clearRegions.forEach(slug => {
+      const c = REGION_COORDS[slug];
+      if (!c || groups.has(slug)) return; // активная угроза важнее отбоя
+      L.circle(c, {
+        radius: 42000, color: '#34c759', weight: 1, opacity: 0.5,
+        fillColor: '#34c759', fillOpacity: 0.10,
+      }).addTo(greenLayer)
+        .bindTooltip(`🟢 ${REGION_NAMES[slug] || slug}: відбій`, { direction: 'top' });
+      L.marker(c, {
+        icon: L.divIcon({ className: '', html: '✅', iconSize: [18, 18], iconAnchor: [9, 9] }),
+        interactive: false,
+      }).addTo(greenLayer);
+    });
+  }
+
+  // Слои 1-2: зоны и векторы
+  zoneLayer.clearLayers();
+  vectorLayer.clearLayers();
+  markersLayer.clearLayers();
+
+  let criticalCount = 0;
+  groups.forEach((items, slug) => {
+    const coords = REGION_COORDS[slug];
+    let top = items[0];
+    items.forEach(t => {
+      if (SEVERITY_ORDER[TYPE_LEVEL[t.type]] > SEVERITY_ORDER[TYPE_LEVEL[top.type]]) top = t;
+    });
+    if (TYPE_LEVEL[top.type] === 'critical') criticalCount++;
+
+    const color = TYPE_COLORS[top.type] || '#8e8e93';
+    const fresh = items.some(t => t.age_min < 10);
+    const confirmed = items.some(t => Number(t.sources || 1) >= 2);
+
+    // Слой 1: мягкая пульсирующая зона вокруг активного региона
+    if (fresh) {
+      L.circle(coords, {
+        radius: confirmed ? 34000 : 24000,
+        color: color, weight: 1, opacity: 0.35,
+        fillColor: color, fillOpacity: 0.07,
+        className: 'pulse',
+      }).addTo(zoneLayer).on('click', () => { tapFeedback(); openThreatSheet(slug, items); });
+    }
+
+    // Умный кластер региона: одна точка + цифра количества событий
+    const marker = L.circleMarker(coords, {
+      color: color, fillColor: color,
+      fillOpacity: confirmed ? 0.6 : 0.25,
+      opacity: confirmed ? 1 : 0.4,
+      radius: fresh ? 12 : 8, weight: 2,
+      className: fresh ? 'pulse' : '',
+    }).addTo(markersLayer);
+    marker.on('click', () => { tapFeedback(); openThreatSheet(slug, items); });
+
+    if (items.length > 1) {
+      L.marker(coords, {
+        icon: L.divIcon({
+          className: '',
+          html: `<span style="font-size:10px;font-weight:700;color:#fff;text-shadow:0 0 4px #000,0 0 2px #000">${items.length}</span>`,
+          iconSize: [20, 20], iconAnchor: [10, 7],
+        }),
+        interactive: false,
+      }).addTo(markersLayer);
+    }
+
+    // Слой 2: векторный луч — только свежие подтверждённые БПЛА/ракеты.
+    // Статичная стрелка с затухающим хвостом, БЕЗ анимации траекторий.
+    if (fresh && confirmed && ['uav', 'rockets'].includes(layerOf(top))) {
+      const target = guessTargetRegion(top.text, slug);
+      const tc = target ? REGION_COORDS[target] : null;
+      if (tc) {
+        const dx = tc[0] - coords[0], dy = tc[1] - coords[1];
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        const end = [coords[0] + dx * 0.6, coords[1] + dy * 0.6];
+        L.polyline([coords, end], {
+          color: color, weight: 2, opacity: 0.55, dashArray: '2 7', lineCap: 'round',
+        }).addTo(vectorLayer)
+          .bindTooltip(`➤ ${REGION_NAMES[slug] || slug} → ${REGION_NAMES[target] || target} (орієнтовний напрямок)`, { direction: 'top' });
+        // наконечник стрелки
+        const w = 0.05, d = 0.09;
+        const left = [end[0] - ux * d - uy * w, end[1] - uy * d + ux * w];
+        const right = [end[0] - ux * d + uy * w, end[1] - uy * d - ux * w];
+        L.polyline([left, end, right], { color: color, weight: 2, opacity: 0.8 }).addTo(vectorLayer);
+      }
+    }
+  });
+
+  const counter = document.getElementById('counter');
+  counter.style.color = criticalCount > 0 ? '#ff3b30' : '#ff9f0a';
+  counter.textContent = minutesAgo === 0
+    ? `${visible.length} актив. · ${scrubbed.length} подій (30 хв)`
+    : `${scrubbed.length} подій · −${minutesAgo} хв`;
+
+  if (minutesAgo === 0) checkPersonalRadius(groups);
+}
+
+// === Тикер событий (бегущая строка + раскрытие) ===
+function renderTicker() {
+  const el = document.getElementById('tickerInner');
+  const ticker = document.getElementById('ticker');
+  const events = threatsCache.slice().sort((a, b) => a.age_min - b.age_min).slice(0, 8);
+  if (!events.length) {
+    el.innerHTML = ' тихо — активних повідомлень немає ';
+    return;
+  }
+  const line = t =>
+    `<b>${fmtClock(t.age_min)}</b> — ${escapeHtml(TYPE_LABELS[t.type] || '🚨')} · ${escapeHtml(REGION_NAMES[t.region] || t.region)}: ${escapeHtml((t.text || '').slice(0, 60))}`;
+  if (ticker.classList.contains('expanded')) {
+    el.innerHTML = events.map(t => `<div class="tick-line">${line(t)}</div>`).join('');
+  } else {
+    el.innerHTML = events.map(line).join(' &nbsp;·&nbsp; ');
+  }
+}
+document.getElementById('ticker').addEventListener('click', () => {
+  tapFeedback();
+  document.getElementById('ticker').classList.toggle('expanded');
+  renderTicker();
+});
+
+// === Bottom Sheet ===
+const sheet = document.getElementById('sheet');
+function closeSheet() { sheet.classList.remove('open'); }
+document.getElementById('sheetClose').addEventListener('click', () => { tapFeedback(); closeSheet(); });
+(function () {
+  let startY = null;
+  const grab = document.getElementById('sheetGrab');
+  grab.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
+  grab.addEventListener('touchmove', e => {
+    if (startY != null && e.touches[0].clientY - startY > 48) { closeSheet(); startY = null; }
+  }, { passive: true });
+  grab.addEventListener('touchend', () => { startY = null; }, { passive: true });
+})();
+
+function openThreatSheet(slug, items) {
+  let top = items[0];
+  items.forEach(t => {
+    if (SEVERITY_ORDER[TYPE_LEVEL[t.type]] > SEVERITY_ORDER[TYPE_LEVEL[top.type]]) top = t;
+  });
+  const lvl = LEVELS[TYPE_LEVEL[top.type]] || LEVELS.info;
+  const confirmed = items.some(t => Number(t.sources || 1) >= 2);
+  document.getElementById('sheetTitle').innerHTML =
+    `${escapeHtml(REGION_NAMES[slug] || slug)} <span class="lvl" style="color:${lvl.color};background:${lvl.bg}">${lvl.label}</span>`;
+  document.getElementById('sheetMeta').textContent =
+    `${items.length} подія(й) · ${confirmed ? 'підтверджено кількома джерелами' : 'одне джерело — очікує підтвердження'}`;
+  document.getElementById('sheetBody').innerHTML = items.slice(0, 6).map(t =>
+    `<div class="ev"><div class="t">${fmtClock(t.age_min)} · ${t.age_min} хв тому · джерел: ${escapeHtml(t.sources)}</div>` +
+    `${escapeHtml(TYPE_LABELS[t.type] || t.type)}<br>${escapeHtml(t.text)}</div>`
+  ).join('');
+  document.getElementById('sheetNote').textContent =
+    'Позначка — центр регіону, не точні координати. Дані — повідомлення відкритих джерел.';
+  document.getElementById('sheetActions').innerHTML =
+    `<a href="${CHANNEL_URL}" target="_blank" rel="noopener">📡 Канал AirRadar AI</a>`;
+  sheet.classList.add('open');
+}
+
+// === Личный радиус безопасности: 15 км + красная вспышка ===
+const PERSONAL_RADIUS_KM = 15;
+document.getElementById('geoBtn').addEventListener('click', () => { tapFeedback(); requestGeo(false); });
+
+function requestGeo(forShelters) {
+  if (!navigator.geolocation) { toast('Геолокація недоступна'); return; }
+  toast('⏳ Визначаю розташування…');
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude: lat, longitude: lon } = pos.coords;
+    userPos = [lat, lon];
+    map.setView([lat, lon], 9);
+    if (geoCircle) map.removeLayer(geoCircle);
+    geoCircle = L.circle([lat, lon], {
+      radius: PERSONAL_RADIUS_KM * 1000, color: '#5ac8fa', weight: 1.5,
+      dashArray: '4 6', fillOpacity: 0.04,
+    }).addTo(map);
+    if (forShelters) loadShelters();
+  }, () => toast('Не вдалося визначити розташування'), { enableHighAccuracy: false, timeout: 8000 });
+}
+
+function checkPersonalRadius(groups) {
+  if (!userPos) return;
+  const keys = [];
+  groups.forEach((items, slug) => {
+    const c = REGION_COORDS[slug];
+    if (c && distanceKm(userPos, c) <= PERSONAL_RADIUS_KM) keys.push(slug);
+  });
+  const sig = keys.slice().sort().join(',');
+  if (keys.length && sig !== lastFlashKeys) {
+    const flash = document.getElementById('alert-flash');
+    flash.classList.remove('on');
+    void flash.offsetWidth; // restart animation
+    flash.classList.add('on');
+    alertFeedback();
+    toast(`⚠ Загроза в радіусі ${PERSONAL_RADIUS_KM} км: ${keys.map(k => REGION_NAMES[k] || k).join(', ')}`);
+  }
+  lastFlashKeys = sig;
+}
+
+// === Слой 3: укрытия рядом (Overpass API — открытый, без ключей) ===
+document.getElementById('shelterBtn').addEventListener('click', () => {
+  tapFeedback();
+  if (userPos) loadShelters(); else requestGeo(true);
+});
+
+function toast(msg, ms) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), ms || 3500);
+}
+
+async function overpassQuery(query) {
+  const endpoints = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+  ];
+  for (const url of endpoints) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20000);
+      const resp = await fetch(url, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(query),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (resp.ok) return await resp.json();
+    } catch (e) { /* пробуем зеркало */ }
+  }
+  return null;
+}
+
+async function loadShelters() {
+  if (!userPos) return;
+  const key = userPos.map(v => v.toFixed(2)).join(',');
+  if (sheltersLoadedFor === key && sheltersLayer.getLayers().length) {
+    if (!map.hasLayer(sheltersLayer)) sheltersLayer.addTo(map);
+    toast(`🛡 Укриття: ${sheltersLayer.getLayers().length} точок поруч`);
+    return;
+  }
+  toast('⏳ Шукаю укриття в радіусі 2 км…', 6000);
+  const [lat, lon] = userPos;
+  const data = await overpassQuery(
+    `[out:json][timeout:15];(` +
+    `nwr["amenity"="shelter"](around:2000,${lat},${lon});` +
+    `nwr["railway"="station"]["station"="subway"](around:2000,${lat},${lon});` +
+    `);out center 40;`
+  );
+  sheltersLayer.clearLayers();
+  sheltersLoadedFor = null;
+  if (!data || !data.elements || !data.elements.length) {
+    toast(data ? 'Укриття в радіусі 2 км не знайдено на OpenStreetMap' : 'Сервіс укриттів недоступний, спробуйте пізніше');
+    return;
+  }
+  const seen = new Set();
+  const spots = data.elements
+    .map(el => {
+      const p = el.type === 'node' ? [el.lat, el.lon] : (el.center ? [el.center.lat, el.center.lon] : null);
+      if (!p) return null;
+      const name = (el.tags && (el.tags.name || el.tags.operator)) || 'Укриття';
+      const isMetro = el.tags && el.tags.station === 'subway';
+      return { p, name, isMetro, dist: distanceKm(userPos, p) };
+    })
+    .filter(Boolean)
+    .filter(s => {
+      const k = s.p[0].toFixed(4) + ',' + s.p[1].toFixed(4);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, 15);
+
+  spots.forEach(s => {
+    const marker = L.marker(s.p, {
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="font-size:16px;filter:drop-shadow(0 0 3px rgba(90,200,250,0.8))">${s.isMetro ? '🚇' : '🛡'}</div>`,
+        iconSize: [20, 20], iconAnchor: [10, 10],
+      }),
+    }).addTo(sheltersLayer);
+    marker.on('click', () => { tapFeedback(); openShelterSheet(s); });
+  });
+  sheltersLayer.addTo(map);
+  sheltersLoadedFor = key;
+  map.setView(userPos, 13);
+  toast(`🛡 Знайдено укриттів: ${spots.length} (радіус 2 км)`);
+}
+
+function openShelterSheet(s) {
+  const dest = `${s.p[0]},${s.p[1]}`;
+  document.getElementById('sheetTitle').innerHTML =
+    `${s.isMetro ? '🚇' : '🛡'} ${escapeHtml(s.name)}`;
+  document.getElementById('sheetMeta').textContent =
+    `≈ ${s.dist < 1 ? Math.round(s.dist * 1000) + ' м' : s.dist.toFixed(1) + ' км'} від вас · дані OpenStreetMap`;
+  document.getElementById('sheetBody').innerHTML =
+    'Наведіть, щоб побудувати пішохідний маршрут. У метро Києва станції використовуються як укриття.';
+  document.getElementById('sheetNote').textContent =
+    'Перевіряйте офіційні вказівки місцевої влади щодо найближчих укриттів.';
+  document.getElementById('sheetActions').innerHTML =
+    `<a href="https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=walking" target="_blank" rel="noopener">🚶 Google Maps</a>` +
+    `<a href="https://maps.apple.com/?daddr=${dest}&dirflg=w" target="_blank" rel="noopener">🍎 Apple Maps</a>`;
+  sheet.classList.add('open');
+}
+
+// === Поделиться картой ===
+document.getElementById('shareBtn').addEventListener('click', async () => {
+  tapFeedback();
+  const shareData = {
+    title: 'AirRadar AI',
+    text: '🗺 Жива карта загроз України — AirRadar AI',
+    url: location.href.split('#')[0],
+  };
+  try {
+    if (navigator.share) { await navigator.share(shareData); return; }
+    await navigator.clipboard.writeText(shareData.url);
+    toast('🔗 Посилання на карту скопійовано');
+  } catch (e) { /* пользователь отменил */ }
+});
+
+// === Старт ===
+try {
+  if (window.Telegram && window.Telegram.WebApp) {
+    window.Telegram.WebApp.ready();
+    window.Telegram.WebApp.expand();
+  }
+} catch (e) { /* браузер вне Telegram */ }
+const soundChip = document.querySelector('#filters .chip[data-layer="sound"]');
+if (soundChip && !soundOn) soundChip.textContent = '🔇';
+
+fetchData();
+setInterval(fetchData, 30000);
 </script>
 </body>
 </html>
