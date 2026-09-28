@@ -85,30 +85,38 @@ def render_evidence_alert(
 
     sources: список уникальных источников набора (агрегатор). В пост не
     выводится — источники учитываются только в строке статуса и в БД.
+
+    Формат с «воздухом»: пустые строки между блоками (заголовок / время и
+    маршрут / статус / текст источника / бренд) — пост читается с одного
+    взгляда в ленте. Заголовок капсом — визуальный якорь.
     """
     when = time.strftime("%H:%M", time.localtime(event_ts))
 
     if fact.weapon_class == "stand_down":
         # Отбой — отдельная короткая ветка, публикуется всегда и мгновенно.
         place = _region_title(fact)
-        head = "🟢 ВІДБІЙ" + (f" — {place}" if place else "") + f" — {when}"
-        return "\n".join([head, SOURCE_BRAND_LINE])[:4000]
+        head = "🟢 ВІДБІЙ" + (f" — {place.upper()}" if place else "") + f" — {when}"
+        return "\n\n".join([head, SOURCE_BRAND_LINE])[:4000]
 
     weapon = WEAPON_SHORT.get(fact.weapon_class, fact.weapon_class)
     emoji = _SEVERITY_EMOJI.get(weapon_severity(fact.weapon_class), "⚪")
     place = _region_title(fact)
-    lines = [f"{emoji} {place} | {weapon}" if place else f"{emoji} {weapon}"]
+    head = f"{emoji} {place.upper()} | {weapon}" if place else f"{emoji} {weapon}"
+    lines = [head, ""]
     lines.append(f"🕒 {when}")
     if fact.origin_region and fact.destination_region and fact.destination_region != "unknown":
         lines.append(
             f"📍 Рух: цілі прямують з {region_name(fact.origin_region)} "
             f"на {region_name(fact.destination_region)}"
         )
+    lines.append("")
     lines.append(f"⚠️ Статус: {_status(confirmation)}")
     # Текст источника — недоверенные данные: без разметки, но с сохранением
     # авторских переносов строк (сводки вида «Київщина \n 1 БпЛА на Димер»
     # схлопывать в одну строку нечитаемо).
     body = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    lines.append("")
     lines.append(body[:300])
+    lines.append("")
     lines.append(SOURCE_BRAND_LINE)
     return "\n".join(lines)[:4000]

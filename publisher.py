@@ -30,9 +30,11 @@ TG_TEXT_LIMIT = 4096
 def build_linked_text(text: str, promo_url: str) -> str | None:
     """HTML-версия поста, где бренд-строка источника — ссылка на наш канал.
 
-    Тело поста экранируется (источник недоверенный), поэтому ответ
-    «can't parse entities» невозможен. Возвращает None, когда ссылку строить
-    не нужно/нельзя — вызывающий шлёт plain-текст без parse_mode.
+    Первая строка (заголовок алерта, trusted — построен рендером) оборачивается
+    в <b> для визуального якоря в ленте. Тело поста экранируется (источник
+    недоверенный), поэтому ответ «can't parse entities» невозможен.
+    Возвращает None, когда ссылку строить не нужно/нельзя — вызывающий шлёт
+    plain-текст без parse_mode.
     """
     promo_url = (promo_url or "").strip()
     if not promo_url:
@@ -40,8 +42,16 @@ def build_linked_text(text: str, promo_url: str) -> str | None:
     body, sep, brand = text.rpartition("\n")
     if not sep or brand != SOURCE_BRAND_LINE:
         return None
+    head, head_sep, rest = body.partition("\n\n")
+    # Заголовок — только trusted-строка рендера (эмодзи + капс + класс);
+    # если структура не та, шлём без жирного.
+    head_html = f"<b>{html.escape(head)}</b>" if head_sep and head and "<" not in head else html.escape(body)
+    if head_html != html.escape(body):
+        rest_escaped = "\n\n" + html.escape(rest)
+    else:
+        rest_escaped = ""
     return (
-        f"{html.escape(body)}\n"
+        f"{head_html}{rest_escaped}\n"
         f'<a href="{html.escape(promo_url, quote=True)}">{html.escape(brand)}</a>'
     )
 

@@ -11,10 +11,13 @@ class EvidenceAlertTests(unittest.TestCase):
             text="БпЛА на Одесу", source="raketa_trevoga", event_ts=1_700_000_000,
             fact=fact, confirmation={"status": "reported", "sources": 1, "count_kind": "unspecified"},
         )
-        self.assertIn("🔴 Одеська обл. | БПЛА", result)
+        # Заголовок капсом — визуальный якорь.
+        self.assertIn("🔴 ОДЕСЬКА ОБЛ. | БПЛА", result)
         self.assertIn("повідомлення одного джерела", result)
         self.assertIn("🕒 ", result)
         self.assertIn("БпЛА на Одесу", result)
+        # Читабельность: блоки разделены пустыми строками.
+        self.assertIn("\n\n", result)
         # Строка источника — всегда наш канал (пассивный брендинг).
         self.assertIn("📡 Джерело: AirRadar AI", result)
         # Хендлы исходных каналов в пост не попадают.
@@ -82,7 +85,7 @@ class EvidenceAlertTests(unittest.TestCase):
             text="Відбій повітряної тривоги у Києві", source="a", event_ts=1_700_000_000,
             fact=fact, confirmation={"status": "reported", "sources": 1},
         )
-        self.assertTrue(result.startswith("🟢 ВІДБІЙ — Київ та область — "))
+        self.assertTrue(result.startswith("🟢 ВІДБІЙ — КИЇВ ТА ОБЛАСТЬ — "))
         self.assertIn("📡 Джерело: AirRadar AI", result)
 
 

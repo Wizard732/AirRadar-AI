@@ -30,6 +30,21 @@ class BuildLinkedTextTests(unittest.TestCase):
         # rpartition не находит \n → plain fallback.
         self.assertIsNone(build_linked_text("📡 Джерело: AirRadar AI", "https://t.me/AirRadarAI"))
 
+    def test_first_block_is_bold(self):
+        # Формат рендера: заголовок, пустая строка, остальное.
+        text = "🔴 КИЇВ ТА ОБЛАСТЬ | БПЛА\n\n🕒 11:24\n\n⚠️ Статус: повідомлення одного джерела\n📡 Джерело: AirRadar AI"
+        result = build_linked_text(text, "https://t.me/AirRadarAI")
+        self.assertTrue(result.startswith("<b>🔴 КИЇВ ТА ОБЛАСТЬ | БПЛА</b>\n\n"))
+        self.assertIn("🕒 11:24", result)
+        self.assertIn('href="https://t.me/AirRadarAI"', result)
+
+    def test_single_block_not_bold(self):
+        # Нет пустой строки после заголовка → без <b>, тело как раньше.
+        text = "🕒 11:24\nтекст\n📡 Джерело: AirRadar AI"
+        result = build_linked_text(text, "https://t.me/AirRadarAI")
+        self.assertFalse(result.startswith("<b>"))
+        self.assertTrue(result.startswith("🕒 11:24\n"))
+
 
 if __name__ == "__main__":
     unittest.main()
