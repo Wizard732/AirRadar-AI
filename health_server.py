@@ -97,12 +97,16 @@ async def _serve_forever(port: int) -> None:
         return resp
 
     app = web.Application(middlewares=[cors])
-    app.router.add_get("/", _health)
     app.router.add_get("/health", _health)
     app.router.add_get("/api/threats", _api_threats)
     app.router.add_get("/api/stats", _api_stats)
     map_path = Path(__file__).with_name("miniapp") / "map.html"
-    app.router.add_get("/map", lambda request: web.FileResponse(map_path))
+    map_handler = lambda request: web.FileResponse(map_path)  # noqa: E731
+    # Корень и /map отдают карту: кнопка бота ведёт на корень URL туннеля
+    # (MAP_WEBAPP_URL без пути), иначе пользователь видит health-JSON вместо
+    # карты. Health-check живёт только на /health (его зовёт sync-скрипт).
+    app.router.add_get("/", map_handler)
+    app.router.add_get("/map", map_handler)
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
