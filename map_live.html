@@ -611,9 +611,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "zhytomyrska", "text": "Київщина:\nБпЛА на Київ  \nБпЛА на Васильків \n\nЖитомирщина:\nБпЛА на Малин", "sources": 1, "origin": "", "destination": "zhytomyrska", "age_min": 13}, {"type": "uav", "region": "zhytomyrska", "text": "**Київщина:**\nРеактивний БпЛА курсом на Київ  \nРеактивний БпЛА курсом на Васильків \n\n**Житомирщина:**\nРеактивний БпЛА курсом на Малин\n\n✙[ Розвідка неба ](https://t.me/rozvidkaneba)✙\n✙[", "sources": 1, "origin": "", "destination": "zhytomyrska", "age_min": 14}, {"type": "uav", "region": "multi", "text": "Київщина:\nБпЛА на Ржищів \nБпЛА на Миронівку\n\nЖитомирщина:\nБпЛА на Овруч \n\nЧернігівщина:\nБпЛА на Ріпки \nБпЛА на Куликівку\nБпЛА на Олишівку\n\nХарківщина:\nБпЛА на Харків \n\nДніпропетровщина:\nБпЛА на Переще", "sources": 1, "origin": "", "destination": "multi", "age_min": 23}, {"type": "uav", "region": "multi", "text": "**Київщина:**\nРеактивний БпЛА курсом на Ржищів \nРеактивний БпЛА курсом на Миронівку\n\n**Житомирщина:**\nРеактивний БпЛА курсом на Овруч \n\n**Чернігівщина:**\nБпЛА курсом на Ріпки \nРеактивний БпЛА курсом н", "sources": 1, "origin": "", "destination": "multi", "age_min": 24}, {"type": "uav", "region": "unknown", "text": "БпЛА на Бородянку", "sources": 1, "origin": "", "destination": "unknown", "age_min": 25}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "БпЛА на Київ\n\nслки", "sources": 2, "origin": "", "destination": "kyivska", "age_min": 17}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 34, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
