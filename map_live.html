@@ -311,6 +311,8 @@ const CITY_COORDS = {
   rusanivka: { name: 'Київ — Русанівка', region: 'kyivska', c: [50.435, 30.601], keys: ['русанів', 'русанов'] },
   dvrz: { name: 'Київ — ДВРЗ', region: 'kyivska', c: [50.478, 30.657], keys: ['дврз'] },
   bykivnia: { name: 'Київ — Биківня', region: 'kyivska', c: [50.442, 30.715], keys: ['биківн', 'быковн'] },
+  dniprovska: { name: 'Київ — Дніпровський', region: 'kyivska', c: [50.475, 30.595], keys: ['дніпровськ', 'днепровск'] },
+  shevchenkivska: { name: 'Київ — Шевченківський', region: 'kyivska', c: [50.477, 30.470], keys: ['шевченківський район', 'шевченковский район'] },
   sumy: { name: 'Суми', region: 'sumska', c: [50.907, 34.798], keys: ['суми', 'сумы', 'сумськ'] },
   konotop: { name: 'Конотоп', region: 'sumska', c: [51.243, 33.207], keys: ['конотоп'] },
   shostka: { name: 'Шостка', region: 'sumska', c: [51.866, 33.472], keys: ['шостка'] },
@@ -609,9 +611,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "air_defense", "region": "unknown", "text": "Робота ППО", "sources": 1, "origin": "", "destination": "unknown", "age_min": 0}, {"type": "uav", "region": "multi", "text": "**Київщина:**\nРеактивний БпЛА курсом на Київ \nРеактивний БпЛА курсом на Вишневе \n\n**Житомирщина:**\nРеактивний БпЛА курсом на Корнин\n\n**Рівненщина:**\nРеактивний БпЛА курсом на Клевань \n\n**Дніпропетровщ", "sources": 1, "origin": "", "destination": "multi", "age_min": 1}, {"type": "uav", "region": "kyivska", "text": "Заспа, Бровари - БпЛА", "sources": 2, "origin": "", "destination": "kyivska", "age_min": 4}, {"type": "kab", "region": "unknown", "text": "💣КАБ в бік Сум\n\n✙[ Розвідка неба ](https://t.me/rozvidkaneba)✙\n✙[", "sources": 1, "origin": "", "destination": "unknown", "age_min": 6}, {"type": "kab", "region": "sumska", "text": "КАБ на [Суми](https://t.me/+CvyxFii9afI5MDgy)\n[ㅤ ](https://t.me/+EdFxbRZRXuliNmU6)[**", "sources": 1, "origin": "", "destination": "sumska", "age_min": 8}, {"type": "uav", "region": "rivnenska", "text": "БпЛА на Рівне\n\nслро", "sources": 1, "origin": "", "destination": "rivnenska", "age_min": 11}, {"type": "uav", "region": "multi", "text": "Київщина:\nБпЛА на Київ \n2 БпЛА на Бровари\n\nЖитомирщина:\nБпЛА на Малин \n\nДніпропетровщина:\nБпЛА на Петриківку\n\nОдещина:\nБпЛА на Березівку \n\nЧеркащина:\nБпЛА на Чигирин \n\nЧернігівщина:\nБпЛА на Ніжин\nБпЛА", "sources": 1, "origin": "", "destination": "multi", "age_min": 11}, {"type": "uav", "region": "unknown", "text": "Пуща - БпЛА", "sources": 1, "origin": "", "destination": "unknown", "age_min": 14}, {"type": "strat_aviation", "region": "unknown", "text": "⚠️Борти", "sources": 1, "origin": "", "destination": "unknown", "age_min": 24}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "sumska", "text": "БпЛА на Суми", "sources": 1, "origin": "", "destination": "sumska", "age_min": 0}, {"type": "uav", "region": "rivnenska", "text": "Рівненщина - дорозвідка по БпЛА\n\n✙[ Розвідка неба ](https://t.me/rozvidkaneba)✙\n✙[", "sources": 2, "origin": "", "destination": "rivnenska", "age_min": 1}, {"type": "air_defense", "region": "unknown", "text": "Робота ППО", "sources": 1, "origin": "", "destination": "unknown", "age_min": 4}, {"type": "uav", "region": "multi", "text": "**Київщина:**\nРеактивний БпЛА курсом на Київ \nРеактивний БпЛА курсом на Вишневе \n\n**Житомирщина:**\nРеактивний БпЛА курсом на Корнин\n\n**Рівненщина:**\nРеактивний БпЛА курсом на Клевань \n\n**Дніпропетровщ", "sources": 1, "origin": "", "destination": "multi", "age_min": 4}, {"type": "uav", "region": "kyivska", "text": "Заспа, Бровари - БпЛА", "sources": 2, "origin": "", "destination": "kyivska", "age_min": 7}, {"type": "kab", "region": "unknown", "text": "💣КАБ в бік Сум\n\n✙[ Розвідка неба ](https://t.me/rozvidkaneba)✙\n✙[", "sources": 1, "origin": "", "destination": "unknown", "age_min": 9}, {"type": "kab", "region": "sumska", "text": "КАБ на [Суми](https://t.me/+CvyxFii9afI5MDgy)\n[ㅤ ](https://t.me/+EdFxbRZRXuliNmU6)[**", "sources": 1, "origin": "", "destination": "sumska", "age_min": 11}, {"type": "uav", "region": "multi", "text": "Київщина:\nБпЛА на Київ \n2 БпЛА на Бровари\n\nЖитомирщина:\nБпЛА на Малин \n\nДніпропетровщина:\nБпЛА на Петриківку\n\nОдещина:\nБпЛА на Березівку \n\nЧеркащина:\nБпЛА на Чигирин \n\nЧернігівщина:\nБпЛА на Ніжин\nБпЛА", "sources": 1, "origin": "", "destination": "multi", "age_min": 15}, {"type": "uav", "region": "unknown", "text": "Пуща - БпЛА", "sources": 1, "origin": "", "destination": "unknown", "age_min": 17}, {"type": "strat_aviation", "region": "unknown", "text": "⚠️Борти", "sources": 1, "origin": "", "destination": "unknown", "age_min": 27}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 4, "standdown_live": true, "next_wave_min": 65, "standdown_hits": 4, "standdown_total": 8}, "kyivska": {"standdown_min": 5, "standdown_live": true, "next_wave_min": 124, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 2, "standdown_live": true, "next_wave_min": 124, "standdown_hits": 5, "standdown_total": 10}, "sumska": {"standdown_min": 12, "standdown_live": true, "next_wave_min": 65, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
@@ -987,13 +989,18 @@ function renderAll() {
 
     // Пин: силуэт типа оружия (шахед-дельтакрыло / ракета / самолёт / вспышка)
     // с цветным свечением. Белая обводка = подтверждено несколькими источниками.
+    const approach = items.some(t => approachOf(t.text));
     const marker = L.marker(coords, {
       icon: L.divIcon({
         className: '',
-        html: weaponIconHtml(top, color, fresh, confirmed, angle),
+        html: weaponIconHtml(top, color, fresh, confirmed, angle) +
+          (approach ? `<span style="position:absolute;left:26px;top:-8px;background:#ff3b30;` +
+            `color:#fff;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:8px;` +
+            `border:1px solid rgba(255,255,255,0.75);text-shadow:0 0 3px #000;white-space:nowrap">` +
+            `🎯 на підході</span>` : ''),
         iconSize: [38, 38], iconAnchor: [19, 19],
       }),
-    }).addTo(markersLayer).bindTooltip(regionTooltip(pin), { direction: 'top' });
+    }).addTo(markersLayer).bindTooltip(regionTooltip(pin) + (approach ? ' · 🎯 курс на ціль' : ''), { direction: 'top' });
     marker.on('click', () => { tapFeedback(); openThreatSheet(pin, items); });
 
     if (items.length > 1) {
@@ -1136,6 +1143,19 @@ function regionTooltip(pin) {
       : ' · 🟢 відбій будь-якої хвилини';
   }
   return label;
+}
+
+// Маркеры «цель уже назначена / летит НА объект»: шахед «на Дарницю» —
+// это направление атаки, показываем бейдж, а не безликую точку.
+const APPROACH_MARKERS = [
+  'курсом на', 'курсом у', 'на підході', 'на подходе', 'летить на', 'летят на',
+  'летять на', 'летит в', 'летят в', 'рухається на', 'движется на', 'в напрямку',
+  'в сторону', 'на направлении', 'зашли на', 'заходять на', 'цель —', 'цель -',
+  'ціль —', 'ціль -', 'на дарниц', 'маршрут на',
+];
+function approachOf(text) {
+  const lower = (text || '').toLowerCase();
+  return APPROACH_MARKERS.some(m => lower.includes(m));
 }
 
 function openThreatSheet(pin, items) {
