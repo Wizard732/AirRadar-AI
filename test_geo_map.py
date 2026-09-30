@@ -34,6 +34,8 @@ class CityCoordsTests(unittest.TestCase):
         self.assertEqual(city_coords.detect_city("ППО працює над Оболонню"), "obolon")
         self.assertEqual(city_coords.detect_city("БпЛА на Русанівці"), "rusanivka")
         self.assertEqual(city_coords.detect_city("Корабельний район Миколаєва"), "korabelnyi")
+        self.assertEqual(city_coords.detect_city("Шахед на Дарницький район"), "darnytsia")
+        self.assertEqual(city_coords.detect_city("БпЛА в Дніпровському районі Києва"), "dniprovska")
 
     def test_city_region_consistency(self):
         for slug, (name, region, lat, lon, keys) in city_coords.CITIES.items():
@@ -123,6 +125,22 @@ class ActiveThreatsRouteTests(unittest.TestCase):
         self.assertIn("destination", rows[0])
         self.assertEqual(rows[0]["origin"], "sumska")
         self.assertEqual(rows[0]["destination"], "kyivska")
+
+    def test_map_excludes_potential_stage(self):
+        # «Могут быть пуски» (stage=potential) — домыслы: карта показывает
+        # только то, что летит (imminent) или тип уточняется (unknown).
+        from incident_fusion import extract_incident_fact
+        text = "Можуть бути пуски балістики по Україні"
+        fact = extract_incident_fact(text, "ballistic", "potential")
+        self.db.merge_incident_fact(
+            event_ts=int(time.time()), source="rumor", source_group="rumor",
+            fact=fact, text=text,
+        )
+        rows = self.db.active_threats(within_seconds=600, include_reported=True)
+        self.assertEqual(
+            rows, [],
+            "потенциальные (не летящие) угрозы не должны попадать на карту",
+        )
 
 
 class ApiThreatsTests(unittest.TestCase):

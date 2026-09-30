@@ -885,11 +885,15 @@ class Database:
         стадию unknown (карта рендерит их полупрозрачно: «одне джерело —
         очікує підтвердження»), иначе карта пуста, пока источники не
         сойдутся. `disputed`/`retracted` не отдаются никогда.
+
+        Стадия 'potential' («могут быть пуски», «загроза застосування»)
+        на карту НЕ отдаётся: это домыслы, а не то, что летит. Карта
+        показывает imminent (летит) и unknown (тип уточняется).
         """
         try:
             cutoff = int(time.time()) - within_seconds
             if include_reported:
-                stage_sql = "i.stage IN ('imminent', 'potential', 'unknown')"
+                stage_sql = "i.stage IN ('imminent', 'unknown')"
                 status_sql = "i.status IN ('reported', 'corroborated', 'officially_confirmed')"
             else:
                 stage_sql = "i.stage IN ('imminent', 'potential')"

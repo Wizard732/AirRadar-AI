@@ -51,6 +51,8 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
         minutes = max(1, min(120, minutes))
         # Карта показывает и одиночные reported-события (полупрозрачно,
         # «очікує підтвердження») — иначе при 1 источнике карта пуста.
+        # Стадия 'potential' («могут быть пуски») отсечена в БД: на карте
+        # только то, что летит или уже попало, без домыслов.
         threats = _app_db.active_threats(within_seconds=minutes * 60, include_reported=True)
         # Репорты угроз от пользователей (share location): окно шире окна
         # угроз, но не больше 3 часов.

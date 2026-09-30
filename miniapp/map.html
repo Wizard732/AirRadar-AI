@@ -311,6 +311,8 @@ const CITY_COORDS = {
   rusanivka: { name: 'Київ — Русанівка', region: 'kyivska', c: [50.435, 30.601], keys: ['русанів', 'русанов'] },
   dvrz: { name: 'Київ — ДВРЗ', region: 'kyivska', c: [50.478, 30.657], keys: ['дврз'] },
   bykivnia: { name: 'Київ — Биківня', region: 'kyivska', c: [50.442, 30.715], keys: ['биківн', 'быковн'] },
+  dniprovska: { name: 'Київ — Дніпровський', region: 'kyivska', c: [50.475, 30.595], keys: ['дніпровськ', 'днепровск'] },
+  shevchenkivska: { name: 'Київ — Шевченківський', region: 'kyivska', c: [50.477, 30.470], keys: ['шевченківський район', 'шевченковский район'] },
   sumy: { name: 'Суми', region: 'sumska', c: [50.907, 34.798], keys: ['суми', 'сумы', 'сумськ'] },
   konotop: { name: 'Конотоп', region: 'sumska', c: [51.243, 33.207], keys: ['конотоп'] },
   shostka: { name: 'Шостка', region: 'sumska', c: [51.866, 33.472], keys: ['шостка'] },
@@ -988,13 +990,18 @@ function renderAll() {
 
     // Пин: силуэт типа оружия (шахед-дельтакрыло / ракета / самолёт / вспышка)
     // с цветным свечением. Белая обводка = подтверждено несколькими источниками.
+    const approach = items.some(t => approachOf(t.text));
     const marker = L.marker(coords, {
       icon: L.divIcon({
         className: '',
-        html: weaponIconHtml(top, color, fresh, confirmed, angle),
+        html: weaponIconHtml(top, color, fresh, confirmed, angle) +
+          (approach ? `<span style="position:absolute;left:26px;top:-8px;background:#ff3b30;` +
+            `color:#fff;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:8px;` +
+            `border:1px solid rgba(255,255,255,0.75);text-shadow:0 0 3px #000;white-space:nowrap">` +
+            `🎯 на підході</span>` : ''),
         iconSize: [38, 38], iconAnchor: [19, 19],
       }),
-    }).addTo(markersLayer).bindTooltip(regionTooltip(pin), { direction: 'top' });
+    }).addTo(markersLayer).bindTooltip(regionTooltip(pin) + (approach ? ' · 🎯 курс на ціль' : ''), { direction: 'top' });
     marker.on('click', () => { tapFeedback(); openThreatSheet(pin, items); });
 
     if (items.length > 1) {
@@ -1137,6 +1144,19 @@ function regionTooltip(pin) {
       : ' · 🟢 відбій будь-якої хвилини';
   }
   return label;
+}
+
+// Маркеры «цель уже назначена / летит НА объект»: шахед «на Дарницю» —
+// это направление атаки, показываем бейдж, а не безликую точку.
+const APPROACH_MARKERS = [
+  'курсом на', 'курсом у', 'на підході', 'на подходе', 'летить на', 'летят на',
+  'летять на', 'летит в', 'летят в', 'рухається на', 'движется на', 'в напрямку',
+  'в сторону', 'на направлении', 'зашли на', 'заходять на', 'цель —', 'цель -',
+  'ціль —', 'ціль -', 'на дарниц', 'маршрут на',
+];
+function approachOf(text) {
+  const lower = (text || '').toLowerCase();
+  return APPROACH_MARKERS.some(m => lower.includes(m));
 }
 
 function openThreatSheet(pin, items) {

@@ -27,8 +27,23 @@ TEMPLATE = Path(__file__).parent / "miniapp" / "map.html"
 OUTPUT = Path(__file__).parent / "map_live.html"
 
 
+# Типы, которые действительно летят/бьют сейчас. Всё остальное
+# («могут быть пуски», новости ВПК, болтовня) на карту не попадает:
+# пользователь должен видеть цель, а не слухи.
+MAP_THREAT_TYPES = frozenset({
+    "shahed", "uav", "fpv", "recon_drone",
+    "ballistic", "cruise_missile", "missile", "air_missile", "coastal_missile",
+    "kab", "aviation", "tac_aviation", "strat_aviation",
+    "mlrs", "artillery", "air_defense",
+    "explosion",
+    "other",   # тип уточняется, но инцидент реальный (stage=imminent/unknown)
+})
+
+
 def generate():
     db = Database("airradar.db")
+    # Стаupia 'potential' («могут быть пуски») отсечены на уровне БД —
+    # см. database.active_threats. Здесь второй рубеж: только летящие типы.
     threats = db.active_threats(within_seconds=1800, include_reported=True)
     now = int(time.time())
     data = [
@@ -42,6 +57,7 @@ def generate():
             "age_min": (now - t["ts"]) // 60,
         }
         for t in threats
+        if t["type"] in MAP_THREAT_TYPES
     ]
     reports = [
         {"lat": r["lat"], "lon": r["lon"], "region": r["region"],
