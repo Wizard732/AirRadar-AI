@@ -1,0 +1,45 @@
+name: Deploy threat map (GitHub Pages)
+
+# Публикует автономную карту (map_live.html с вшитыми данными) на GitHub
+# Pages: https://<owner>.github.io/<repo>/ — доступна любому человеку
+# в мире без нашего сервера. Снапшот данных обновляется пушем
+# map_live.html (на сервере это делает airradar-map-sync.timer).
+on:
+  push:
+    branches: [main]
+    paths: ["map_live.html"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Одновременные деплои не нужны: последний пуш выигрывает.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pages отдаёт index.html как корень — копируем карту под этим именем.
+      - name: Prepare site
+        run: |
+          mkdir -p site
+          cp map_live.html site/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

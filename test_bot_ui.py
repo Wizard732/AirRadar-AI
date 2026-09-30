@@ -75,12 +75,16 @@ class FakeCallbackEvent:
         self.sender_id = sender_id
         self.edits = []
         self.answers = []
+        self.responses = []
 
     async def edit(self, text, parse_mode=None, buttons=None):
         self.edits.append({"text": text, "buttons": buttons})
 
     async def answer(self, text=None, alert=False):
         self.answers.append(text)
+
+    async def respond(self, text, parse_mode=None, buttons=None):
+        self.responses.append(text)
 
 
 class FakeMessageEvent:

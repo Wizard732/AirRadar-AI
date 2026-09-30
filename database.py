@@ -81,6 +81,20 @@ class Database:
                 )
                 """
             )
+            # Проактивные уведомления «можлива нова тривога» (статистика волн):
+            # одно на эпизод отбоя. UNIQUE защищает от повторной рассылки,
+            # если бот перезапустился в пределах окна уведомления.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS wave_notices (
+                    region          TEXT    NOT NULL,
+                    episode_end_ts  INTEGER NOT NULL,
+                    sent_ts         INTEGER NOT NULL,
+                    UNIQUE(region, episode_end_ts)
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_end ON alerts(region, ended_ts)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_region ON threats(region)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_ts ON threats(ts)")
             # Нормализованный слой для динамических ETA и вероятности исхода.
@@ -140,6 +154,31 @@ class Database:
                 )
                 """
             )
+            # Персональный фильтр типов угроз: CSV разрешённых групп
+            # ('ballistic'/'uav'/'other'; '' = все классы). Мягкая миграция.
+            try:
+                cur.execute(
+                    "ALTER TABLE user_prefs ADD COLUMN weapon_classes TEXT NOT NULL DEFAULT ''"
+                )
+            except sqlite3.OperationalError:
+                pass  # колонка уже существует
+            # Репорты угроз от пользователей (share location в боте).
+            # Координаты храним округлёнными до ~100 м; в публичный API не
+            # отдаём user_id — только точку и возраст.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS geo_reports (
+                    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id  INTEGER NOT NULL,
+                    ts       INTEGER NOT NULL,
+                    lat      REAL    NOT NULL,
+                    lon      REAL    NOT NULL,
+                    region   TEXT    NOT NULL DEFAULT '',
+                    text     TEXT    NOT NULL DEFAULT ''
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_geo_reports_ts ON geo_reports(ts)")
             # Состояние синхронизации истории Telegram. Курсор хранится отдельно
             # для каждого канала, а message_key исключает дубли при перекрытии.
             cur.execute(
@@ -703,6 +742,54 @@ class Database:
         except sqlite3.Error as exc:
             logger.warning("Не удалось закрыть тревогу: %s", exc)
 
+    def recently_ended_alerts(self, within_seconds: int) -> list[dict[str, Any]]:
+        """Регионы с завершённой тревогой за последние N секунд.
+
+        Возвращает [{region, ended_ts}] — последний эпизод каждого региона.
+        Основа фонового цикла «можлива нова тривога»: после отбоя статистика
+        волн подсказывает, когда ждать следующую волну.
+        """
+        try:
+            cutoff = int(time.time()) - int(within_seconds)
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT region, MAX(ended_ts) AS ended_ts FROM alerts "
+                    "WHERE ended_ts IS NOT NULL AND ended_ts >= ? "
+                    "GROUP BY region",
+                    (cutoff,),
+                ).fetchall()
+                return [{"region": r["region"], "ended_ts": int(r["ended_ts"])} for r in rows]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать завершённые тревоги: %s", exc)
+            return []
+
+    def record_wave_notice(self, region: str, episode_end_ts: int, *, sent_ts: int | None = None) -> None:
+        """Запомнить, что уведомление «можлива тривога» по этому эпизоду отправлено."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO wave_notices (region, episode_end_ts, sent_ts) VALUES (?, ?, ?)",
+                    (region, int(episode_end_ts), int(sent_ts if sent_ts is not None else time.time())),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать wave-notice: %s", exc)
+
+    def wave_notice_sent(self, region: str, episode_end_ts: int) -> bool:
+        """True, если уведомление по этому эпизоду уже отправлялось."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT 1 FROM wave_notices WHERE region = ? AND episode_end_ts = ?",
+                    (region, int(episode_end_ts)),
+                ).fetchone()
+                return row is not None
+        except sqlite3.Error:
+            return False
+
     # ------------------------------------------------------------------
     #  Персистентная дедупликация (отсев повторов между каналами)
     # ------------------------------------------------------------------
@@ -811,6 +898,7 @@ class Database:
                 assert self._conn is not None
                 cur = self._conn.execute(
                     "SELECT i.updated_ts AS ts, i.weapon_class AS type, i.region, i.status, i.source_count, "
+                    "i.origin_region AS origin, i.destination_region AS destination, "
                     "(SELECT text FROM incident_evidence e WHERE e.incident_key=i.incident_key ORDER BY e.id DESC LIMIT 1) AS text "
                     f"FROM incidents i WHERE i.updated_ts >= ? AND {stage_sql} "
                     f"AND {status_sql} ORDER BY i.updated_ts DESC",
@@ -1080,6 +1168,123 @@ class Database:
                 self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось сохранить night_mode: %s", exc)
+
+    # ------------------------------------------------------------------
+    #  Персональный фильтр типов угроз (weapon_classes)
+    # ------------------------------------------------------------------
+    # Разрешённые группы фильтра. '' или «все группы» = без фильтра.
+    # Канонические классы маппятся в группы в weapon_group().
+    WEAPON_GROUPS = ("ballistic", "uav", "other")
+
+    def get_weapon_classes(self, user_id: int) -> str:
+        """CSV разрешённых групп ('' = без фильтра — приходят все классы)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT weapon_classes FROM user_prefs WHERE user_id = ?", (user_id,)
+                ).fetchone()
+                return str(row["weapon_classes"] or "") if row else ""
+        except sqlite3.Error:
+            return ""
+
+    def set_weapon_classes(self, user_id: int, groups_csv: str) -> None:
+        """Сохранить CSV разрешённых групп ('' = сбросить фильтр)."""
+        allowed = set(self.WEAPON_GROUPS)
+        parts = [p.strip() for p in (groups_csv or "").split(",") if p.strip()]
+        clean = ",".join(p for p in parts if p in allowed)
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO user_prefs (user_id, weapon_classes) VALUES (?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET weapon_classes = ?",
+                    (user_id, clean, clean),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить weapon_classes: %s", exc)
+
+    # ------------------------------------------------------------------
+    #  Репорты угроз от пользователей (share location)
+    # ------------------------------------------------------------------
+    GEO_REPORT_COOLDOWN_S = 300  # не чаще одного репорта в 5 минут от юзера
+
+    def add_geo_report(
+        self, user_id: int, lat: float, lon: float, text: str = "", region: str = ""
+    ) -> bool:
+        """Сохранить репорт с геопозицией юзера. False — сработал антиспам.
+
+        Координаты округляются до 3 знаков (~100 м): публично показываем
+        область, а не точку, где стоит человек.
+        """
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT MAX(ts) AS last_ts FROM geo_reports WHERE user_id = ?",
+                    (user_id,),
+                ).fetchone()
+                last_ts = int(row["last_ts"] or 0)
+                now = int(time.time())
+                if now - last_ts < self.GEO_REPORT_COOLDOWN_S:
+                    return False
+                self._conn.execute(
+                    "INSERT INTO geo_reports (user_id, ts, lat, lon, region, text) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        user_id, now,
+                        round(float(lat), 3), round(float(lon), 3),
+                        region, (text or "").strip()[:120],
+                    ),
+                )
+                self._conn.commit()
+                return True
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить geo-репорт: %s", exc)
+            return False
+
+    def seconds_until_geo_report_allowed(self, user_id: int) -> int:
+        """Сколько секунд до следующего разрешённого репорта юзера."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT MAX(ts) AS last_ts FROM geo_reports WHERE user_id = ?",
+                    (user_id,),
+                ).fetchone()
+                last_ts = int(row["last_ts"] or 0)
+                remaining = self.GEO_REPORT_COOLDOWN_S - (int(time.time()) - last_ts)
+                return max(0, remaining)
+        except sqlite3.Error:
+            return 0
+
+    def recent_geo_reports(self, minutes: int = 90) -> list[dict[str, Any]]:
+        """Свежие репорты для карты (без user_id): точка, возраст, текст."""
+        try:
+            cutoff = int(time.time()) - minutes * 60
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "SELECT ts, lat, lon, region, text FROM geo_reports "
+                    "WHERE ts >= ? ORDER BY ts DESC",
+                    (cutoff,),
+                )
+                now = int(time.time())
+                return [
+                    {
+                        "ts": row["ts"],
+                        "lat": row["lat"],
+                        "lon": row["lon"],
+                        "region": row["region"],
+                        "text": row["text"],
+                        "age_min": max(0, (now - row["ts"]) // 60),
+                    }
+                    for row in cur.fetchall()
+                ]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать geo-репорты: %s", exc)
+            return []
 
     # ------------------------------------------------------------------
     #  Interests-модуль: каналы, темы, классификация

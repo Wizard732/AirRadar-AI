@@ -105,6 +105,22 @@ class EvidenceAlertTests(unittest.TestCase):
         self.assertFalse(result.splitlines()[0].startswith("🔴 ПОЛТАВСЬКА"))
         self.assertFalse(result.splitlines()[0].startswith("🔴 ОДЕСЬКА"))
 
+    def test_long_roundup_body_not_truncated(self):
+        """Сводка мониторинга >300 знаков не режется: все направления на месте.
+
+        Регрессия: лимит тела 300 обрезал сводки на полуслове — хвост
+        («…ще 2 на Київ») терялся, и направления пропадали из поста.
+        """
+        lines = [f"Область {i}: 2 реактивні БпЛА на напрямку міст і сіл номер {i}" for i in range(15)]
+        roundup = "\n".join(lines)  # ~1000+ знаков
+        fact = extract_incident_fact(roundup, "uav", "imminent")
+        result = render_evidence_alert(
+            text=roundup, source="a", event_ts=1_700_000_000,
+            fact=fact, confirmation={"status": "reported", "sources": 1},
+        )
+        self.assertIn(lines[-1], result, "хвост сводки обязан сохраниться")
+        self.assertIn("напрямку міст і сіл номер 14", result)
+
 
 if __name__ == "__main__":
     unittest.main()

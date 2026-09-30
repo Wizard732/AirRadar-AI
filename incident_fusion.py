@@ -97,7 +97,7 @@ def _route_regions(text: str) -> tuple[str, str]:
                 destination = suffix_regions[0]
                 break
     origin = ""
-    for marker in (" з ", " із ", " из ", " from "):
+    for marker in (" з ", " зі ", " із ", " из ", " from "):
         pos = lowered.find(marker)
         if pos >= 0:
             segment = text[pos + len(marker):]

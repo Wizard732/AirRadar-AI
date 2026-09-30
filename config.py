@@ -109,6 +109,16 @@ class Settings:
     # Исходные каналы мониторинга (по умолчанию пусто — проверяется в load_settings)
     source_channels: list[str] = field(default_factory=list)
 
+    # Публиковать только угрозы «в воздухе» (стадия imminent). Посты без
+    # глагола движения («3 БпЛА на Путивль» без «летить») пишутся в БД и
+    # карту, но не публикуются в канал. Отбой проходит всегда.
+    in_flight_only: bool = True
+
+    # Проактивное предупреждение «можлива нова тривога»: после отбоя, когда
+    # статистика региона (медіана «відбій → нова тривога») подходит к сроку,
+    # подписчики региона получают одно предупреждение на эпизод.
+    pre_wave_notice: bool = True
+
 
 def load_settings() -> Settings:
     """Прочитать и провалидировать настройки окружения.
@@ -164,4 +174,6 @@ def load_settings() -> Settings:
         active_threat_ttl=max(60, int(os.getenv("ACTIVE_THREAT_TTL", "1800"))),
         confirmation_sources=max(2, int(os.getenv("CONFIRMATION_SOURCES", "2"))),
         aggregate_window_sec=max(5, int(os.getenv("AGGREGATE_WINDOW_SEC", "35"))),
+        in_flight_only=os.getenv("IN_FLIGHT_ONLY", "1").strip() not in ("0", "false", "no"),
+        pre_wave_notice=os.getenv("PRE_WAVE_NOTICE", "1").strip() not in ("0", "false", "no"),
     )

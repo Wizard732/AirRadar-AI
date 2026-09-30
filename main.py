@@ -99,6 +99,9 @@ async def run() -> None:
         session=http_session,
         promo_url=settings.promo_channel_url,
     )
+    # Кнопка «Поділитися» ведёт на наш канал (та же ссылка, что в постах).
+    global PROMO_URL
+    PROMO_URL = settings.promo_channel_url or PROMO_URL
     # Сохраняем ссылку для /summary (ручной запуск сводки из admin_ui).
     global _publisher_ref
     _publisher_ref = publisher
@@ -134,6 +137,9 @@ async def run() -> None:
         # Mini App: приём данных из WebApp (set_topic/add_channel/remove_channel).
         from miniapp_handler import register_miniapp_handlers
         register_miniapp_handlers(bot_client, db, settings.admin_id)
+        # Репорты угроз с геопозицией (/report + приём локации в ЛС).
+        from geo_report import register_geo_report_handlers
+        register_geo_report_handlers(bot_client, db)
         if settings.webapp_url:
             logger.info("Mini App включён: %s", settings.webapp_url)
         logger.info(
@@ -319,6 +325,15 @@ async def run() -> None:
             name="digest-scheduler",
         )
 
+    # --- проактивные предупреждения «можлива нова тривога» (статистика волн) ---
+    pre_wave_task = None
+    if bot_client is not None and settings.pre_wave_notice:
+        pre_wave_task = asyncio.create_task(
+            _pre_wave_loop(bot_client, db),
+            name="pre-wave-notice",
+        )
+        logger.info("Предупреждения «можлива нова тривога» включены (статистика волн).")
+
     # --- graceful shutdown ---
     stop_event = asyncio.Event()
 
@@ -372,6 +387,12 @@ async def run() -> None:
             digest_task.cancel()
             try:
                 await digest_task
+            except asyncio.CancelledError:
+                pass
+        if pre_wave_task is not None:
+            pre_wave_task.cancel()
+            try:
+                await pre_wave_task
             except asyncio.CancelledError:
                 pass
         interests_task.cancel()
@@ -486,7 +507,14 @@ async def _process_message(
         # is still actionable. Predictive or generic aviation noise stays
         # internal, while all-clear must always reach the channel.
         public_class = weapon not in {"aviation", "tac_aviation", "strat_aviation", "alert"}
-        publishable = weapon == "stand_down" or (stage in {"imminent", "unknown"} and public_class)
+        # IN_FLIGHT_ONLY (по умолчанию): в канал летит только то, что уже в
+        # воздухе (imminent) либо отбой. Стадия unknown («3 БпЛА на Путивль»
+        # без глагола движения) пишется в БД/карту, но не публикуется —
+        # половина таких постов оказывается рутиной/устаревшей сводкой.
+        unknown_ok = not getattr(settings, "in_flight_only", True)
+        publishable = weapon == "stand_down" or (
+            (stage == "imminent" or (stage == "unknown" and unknown_ok)) and public_class
+        )
         # Непубликуемое (последствия удара, ППО, авиация) НЕ прерывает
         # конвейер ранним return: журнал БД ниже обязан зафиксировать
         # impact-событие, иначе ETA и статистика региона не получают
@@ -518,7 +546,7 @@ async def _process_message(
             if bot_client is not None and regions and published:
                 fkey = confirmation.get("key", "")
                 await _notify_subscribers(
-                    bot_client, db, regions, final_text,
+                    bot_client, db, _notify_regions(fact, regions), final_text,
                     feedback_key=fkey, weapon_class=weapon,
                 )
 
@@ -627,11 +655,9 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
     if not published:
         logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
         return
-    regions: list[str] = []
-    for item in items:
-        for slug in item.regions:
-            if slug not in regions:
-                regions.append(slug)
+    regions = _notify_regions(last.fact, [
+        slug for item in items for slug in item.regions if slug
+    ])
     if bot_client is not None and regions:
         fkey = ""
         for item in reversed(items):
@@ -648,9 +674,46 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
 # всегда (правило: відбій публікується завжди і миттєво).
 NIGHT_CRITICAL_CLASSES = {"ballistic", "cruise_missile", "kab", "air_missile", "coastal_missile"}
 
+# Маппинг канонических классов оружия в группы персонального фильтра
+# («🎯 Типи тривог»): ballistic / uav / other. Классы вне словаря → 'other'.
+WEAPON_PREF_GROUPS = {
+    "ballistic": "ballistic", "cruise_missile": "ballistic", "kab": "ballistic",
+    "air_missile": "ballistic", "coastal_missile": "ballistic", "missile": "ballistic",
+    "shahed": "uav", "uav": "uav", "fpv": "uav", "recon_drone": "uav",
+    "mlrs": "other", "artillery": "other", "explosion": "other",
+    "air_defense": "other",
+}
+
+
+def weapon_group(weapon_class: str) -> str:
+    """Группа класса для фильтра типов. '' = отбой/неизвестно — фильтр не применяется."""
+    if not weapon_class or weapon_class == "stand_down":
+        return ""
+    return WEAPON_PREF_GROUPS.get(weapon_class, "other")
+
+
 # Callback-префиксы фидбека под алертами в ЛС.
 CB_FEEDBACK_USEFUL = "fbu:"
 CB_FEEDBACK_NOISE = "fbn:"
+
+# Ссылка для кнопки «Поділитися» (переопределяется из settings в run()).
+PROMO_URL = "https://t.me/AirRadarAI"
+
+
+def _notify_regions(fact, regions: list[str]) -> list[str]:
+    """Регионы рассылки алерта: цель фьюжена, а не все упомянутые области.
+
+    detect_region возвращает ВСЕ области, упомянутые в посте (происхождение
+    + цель). В сборных сводках мониторинга это пол-Украины, и подписчик
+    «Київ — лівий берег» получал каждый такой пост. Правило: доставляем по
+    фактической цели (fact.destination_region); полные списки упоминаний —
+    только когда цель неизвестна ('' / 'unknown') или пост честно помечен
+    как 'multi' (затронуты действительно несколько областей).
+    """
+    destination = getattr(fact, "destination_region", "")
+    if destination and destination not in ("unknown", "multi"):
+        return [destination]
+    return list(regions or [])
 
 
 def _kyiv_hour() -> int:
@@ -678,13 +741,30 @@ def _is_night_time() -> bool:
     return hour >= 23 or hour < 6
 
 
-def _feedback_kb(message_key: str):
-    """Кнопки «✅ корисно / ➖ шум» под алертом в ЛС."""
+def _share_row(text: str) -> list:
+    """Кнопка «Поділитися»: системное окно пересылки Telegram с готовым текстом.
+
+    URL-кнопка t.me/share/url — работает у всех клиентов без inline-режима
+    у бота: открывает выбор чата с предзаполненным заголовком алерта.
+    """
+    from urllib.parse import quote
+
     from telethon import Button
-    return [[
+    head = (text or "").split("\n", 1)[0][:200]
+    url = f"https://t.me/share/url?url={quote(PROMO_URL)}&text={quote(head)}"
+    return [Button.url("↗ Поділитися", url)]
+
+
+def _feedback_kb(message_key: str, text: str = "") -> list:
+    """Кнопки «✅ корисно / ➖ шум» + «↗ Поділитися» под алертом в ЛС."""
+    from telethon import Button
+    rows = [[
         Button.inline("✅ Корисно", data=CB_FEEDBACK_USEFUL + message_key),
         Button.inline("➖ Шум", data=CB_FEEDBACK_NOISE + message_key),
     ]]
+    if text:
+        rows.append(_share_row(text))
+    return rows
 
 
 async def _notify_subscribers(bot_client, db: Database, regions: list[str], text: str,
@@ -706,6 +786,10 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     только критичные классы (ракеты/балістика/КАБ) — остальное копится в
     утренний дайджест. Отбой проходит всем всегда.
 
+    Персональный фильтр типов (weapon_classes): подписчик с фильтром получает
+    только разрешённые группы (ballistic/uav/other). Отбой и алерты без
+    канонического класса фильтр не глушит — управляющие сообщения важнее.
+
     feedback_key: ключ поста для кнопок «✅ корисно / ➖ шум» (если задан).
     """
     # Ночной режим не глушит отбой: определяем по первой строке рендера.
@@ -714,8 +798,12 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     # Критичный класс ночью доставляется всем; некритичный ночью — только
     # подписчикам БЕЗ ночного режима.
     critical = is_stand_down or weapon_class in NIGHT_CRITICAL_CLASSES
+    # Группа для персонального фильтра ('' = отбой/неизвестно — без фильтра).
+    group = weapon_group(weapon_class)
 
     # Собираем уникальных подписчиков по всем регионам сообщения.
+    # Пустой список = нечего рассылать (фьюжен не нашёл цель, а в тексте
+    # не распознан ни один регион).
     notified: set[int] = set()
     sent_count = 0
     for slug in regions:
@@ -735,11 +823,16 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
                     # Ночь, пост некритичный, у пользователя включён ночной
                     # режим — пропускаем (дайджест утром).
                     continue
+                if group:
+                    allowed = db.get_weapon_classes(user_id)
+                    if allowed and group not in allowed.split(","):
+                        # Фильтр типов включён, этой группы в нём нет.
+                        continue
                 try:
                     if feedback_key:
                         await bot_client.send_message(
                             user_id, text, link_preview=False,
-                            buttons=_feedback_kb(feedback_key),
+                            buttons=_feedback_kb(feedback_key, text),
                         )
                     else:
                         await bot_client.send_message(user_id, text, link_preview=False)
@@ -763,6 +856,51 @@ async def _healthcheck_loop(summarizer: SummarizerProtocol, interval: int) -> No
                 logger.warning("Healthcheck Ollama: НЕДОСТУПНА — работает fallback на оригинал.")
     except asyncio.CancelledError:
         # Нормальный выход при остановке приложения.
+        raise
+
+
+# Интервал фоновой проверки «можлива нова тривога» (статистика волн).
+PRE_WAVE_CHECK_INTERVAL = 60
+
+
+async def _check_pre_wave(bot_client, db: Database) -> int:
+    """Один проход: уведомить подписчиков о возможной новой волне.
+
+    Для каждого региона с недавним отбоем проверяем статистику волн
+    (pre_wave_notice): окно «медиана паузы ± LEAD/LAG» + не отправляли
+    ли уже на этот эпизод. Отправка идёт через _notify_subscribers —
+    ночной режим фильтрует получателей так же, как обычные алерты.
+    Возвращает число отправленных уведомлений (для тестов и лога).
+    """
+    from wave_forecast import format_pre_wave_notice, pre_wave_notice
+
+    sent = 0
+    for row in db.recently_ended_alerts(8 * 3600):  # окно = NEXT_WAVE_MAX_GAP_S
+        slug = row["region"]
+        info = pre_wave_notice(db, slug)
+        if not info.get("notify"):
+            continue
+        text = format_pre_wave_notice(slug, info)
+        await _notify_subscribers(bot_client, db, [slug], text, weapon_class="")
+        db.record_wave_notice(slug, int(info["episode_end_ts"]))
+        sent += 1
+        logger.info(
+            "Предупреждение «можлива тривога»: %s (медіана ~%d хв)",
+            slug, info.get("median_minutes", 0),
+        )
+    return sent
+
+
+async def _pre_wave_loop(bot_client, db: Database, interval: int = PRE_WAVE_CHECK_INTERVAL) -> None:
+    """Фоновый цикл проактивных предупреждений о возможной новой волне."""
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await _check_pre_wave(bot_client, db)
+            except Exception:  # noqa: BLE001 — фоновая задача не должна падать
+                logger.exception("Сбой проверки «можлива нова тривога»")
+    except asyncio.CancelledError:
         raise
 
 

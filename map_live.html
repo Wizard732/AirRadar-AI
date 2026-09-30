@@ -496,10 +496,11 @@ function weaponIconHtml(t, color, fresh) {
     `font-size:13px;line-height:1;">${icon}</div>`;
 }
 
-// Same HTTPS origin as this Mini App; never use the user's localhost.
-// Автономная версия (generate_map.py) заменяет этот блок на EMBEDDED_* данные.
-const API_URL = '/api/threats';
-const EMBEDDED_FORECAST = null;
+// Данные встроены генератором (без API — автономная карта).
+const API_URL = null;
+const EMBEDDED_THREATS = [];
+const EMBEDDED_REPORTS = [];
+const EMBEDDED_FORECAST = {};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
@@ -714,11 +715,9 @@ let lastFlashKeys = '';
 
 async function fetchData() {
   try {
-    const resp = await fetch(`${API_URL}?minutes=120`);
-    const data = await resp.json();
-    threatsCache = data.threats || [];
-    reportsCache = data.reports || [];
-    forecastCache = data.forecast || EMBEDDED_FORECAST || {};
+    threatsCache = EMBEDDED_THREATS || [];
+    reportsCache = EMBEDDED_REPORTS || [];
+    forecastCache = EMBEDDED_FORECAST || {};
     renderAll();
     renderTicker();
   } catch (e) {
@@ -1284,7 +1283,7 @@ const soundChip = document.querySelector('#filters .chip[data-layer="sound"]');
 if (soundChip && !soundOn) soundChip.textContent = '🔇';
 
 fetchData();
-setInterval(fetchData, 15000);
+// Нет API — обновление через перезапуск generate_map.py
 // Возврат на вкладку/в Telegram — мгновенное обновление, не ждём таймер.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') fetchData();

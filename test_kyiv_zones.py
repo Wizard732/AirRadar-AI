@@ -118,6 +118,36 @@ class KyivZoneTests(unittest.TestCase):
         asyncio.run(main._notify_subscribers(bot, db, ["odeska"], "текст"))
         self.assertEqual([uid for uid, _t, _b in bot.sent], [6])
 
+    def test_notify_regions_targets_destination_only(self):
+        """Рассылка идёт по цели фьюжена, а не по всем упомянутым областям.
+
+        Сводка «зі Сумської на Київщину» упоминает 2+ области; подписчик
+        берега Киева НЕ должен получать посты про Сумщину.
+        """
+        from incident_fusion import extract_incident_fact
+        fact = extract_incident_fact("БпЛА зі Сумської на Київщину", "uav", "imminent")
+        self.assertEqual(
+            main._notify_regions(fact, ["sumska", "kyivska"]), ["kyivska"]
+        )
+
+    def test_notify_regions_multi_and_unknown_fall_back(self):
+        """'multi' и неизвестная цель — честный фолбэк на все упоминания."""
+        from incident_fusion import extract_incident_fact
+
+        class FakeFact:
+            destination_region = "multi"
+
+        fact = FakeFact()
+        self.assertEqual(
+            main._notify_regions(fact, ["sumska", "kyivska"]),
+            ["sumska", "kyivska"],
+        )
+
+        class EmptyFact:
+            destination_region = ""
+
+        self.assertEqual(main._notify_regions(EmptyFact(), []), [])
+
 
 if __name__ == "__main__":
     unittest.main()

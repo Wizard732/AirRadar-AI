@@ -1,0 +1,24 @@
+[Unit]
+Description=AirRadar map snapshot regeneration and publish (GitHub Pages)
+Wants=network-online.target
+After=network-online.target
+
+# Требует одноразовой настройки на сервере:
+#   1) git config в /opt/airradar: user.email + user.name;
+#   2) deploy-ключ С ПРАВОМ ЗАПИСИ (GitHub -> repo -> Settings -> Deploy keys,
+#      Add write access) в /root/.ssh/id_ed25519_map + запись в
+#      /root/.ssh/config: Host github.com -> IdentityFile;
+#   3) remote origin должен указывать на репозиторий по SSH
+#      (git@gitguard:Wizard732/AirRadar-AI.git или git@github.com:...).
+# Без пуша карта на Pages всё равно обновится — просто при следующем
+# локальном пуше (снапшот будет менее свежим).
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/airradar
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/airradar/.venv/bin/python generate_map.py
+# Пушим только если карта реально изменилась (иначе пустые коммиты).
+ExecStart=/bin/git add map_live.html
+ExecStart=/bin/git diff --cached --quiet || /bin/git commit -m "map: авто-снапшот угроз ($(/bin/date -u +%%Y-%%m-%%d\\ %%H:%%M\\ UTC))"
+ExecStart=/bin/git diff --cached --quiet || /bin/git push origin main

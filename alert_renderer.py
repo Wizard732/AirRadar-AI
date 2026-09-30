@@ -121,10 +121,12 @@ def render_evidence_alert(
     lines.append(f"⚠️ Статус: {_status(confirmation)}")
     # Текст источника — недоверенные данные: без разметки, но с сохранением
     # авторских переносов строк (сводки вида «Київщина \n 1 БпЛА на Димер»
-    # схлопывать в одну строку нечитаемо).
+    # схлопывать в одну строку нечитаемо). Лимит 1200: полные сводки
+    # мониторинга со списком направлений не режутся на полуслове, а лимит
+    # поста Telegram (4096) всё равно страхует сверху.
     body = "\n".join(line.strip() for line in text.splitlines() if line.strip())
     lines.append("")
-    lines.append(body[:300])
+    lines.append(body[:1200])
     lines.append("")
     lines.append(SOURCE_BRAND_LINE)
     return "\n".join(lines)[:4000]

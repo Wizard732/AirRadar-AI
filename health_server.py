@@ -52,6 +52,21 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
         # Карта показывает и одиночные reported-события (полупрозрачно,
         # «очікує підтвердження») — иначе при 1 источнике карта пуста.
         threats = _app_db.active_threats(within_seconds=minutes * 60, include_reported=True)
+        # Репорты угроз от пользователей (share location): окно шире окна
+        # угроз, но не больше 3 часов.
+        report_window = min(180, max(30, minutes * 3))
+        reports = _app_db.recent_geo_reports(report_window)
+        # Статистика волн по затронутым регионам: «коли відбій» и
+        # «коли наступна хвиля». Ошибки прогноза не роняют API.
+        forecast: dict[str, dict] = {}
+        try:
+            from wave_forecast import region_forecast
+            for slug in {t["region"] for t in threats}:
+                fc = region_forecast(_app_db, slug)
+                if fc:
+                    forecast[slug] = fc
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("forecast failed: %s", exc)
         # Добавим возраст в минутах.
         now = int(time.time())
         result = []
@@ -63,9 +78,14 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
                 "text": t["text"][:200],
                 "status": t.get("status", "corroborated"),
                 "sources": t.get("source_count", 2),
+                "origin": t.get("origin", ""),
+                "destination": t.get("destination", ""),
                 "age_min": max(0, (now - t["ts"]) // 60),
             })
-        return web.json_response({"threats": result, "count": len(result), "window_min": minutes})
+        return web.json_response({
+            "threats": result, "reports": reports, "forecast": forecast,
+            "count": len(result), "window_min": minutes,
+        })
     except Exception as exc:  # noqa: BLE001
         logger.warning("API /api/threats error: %s", exc)
         return web.json_response({"threats": [], "error": "temporarily unavailable"}, status=503)

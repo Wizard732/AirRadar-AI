@@ -66,6 +66,10 @@ CB_MAIN = "main"         # главное меню
 CB_STATS_ALL = "sall"    # общая статистика
 CB_ACTIVE = "active"     # текущие угрозы
 CB_NIGHT_MODE = "night"  # персональный ночной режим (toggle)
+CB_REPORT = "report"     # подсказка: сообщить угрозу своей геопозицией
+CB_WEAPONS = "weapons"   # меню персонального фильтра типов угроз
+CB_WEAPONS_ALL = "wall"  # «увімкнути всі»: сброс фильтра типов
+CB_WEAPON_TOGGLE = "wt:" # toggle группы типов: wt:ballistic / wt:uav / wt:other
 
 # Человекочитаемые подписи типов угроз.
 TYPE_LABELS = {
@@ -87,6 +91,13 @@ TYPE_LABELS = {
     "other": "🚨 Прочее",
 }
 
+# Группы персонального фильтра «Типи тривог» (совпадают с weapon_group в main).
+WEAPON_FILTERS = [
+    ("ballistic", "🚀 Ракети / балістика"),
+    ("uav", "🛸 БпЛА (Shahed/FPV)"),
+    ("other", "💥 Артилерія, приліт, ППО"),
+]
+
 
 # =====================================================================
 #  Сборка клавиатур
@@ -98,7 +109,9 @@ CB_INTERESTS = "interests"  # переход в Interests-модуль
 def _main_menu_kb():
     return [
         [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
+        [Button.inline("📍 Повідомити загрозу", data=CB_REPORT)],
         [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS)],
+        [Button.inline("🎯 Типи тривог", data=CB_WEAPONS)],
         [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
         [
             Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
@@ -123,7 +136,9 @@ def _main_menu_with_webapp(webapp_url: str, map_webapp_url: str = ""):
         rows.append([_webapp_button("⚙️ Settings (Mini App)", webapp_url)])
     return rows + [
         [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
+        [Button.inline("📍 Повідомити загрозу", data=CB_REPORT)],
         [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS)],
+        [Button.inline("🎯 Типи тривог", data=CB_WEAPONS)],
         [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
         [
             Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
@@ -208,6 +223,8 @@ def _main_text() -> str:
         "ETA (время прилёта) и история ударов по областям Украины.\n\n"
         "💡 Чтобы получать алерты в ЛС: <b>Военные алерты</b> → область → "
         "🔔 Подписаться. Или команда <code>/city &lt;город&gt;</code>.\n"
+        "📍 Видишь угрозу рядом — <b>Повідомити загрозу</b> или <code>/report</code>: "
+        "твоя точка появится на живой карте.\n"
         "🌙 Нічний режим: 23:00–06:00 в ЛС лише критичні (ракети/балістика/КАБ)."
     )
 
@@ -236,6 +253,44 @@ def _my_subs_kb(subs: list[str]) -> list:
             for slug in subs[i : i + 2]
         ])
     rows.append([Button.inline("➕ Добавить область", data=CB_REGION_PAGE + "0")])
+    rows.append([Button.inline("🏠 Главное меню", data=CB_MAIN)])
+    return rows
+
+
+def _weapons_text(db: Database, user_id: int) -> str:
+    """Экран «Типи тривог»: какие группы алертов доставлять в ЛС."""
+    allowed = db.get_weapon_classes(user_id)
+    if allowed:
+        parts = [p.strip() for p in allowed.split(",") if p.strip()]
+        enabled = " · ".join(
+            label for key, label in WEAPON_FILTERS if key in parts
+        ) or "—"
+    else:
+        enabled = "усі типи (фільтр вимкнено)"
+    return (
+        "🎯 <b>Типи тривог</b>\n\n"
+        f"Зараз отримуєте: <b>{html.escape(enabled)}</b>\n\n"
+        "Натисніть на тип, щоб увімкнути/вимкнути його. "
+        "🟢 <b>Відбій надходить завжди</b> — це управляюче повідомлення, "
+        "воно фільтром не глушиться.\n"
+        "💡 Корисно, якщо укриття далеко: лишіть лише балістику."
+    )
+
+
+def _weapons_kb(db: Database, user_id: int) -> list:
+    """Кнопки toggle групп типов + сброс «увімкнути всі» + назад в меню."""
+    allowed = {
+        p.strip() for p in db.get_weapon_classes(user_id).split(",") if p.strip()
+    }
+    rows = []
+    for key, label in WEAPON_FILTERS:
+        # Пустой фильтр = все группы включены.
+        on = not allowed or key in allowed
+        rows.append([Button.inline(
+            ("✅ " if on else "🔕 ") + label,
+            data=CB_WEAPON_TOGGLE + key,
+        )])
+    rows.append([Button.inline("🔔 Увімкнути всі", data=CB_WEAPONS_ALL)])
     rows.append([Button.inline("🏠 Главное меню", data=CB_MAIN)])
     return rows
 
@@ -369,7 +424,18 @@ def _region_cons_text(db: Database, slug: str) -> str:
 
 def _region_eta_text(db: Database, slug: str) -> str:
     # Каскад: пары threats → события threat_events → риск прилёта → справка.
-    return build_eta_text(db, slug, region_name(slug))
+    # В конце — статистика волн региона («коли відбій / наступна хвиля»):
+    # ошибки прогноза не должны ломать ETA-текст.
+    text = build_eta_text(db, slug, region_name(slug))
+    try:
+        from wave_forecast import format_wave_forecast
+        waves = format_wave_forecast(db, slug, "")
+        if waves:
+            body = waves.split("\n", 1)[-1].strip()  # без своего заголовка
+            text += "\n\n" + body
+    except Exception:  # noqa: BLE001 — прогноз не роняет ETA
+        pass
+    return text
 
 
 def _city_results_kb(matches: list[str]) -> list:
@@ -477,6 +543,60 @@ def register_handlers(
                     else "🌙 Нічний режим вимкнено"
                 )
                 await _safe_edit(_main_text(), _menu_kb(event.sender_id))
+
+            elif data == CB_REPORT:
+                # Подсказка: отправь геопозицию — точка появится на карте.
+                from geo_report import REPORT_HINT
+                await event.answer()
+                await event.respond(REPORT_HINT, parse_mode="html")
+
+            elif data == CB_WEAPONS:
+                # Экран «Типи тривог»: персональный фильтр групп алертов.
+                await _safe_edit(
+                    _weapons_text(db, event.sender_id),
+                    _weapons_kb(db, event.sender_id),
+                )
+
+            elif data == CB_WEAPONS_ALL:
+                # Сброс фильтра: пустой CSV = приходят все типы.
+                db.set_weapon_classes(event.sender_id, "")
+                await event.answer("🔔 Усі типи тривог увімкнено")
+                await _safe_edit(
+                    _weapons_text(db, event.sender_id),
+                    _weapons_kb(db, event.sender_id),
+                )
+
+            elif data.startswith(CB_WEAPON_TOGGLE):
+                # Toggle группы. Пустой CSV означает «все включены», поэтому
+                # при снятии последней галочки показываем подсказку, а не
+                # молча включаем всё обратно — иначе кнопка врёт.
+                key = data[len(CB_WEAPON_TOGGLE):]
+                if key in {"ballistic", "uav", "other"}:
+                    allowed = {
+                        p.strip()
+                        for p in db.get_weapon_classes(event.sender_id).split(",")
+                        if p.strip()
+                    }
+                    if not allowed:
+                        allowed = {"ballistic", "uav", "other"}
+                    if key in allowed:
+                        if len(allowed) == 1:
+                            await event.answer(
+                                "Має залишитися хоча б один тип (відбій надходить завжди)",
+                                alert=True,
+                            )
+                        else:
+                            allowed.discard(key)
+                            db.set_weapon_classes(event.sender_id, ",".join(sorted(allowed)))
+                            await event.answer("🔕 Тип вимкнено")
+                    else:
+                        allowed.add(key)
+                        db.set_weapon_classes(event.sender_id, ",".join(sorted(allowed)))
+                        await event.answer("✅ Тип увімкнено")
+                await _safe_edit(
+                    _weapons_text(db, event.sender_id),
+                    _weapons_kb(db, event.sender_id),
+                )
 
             elif data.startswith("fbu:") or data.startswith("fbn:"):
                 # Фидбек под алертом в ЛС: «✅ корисно / ➖ шум».

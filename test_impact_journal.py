@@ -128,9 +128,10 @@ class ImpactJournalTests(unittest.TestCase):
         self.assertTrue(est["available"], "3 пари мають давати ETA")
         self.assertGreaterEqual(est["samples"], 3)
         self.assertGreater(est["avg_seconds"], 0)
-        # Пуски и «вибухи» (stage unknown) — публикуемые; отличия от past-постов
-        # (не публикуются) покрыты предыдущим тестом.
-        self.assertEqual(len(publisher.sent), 6)
+        # IN_FLIGHT_ONLY (по умолчанию): публикуются только пуски (imminent).
+        # «Вибухи» (stage unknown) пишутся в журнал для ETA, но не постятся —
+        # правило «точки прилётов не публикуем»; past-посты покрыты выше.
+        self.assertEqual(len(publisher.sent), 3)
 
 
 if __name__ == "__main__":
