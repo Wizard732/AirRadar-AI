@@ -1,6 +1,11 @@
 # AirRadar AI — аудит проекта (для передачи другой ИИ)
 
-Дата: 2026-09-30. Версия: main после гардов CRITICAL, прогнозов в канале и багфиксов UI/тикера.
+Дата: 2026-09-30 (обновлён после сессии «роадмап-фичи», см. §7в).
+База: main после 8496867 «Баги тикера, мобильный UI карты, бот-кнопки
+0-ввода, officially_confirmed, публичная точность» + роадмап-фичи:
+alerts.in.ua сирены, p50/p95 конвейера, маркер «Торкнеться вашої зони»,
+shelter_mode, недельный пост точности, кэш LLM + strong-эскалация.
+Тесты: 261 passed.
 Цель документа: другой ИИ должна понять проект за один проход и предложить улучшения.
 
 ## 1. Что это
@@ -58,6 +63,13 @@ _pre_wave_loop каждые 60 сек:
   [медиана−10 мин, медиана+15 мин] паузы «відбій → нова тривога»
   (одно на эпизод; идёт в ЛС И в канал).
 
+Ещё фоновые циклы (§7в): _sirens_loop — опрос alerts.in.ua раз в 60 c
+(SIRENS_POLL_INTERVAL): переходы ВКЛ/ВЫКЛ логируются и пишутся в БД,
+None от ошибки сети ≠ «тревог нет»; _accuracy_post_loop — недельный
+пост «🎯 Точність прогнозів» в канал (день/час по Киеву, дедуп по
+киевской дате в памяти). Обе задачи регистрируются в run() с graceful
+cancel в finally.
+
 ## 3. Ключевые модули
 
 | Модуль | Роль |
@@ -65,7 +77,7 @@ _pre_wave_loop каждые 60 сек:
 | main.py | Оркестрация: клиенты, конвейер, фоновые циклы, рассылки |
 | config.py | Settings из .env (все флаги см. .env.example) |
 | fast_filter.py | Отсев по словам + чистка подписей/ссылок/декора каналов |
-| ai_summarizer.py | LLM-сжатие (Ollama/Groq), IGNORE, извлечение сущностей, OCR |
+| ai_summarizer.py | LLM-сжатие (Ollama/Groq), IGNORE, извлечение сущностей, OCR, кэш резюме (SummaryCache), эскалация на strong-модель |
 | weapon_classes.py | Классы оружия, severity, типовые ETA (~3–7 хв балістика и т.п.) |
 | analytics.py | Стадии (past/imminent/potential/unknown), сводки, метрики |
 | incident_fusion.py | Факты: цель, маршрут «з X на Y», количество, сборные сводки |
@@ -73,13 +85,14 @@ _pre_wave_loop каждые 60 сек:
 | aggregator.py | Окно агрегации + ГАРД CRITICAL-подтверждения |
 | alert_renderer.py | Публичный пост: только факты, статус только при подтверждении |
 | publisher.py | Bot API → канал, бренд-строка «📡 Джерело: AirRadar AI» |
-| wave_forecast.py | Медианы волн: відбій-countdown, пре-вейв, точность (hit-rate) |
+| wave_forecast.py | Медианы волн: відбій-countdown, пре-вейв, точность (hit-rate), недельный accuracy-пост |
 | regions.py | Области + районы городов (Київ, Харків, Дніпро, Одеса...) |
+| city_coords.py | Города для detect_city: маркер «🎯 Торкнеться вашої зони» по городу из текста |
 | miniapp/map.html | Карта: пины по районам, векторы полёта с ETA, анимация, бейдж «🎯 на підході», countdown отбоя |
 | generate_map.py / health_server.py | Снапшот карты / live API |
 | bot_ui.py, interests_*, admin_ui.py, geo_report.py | Меню бота, темы, админка, репорты с гео |
 
-## 4. Гarend правды (анти-фейк) — что уже встроено
+## 4. Гарды правды (анти-фейк) — что уже встроено
 
 1. IN_FLIGHT_ONLY=1: в канал только «уже летит» (imminent) или отбой.
 2. CRITICAL_NEEDS_CONFIRMATION=1: одиночная «загроза балістики» не летит в
@@ -187,17 +200,32 @@ IN_FLIGHT_ONLY=1, PRE_WAVE_NOTICE=1, STANDDOWN_NOTICE=1,
 CRITICAL_NEEDS_CONFIRMATION=1, AGGREGATE_WINDOW_SEC=35,
 INCIDENT_WINDOW_SECONDS=1200, CONFIRMATION_SOURCES=2, DEDUP_TTL=60,
 PROMO_CHANNEL_URL, OFFICIAL_SOURCES, SOURCE_GROUPS.
+Новое (§7в): ALERTS_IN_UA_TOKEN (официальные сирены, без токена цикл
+молчит), SIRENS_POLL_INTERVAL=60, ACCURACY_POST_ENABLED/WEEKDAY/HOUR,
+GROQ_MODEL_STRONG, SUMMARY_CACHE_TTL/SUMMARY_CACHE_SIZE.
 
 ## 7. Тесты и запуск
 
-- `python -m pytest -q` → 212 passed (агрегатор+гард, конвейер, фильтры,
-  публичный текст (правило №6), прогнозы волн, публикации в канал, рендер,
-  фьюжн, карта, история).
+- `python -m pytest -q` → **261 passed** (агрегатор+гард, конвейер, фильтры,
+  публичный текст (правило №6), прогнозы волн + публичная точность,
+  публикации в канал, рендер, фьюжн, карта, история, канал-нотисы,
+  critical-confirm, UI бота, кнопки фидбека 3 ряда, роадмап-фичи §7в).
+  Состав по файлам: test_public_text.py (13), test_channel_notices.py (4),
+  test_critical_confirm.py (3), test_roadmap_features.py (40) — новые;
+  test_user_features.py (20) — вкл.
+  ShareButtonTests под 3-рядную раскладку фидбека.
+- `python -c "import bot_ui"` и вызов `register_handlers()` вне event loop
+  не падают (гард get_running_loop, см. §7б.9).
 - Запуск: `python main.py` (нужен .env; на VPS — systemd unit'ы
-  airradar-bot.service, airradar-map-sync.timer для снапшотов карты).
+  airradar-bot.service, airradar-map-sync.timer для снапшотов карты;
+  обновление — deploy.sh: git pull --ff-only + рестарт сервиса,
+  .env/сессии не трогаются).
 - Карта: `python generate_map.py` → map_live.html (автономная, без API).
+- CI: GitHub Actions только для деплоя карты (.github/workflows/deploy-map.yml);
+  pytest в CI НЕ гоняется — пробел, см. §8.11.
 
-## 7б. Багфиксы 2026-09-30 (сессия «тикиер + мобильный UI + бот-кнопки»)
+## 7б. Багфиксы 2026-09-30 (сессия «тикер + мобильный UI + бот-кнопки»,
+коммит 8496867)
 
 1. **Тикер/утечка сырого markdown (правило №6)**: `/api/threats` и
    generate_map.py теперь отдают `fast_filter.public_text()` — срезает
@@ -216,9 +244,12 @@ PROMO_CHANNEL_URL, OFFICIAL_SOURCES, SOURCE_GROUPS.
    панелью); тап по карте закрывает панель слоёв; toast поднят над панелью.
 4. **Свежесть пинов**: тултип показывает «N хв тому» (минимальный возраст
    событий пина). Устаревшие пины гаснут существующим 30-минутным окном.
-5. **Кнопка «❌ Помилка»** рядом с «Корисно/Шум» в ЛС: третий голос
-   `alert_feedback.error` (миграция ALTER TABLE) — разметка ошибочных
-   постов пользователями, датасет для обучения точности.
+5. **Кнопка «❌ Помилка»** под алертом в ЛС: раскладка 3 ряда —
+   [✅ Корисно / ➖ Шум], [❌ Помилка], [↗ Поділитися]; третий голос
+   `alert_feedback.error` (миграция ALTER TABLE, легаси-схемы с `ts`
+   совместимы) — разметка ошибочных постов пользователями, датасет для
+   обучения точности. Ответ на кнопку: «Помилку зафіксовано —
+   розберемось.».
 6. **officially_confirmed в основном конвейере** (закрыт §8.4):
    merge_incident_fact(official=True) помечает инцидент официально;
    main.py прокидывает `source in settings.official_sources` (OFFICIAL_SOURCES).
@@ -229,33 +260,82 @@ PROMO_CHANNEL_URL, OFFICIAL_SOURCES, SOURCE_GROUPS.
    в ЛС (не команда, не JSON Mini App) отвечает главным меню кнопками;
    команды /start /city /report зарегистрированы в «синей кнопке меню»
    Telegram (SetBotCommands) — все действия доступны тапами.
+9. **Event-loop гард в bot_ui.register_handlers** (bot_ui.py, строка
+   create_task): `asyncio.get_running_loop()` + fallback `task=None`
+   вне loop. Раньше синхронный вызов вне loop (юнит-тесты, повторный
+   импорт) падал с `RuntimeError: no running event loop` — 25 тестов
+   красные. Боевой путь не изменён: в main.run() loop активен, задача
+   планируется как раньше (проверено: SetBotCommandsRequest уходит).
+  health_server.py обёрнут в try/except и этому багу не подвержен.
+
+## 7в. Роадмап-фичи 2026-09-30 (сессия «сирены + точность + зоны»,
+после 8496867)
+
+1. **Официальные сирены alerts.in.ua**: main._sirens_loop — опрос раз в
+   60 c (SIRENS_POLL_INTERVAL), _sirens_fetch — чистая тестируемая
+   функция; None от ошибки сети НЕ трактуется как «тревог нет»;
+   переходы ВКЛ/ВЫКЛ логируются и пишутся в db.set_siren_state.
+   Токен: ALERTS_IN_UA_TOKEN (без него цикл молчит).
+2. **Замер latency конвейера**: main._publish_items после успешной
+   публикации пишет db.record_pipeline_latency (от самого старого
+   received_ts набора; legacy-алерты без received_ts пропускаются);
+   PendingAlert получил received_ts: int = 0 (aggregator.py), ставится
+   при отправке в агрегатор. В /status — p50/p95 за 24 ч
+   (db.latency_percentiles, окно 48 ч в таблице pipeline_latency).
+3. **Маркер «🎯 Торкнеться вашої зони»** в _notify_subscribers: если
+   home_region подписчика входит в regions поста ИЛИ detect_city по
+   тексту (city_coords.CITIES) находит его город.
+4. **Режим «Укриття» (shelter_mode)**: в ЛС проходят только критичные,
+   відбій и zone-hit — остальное в обычном порядке не дёргает.
+5. **Недельный пост «🎯 Точність прогнозів»**: wave_forecast.
+   accuracy_post_text(db) — % отбоев в пределах медианы + опережение
+   сирены; честное «недостатньо даних» при мало эпизодов; main.
+   _accuracy_post_loop — день/час по Киеву (ACCURACY_POST_*), дедуп
+   по киевской дате в памяти.
+6. **Кэш LLM-резюме**: ai_summarizer.SummaryCache (sha1+TTL+размер) +
+   CachedSummarizer — кэшируются только реальные резюме, не fallback
+   (SUMMARY_CACHE_TTL/SIZE; make_summarizer заворачивает при TTL>0).
+7. **Эскалация Groq**: _summarize_once → (result, degraded); при
+   деградации (усечение/мусор/пусто) повтор на GROQ_MODEL_STRONG.
+8. **Время по Киеву**: main._kyiv_datetime/_kyiv_hour/_kyiv_date_str
+   (DST вручную, UTC+2/+3) — вместо локального времени хоста.
+9. **city_coords.py**: добавлен Чернівці (ключи «чернівц/черновц») —
+   тест поймал: маркер по городу для Чернівцов не срабатывал.
+10. **admin_ui /status**: строки «⏱ Конвейер (24г): p50/p95», «🚨
+    Официальные сирены (N): …» и подсказка при данных опроса старше
+    15 мин («проверь ALERTS_IN_UA_TOKEN»).
 
 ## 8в. Роадмап продукта (доверие / скорость / продукт / охват)
 
 ### Доверие (фактор №1)
-- ✅ Публичная точность: hit-rate в статистике бота; дальше — авто-пост
-  «Точность тижня» в канал раз в неделю (дайджест).
+- ✅ Публичная точность: hit-rate в статистике бота.
+- ✅ Авто-пост «Точність прогнозів» в канал раз в неделю
+  (_accuracy_post_loop, §7в.5).
 - ✅ officially_confirmed от OFFICIAL_SOURCES в основном конвейере.
-- Интеграция alerts.in.ua (официальные сирены): «відбій/тривога» по API —
-  прогнозы станут сравнимыми с реальностью; сейчас сирены не видны боту.
+- ✅ Интеграция alerts.in.ua (официальные сирены): _sirens_loop,
+  состояния в БД, отображение в /status (§7в.1); в прогнозы сирены
+  пока не зашиты (потенциал: сверка відбій-прогнозов с сиренами).
 - Свежесть пинов: ✅ «N хв тому»; устаревшие гаснут окном 30 мин.
 - ✅ Кнопка «❌ Помилка» — датасет ошибок от пользователей.
 
 ### Скорость
 - Правила/regex на горячем пути уже первичны; LLM — после классификации.
-  Попробовать сильную модель (Groq 70B) для сложных постов + кэш.
-- Метрика p50/p95 «пост источника → пост в канале» в админке (нет).
+- ✅ Сильная модель + кэш: GROQ_MODEL_STRONG-эскалация при деградации,
+  SummaryCache (§7в.6–7).
+- ✅ Метрика p50/p95 «пост источника → пост в канале» в /status (§7в.2).
 - Окно агрегации 35 c: для imminent CRITICAL рассмотреть ≤10 c после
   подтверждения (балістика).
 - Push-подписки «регион + моя локация» с шумоподавлением (частично есть:
   подписки по регионам/берегам).
 
 ### Продукт
-- «Моя зона»: адрес/район → уведомление только когда вектор идёт к нему
-  («на підході, ~12 хв до вашого району»). База: пины по районам уже есть.
+- «Моя зона»: ✅ частично — маркер «🎯 Торкнеться вашої зони» по региону
+  или городу из текста (§7в.3); адрес→район («~12 хв до вашого району»)
+  — нет.
 - ETA по вектору и скорости (карта уже считает ETA_KMH по прямой);
   в канал — конкретное число вместо типового диапазона.
-- Режим «в укрытии»: 1 сообщение на тревогу, 1 на відбій (ночной режим есть).
+- Режим «в укрытии»: ✅ shelter_mode — только критичные/відбій/zone-hit
+  (§7в.4).
 - Бот в групповых чатах (дом/ЖК/школа) с районом — не реализовано.
 - История/статистика района («скільки тривог за тиждень») — частично есть
   (_region_stats_text); графики — нет.
@@ -289,13 +369,53 @@ PROMO_CHANNEL_URL, OFFICIAL_SOURCES, SOURCE_GROUPS.
 8. OCR/фото: groq vision распознаёт, но не верифицирует подделку скрина.
 9. Night digest копит некритичное — нет приоритезации внутри дайджеста.
 10. Единый стиль: часть логов RU, часть UA — унифицировать бы.
+11. **Нет CI на тесты**: pytest гоняется только локально; GitHub Actions
+    содержит лишь deploy-map.yml. Добавить workflow «pytest на push/PR» —
+    дешёвая страховка регрессий (сейчас 261 тест, ~14 сек).
+12. **requirements.txt без пинов** (`>=`): VPS-деплой может молча поднять
+    мажорную версию telethon/aiohttp. Нужны пины (или lock) + smoke-тест
+    импорта в CI.
+13. **SQLite синхронно в async-цикле** (осознанный компромисс: WAL,
+    busy_timeout 30s, threading.Lock, записи редкие — см. шапку
+    database.py). При росте нагрузки/частоты записей — вынести в
+    aiosqlite/executor, не переписывая API класса.
+14. **Тихие except**: напр., блок публичной точности в _stats_all_text
+    (bot_ui.py) глотает любые исключения без лога — при поломке метрики
+    она молча исчезнет из статистики. Минимум — logger.debug с exc.
+15. **Не проверено живьём**: после 8496867 — Telegram («синяя кнопка
+    меню», «❌ Помилка») и GitHub Pages; после §7в — сирены/accuracy-
+    пост/shelter_mode/p50-p95 на живом VPS (деплой вручную:
+    sudo bash deploy.sh). Только локальные тесты.
 
 ## 9. Где что лежит
 
 - Конвейер/гарды: main.py (_process_message, _publish_items, _pre_wave_loop)
 - Гард CRITICAL: aggregator.py (_is_bypass, _flush_key) + config.critical_needs_confirmation
 - Формат поста: alert_renderer.py (render_evidence_alert, _status)
-- Чистка подписей: fast_filter.py (clean_signature, _strip_channel_links)
-- Прогнозы: wave_forecast.py (standdown_notice, pre_wave_notice, region_forecast)
+- Чистка подписей: fast_filter.py (clean_signature, _strip_channel_links, public_text)
+- Прогнозы: wave_forecast.py (standdown_notice, pre_wave_notice,
+  region_forecast, public_accuracy, accuracy_post_text)
+- Сирены alerts.in.ua: main.py (_sirens_loop, _sirens_fetch,
+  SIRENS_POLL_INTERVAL), database.py (set_siren_state,
+  siren_states_active, siren_states_fresh), admin_ui.py (_status_text)
+- Маркер зоны / shelter_mode: main.py (_notify_subscribers), city_coords.py
+- Фидбек ЛС и команды меню: bot_ui.py (_feedback_kb, CB_FEEDBACK_*, BOT_COMMANDS,
+  _register_bot_commands, event-loop гард в register_handlers)
+- Публичная точность в статистике: bot_ui.py (_stats_all_text, блок
+  «🎯 Точність прогнозів»)
 - Тесты гарда: test_aggregator.py::CriticalConfirmGateTests,
   test_critical_confirm.py, test_channel_notices.py
+- Тесты новых фич: test_public_text.py, test_quick_wins.py
+  (test_feedback_error_vote), test_user_features.py::ShareButtonTests,
+  test_roadmap_features.py (§7в)
+
+## 10. Быстрая проверка после изменений (для ИИ-ассистента)
+
+1. `python -m pytest -q` — эталон на 2026-09-30: 261 passed.
+2. `python -c "import bot_ui, main, database, aggregator"` — импорты без
+   побочных эффектов, вне event loop не падают.
+3. Изменения БД — только мягкой миграцией (ALTER TABLE в try/except),
+   см. образец alert_feedback.error в database.py.
+4. Публичные тексты — только через fast_filter.public_text(); имена
+   исходных каналов в посты не попадают (правило №6).
+5. Статистические формулировки — с пометкой «орієнтовно»/«не гарантія».

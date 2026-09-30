@@ -271,6 +271,49 @@ def _fmt_minutes(seconds: float) -> str:
     return f"~{mins:.0f} хв" if mins < 60 else f"~{mins / 60:.1f} год"
 
 
+def vector_eta_text(fact, now_ts: int | None = None) -> str:
+    """ETA по вектору «з X на Y»: конкретное число минут, а не типовой диапазон.
+
+    Считается из расстояния между центроидами (city_coords.REGION_CENTROIDS)
+    и средней скорости класса (weapon_classes.weapon_speed_kmh). Публикуется
+    только при полной определённости: известны обе точки вектора, класс
+    скорости есть, полученное время в реалистичном коридоре 2–90 минут
+    (вне коридора оценка бессмысленна — оставляем типовой диапазон).
+
+    Возвращает готовую строку для поста ('' — расчёт не удался, строку не
+    добавляем). Пометка «орієнтовно» обязательна (правило ETA проекта).
+    """
+    from city_coords import REGION_CENTROIDS, _haversine_km
+    from regions import region_name
+    from weapon_classes import weapon_speed_kmh
+
+    origin = getattr(fact, "origin_region", "")
+    destination = getattr(fact, "destination_region", "")
+    weapon = getattr(fact, "weapon_class", "")
+    if not origin or not destination:
+        return ""
+    if origin in ("unknown", "multi") or destination in ("unknown", "multi"):
+        return ""
+    src = REGION_CENTROIDS.get(origin)
+    dst = REGION_CENTROIDS.get(destination)
+    speed = weapon_speed_kmh(weapon)
+    if not src or not dst or speed <= 0:
+        return ""
+    # Пуск из региона цели — вектора нет, «ETA по вектору» не имеет смысла.
+    if src == dst:
+        return ""
+    km = _haversine_km(src, dst)
+    # Путь по земле длиннее прямой: поправка 1.25 (типовой коэффициент маршрута).
+    minutes = (km * 1.25) / speed * 60.0
+    if not (2 <= minutes <= 90):
+        return ""
+    human = f"≈{minutes:.0f} хв" if minutes < 60 else f"≈{minutes / 60:.1f} год"
+    return (
+        f"⏱ Розрахунок по вектору {region_name(origin)} → {region_name(destination)}: "
+        f"{human} (орієнтовно, {km:.0f} км)"
+    )
+
+
 def build_eta_text(db: Database, region: str, name: str) -> str:
     """Каскад для кнопки «⏱ ETA угроз»: история → события → риск → справка.
 

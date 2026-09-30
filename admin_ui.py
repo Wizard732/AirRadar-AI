@@ -134,7 +134,7 @@ def register_admin_handlers(
 
 
 def _status_text(db: Database) -> str:
-    """Сводка здоровья для /status."""
+    """Сводка здоровья для /status: каналы + конвейер + сирены."""
     rows = db.all_channel_health()
     if not rows:
         return "📋 <b>Статус</b>\n\nДанных о каналах пока нет."
@@ -155,6 +155,34 @@ def _status_text(db: Database) -> str:
         ago = f"{(int(time.time()) - seen) // 60} мин" if seen else "—"
         lines.append(f"{mark} <code>{ch}</code> [{mod}] errs={err} last={ago}")
     lines.append(f"\nВсего: {len(rows)} | ⚠️ с ошибками: {errors_n} | 🚫 забанено: {disabled_n}")
+
+    # Задержка конвейера «пост источника → пост в канале» за 24ч (p50/p95).
+    try:
+        lat = db.latency_percentiles(seconds=86400)
+        if lat.get("samples"):
+            lines.append(
+                f"\n⏱ Конвейер (24г): p50 <b>{lat['p50_ms'] / 1000:.1f} с</b> · "
+                f"p95 <b>{lat['p95_ms'] / 1000:.1f} с</b> "
+                f"({lat['samples']} замеров)"
+            )
+        else:
+            lines.append("\n⏱ Конвейер (24г): замеров пока нет")
+    except Exception:  # noqa: BLE001 — метрика не роняет /status
+        pass
+
+    # Официальные сирены (alerts.in.ua): активные, если данные свежие (≤15 мин).
+    try:
+        fresh = db.siren_states_fresh(max_age_sec=900)
+        if fresh:
+            names = ", ".join(fresh[:8])
+            if len(fresh) > 8:
+                names += f" +{len(fresh) - 8}"
+            lines.append(f"🚨 Официальные сирены ({len(fresh)}): {names}")
+        elif db.siren_states_active():
+            lines.append("🚨 Сирены: данные опроса устарели (>15 мин) — проверь ALERTS_IN_UA_TOKEN")
+    except Exception:  # noqa: BLE001
+        pass
+
     lines.append("\n/ban_channel @name — заблокировать")
     lines.append("/unban_channel @name — разблокировать")
     return "\n".join(lines)

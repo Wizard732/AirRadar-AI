@@ -10,8 +10,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
+import time
 from typing import Any
 
 import aiohttp
@@ -324,10 +326,12 @@ class GroqSummarizer(SummarizerProtocol):
         timeout: int,
         base_url: str = "https://api.groq.com/openai",
         session: aiohttp.ClientSession | None = None,
+        strong_model: str = "",
     ) -> None:
         self._url = f"{base_url.rstrip('/')}/v1/chat/completions"
         self._models_url = f"{base_url.rstrip('/')}/v1/models"
         self._model = model
+        self._strong_model = (strong_model or "").strip()
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._headers = {
             "Authorization": f"Bearer {api_key}",
@@ -346,15 +350,16 @@ class GroqSummarizer(SummarizerProtocol):
         if self._owns_session and self._session is not None and not self._session.closed:
             await self._session.close()
 
-    async def summarize(self, text: str) -> str:
-        """Сжать текст через Groq. При ошибке — fallback на оригинал."""
-        text = text.strip()
-        if not text:
-            return text
+    async def _summarize_once(self, text: str, model: str) -> tuple[str, bool]:
+        """Один запрос к Groq. Возвращает (результат, degraded).
 
+        degraded=True значит «реального резюме нет» — API вернул ошибку/пустоту
+        и мы вернули исходный текст. Используется для эскалации на сильную
+        модель: деградация лёгкой модели — повод пересуммировать сильной.
+        """
         # OpenAI-совместимый формат: system prompt + user (исходный текст).
         payload: dict[str, Any] = {
-            "model": self._model,
+            "model": model,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": _untrusted_source(text)},
@@ -373,7 +378,7 @@ class GroqSummarizer(SummarizerProtocol):
                         "Groq HTTP %s, fallback на оригинал. body=%s",
                         resp.status, body[:300],
                     )
-                    return text
+                    return text, True
 
                 data = await resp.json()
                 # Стандартный OpenAI-формат ответа.
@@ -383,18 +388,38 @@ class GroqSummarizer(SummarizerProtocol):
                     summary = (choices[0].get("message", {}).get("content") or "").strip()
                 if not summary:
                     logger.warning("Groq вернул пустой ответ, fallback на оригинал.")
-                    return text
+                    return text, True
 
                 summary = safe_summary(summary, text)
-                logger.debug("Groq OK: %d -> %d chars", len(text), len(summary))
-                return summary
+                logger.debug("Groq OK (%s): %d -> %d chars", model, len(text), len(summary))
+                return summary, False
 
         except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError) as exc:
             logger.warning("Groq недоступен (%s), fallback на оригинал.", exc)
-            return text
+            return text, True
         except Exception as exc:
             logger.exception("Неожиданная ошибка Groq, fallback на оригинал: %s", exc)
+            return text, True
+
+    async def summarize(self, text: str) -> str:
+        """Сжать текст через Groq. При ошибке — fallback на оригинал.
+
+        Эскалация: если лёгкая модель деградировала (ошибка/пустой ответ) и
+        задана GROQ_MODEL_STRONG — один повтор на сильной модели. Штатный
+        ответ лёгкой модели эскалации не подвергается: двойной вызов только
+        там, где качество уже потеряно.
+        """
+        text = text.strip()
+        if not text:
             return text
+
+        result, degraded = await self._summarize_once(text, self._model)
+        if degraded and self._strong_model and self._strong_model != self._model:
+            strong_result, strong_degraded = await self._summarize_once(text, self._strong_model)
+            if not strong_degraded:
+                logger.info("Groq эскалация: %s → %s выручила", self._model, self._strong_model)
+                result = strong_result
+        return result
 
     async def healthcheck(self) -> bool:
         """Проверка доступности Groq лёгким GET-запросом к /v1/models."""
@@ -451,6 +476,83 @@ class GroqSummarizer(SummarizerProtocol):
         except Exception as exc:  # pragma: no cover
             logger.warning("Healthcheck Groq: неожиданная ошибка (%s)", exc)
             return False
+
+
+class SummaryCache:
+    """Кэш резюме LLM: sha1(текст) → результат, TTL + ограничение размера.
+
+    Одинаковые посты (репосты между каналами, повторные сводки) не гоняются
+    через модель повторно в течение TTL. TTL=0 — кэш выключен (get→None,
+    put→noop).
+    """
+
+    def __init__(self, ttl: int = 900, max_size: int = 512) -> None:
+        self._ttl = max(0, int(ttl))
+        self._max_size = max(1, int(max_size))
+        self._store: dict[str, tuple[float, str]] = {}
+
+    @staticmethod
+    def _key(text: str) -> str:
+        return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
+
+    def get(self, text: str) -> str | None:
+        """Резюме из кэша или None (нет/протух/TTL=0)."""
+        if not self._ttl:
+            return None
+        key = self._key(text)
+        entry = self._store.get(key)
+        if entry is None:
+            return None
+        ts, value = entry
+        if time.time() - ts > self._ttl:
+            self._store.pop(key, None)  # протухло — чистим
+            return None
+        return value
+
+    def put(self, text: str, value: str) -> None:
+        """Сохранить резюме; при переполнении вытесняется самый старый."""
+        if not self._ttl:
+            return
+        if len(self._store) >= self._max_size:
+            oldest = min(self._store.items(), key=lambda kv: kv[1][0])[0]
+            self._store.pop(oldest, None)
+        self._store[self._key(text)] = (time.time(), value)
+
+
+class CachedSummarizer(SummarizerProtocol):
+    """Обёртка summarizer-а: кэширует успешные резюме (sha1+TTL).
+
+    Кэшируется только реальное резюме (результат ≠ исходный текст): fallback
+    при сбое модели в кэш не пишется, чтобы сбой не «запинался» на TTL.
+    classify/healthcheck/aclose проходят насквозь без кэша.
+    """
+
+    def __init__(self, inner: SummarizerProtocol, cache: SummaryCache) -> None:
+        self._inner = inner
+        self._cache = cache
+
+    async def summarize(self, text: str) -> str:
+        cleaned = text.strip()
+        if not cleaned:
+            return text
+        cached = self._cache.get(cleaned)
+        if cached is not None:
+            logger.debug("Summary cache hit: %d chars", len(cleaned))
+            return cached
+        result = await self._inner.summarize(text)
+        # Кэшируем только реальное сжатие: fallback (result == input) не пишем.
+        if result != cleaned and result.strip():
+            self._cache.put(cleaned, result)
+        return result
+
+    async def classify(self, text: str, system_prompt: str, max_tokens: int = 30) -> str:
+        return await self._inner.classify(text, system_prompt, max_tokens)
+
+    async def healthcheck(self) -> bool:
+        return await self._inner.healthcheck()
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
 
 
 async def extract_entities(
@@ -589,30 +691,42 @@ def make_summarizer(backend: str, settings: Any, session: aiohttp.ClientSession)
     """Фабрика summarizer-а по настройкам.
 
     backend == 'ollama' → локальная Ollama (тяжёлая, нужна RAM под модель).
-    backend == 'groq'   → облачный Groq API (лёгкий, для VPS 24/7).
+    backend == 'groq'   → облачный Groq API (лёгкий, для VPS 24/7), с
+                          эскалацией на GROQ_MODEL_STRONG при деградации.
     Любое другое значение → ошибка с понятным сообщением.
+
+    Оба бэкенда заворачиваются в CachedSummarizer (SUMMARY_CACHE_TTL > 0),
+    чтобы одинаковые тексты не считались моделью повторно.
     """
     backend = (backend or "").strip().lower()
     if backend == "ollama":
-        return AISummarizer(
+        inner: SummarizerProtocol = AISummarizer(
             base_url=settings.ollama_url,
             model=settings.ollama_model,
             timeout=settings.http_timeout,
             session=session,
         )
-    if backend == "groq":
+    elif backend == "groq":
         if not settings.groq_api_key:
             raise RuntimeError(
                 "LLM_BACKEND=groq, но GROQ_API_KEY пуст. Получи ключ на "
                 "https://console.groq.com/keys и впиши в .env."
             )
-        return GroqSummarizer(
+        inner = GroqSummarizer(
             api_key=settings.groq_api_key,
             model=settings.groq_model,
             timeout=settings.http_timeout,
             base_url=settings.groq_url,
             session=session,
+            strong_model=getattr(settings, "groq_model_strong", ""),
         )
-    raise RuntimeError(
-        f"Неизвестный LLM_BACKEND={backend!r}. Допустимо: 'ollama' или 'groq'."
-    )
+    else:
+        raise RuntimeError(
+            f"Неизвестный LLM_BACKEND={backend!r}. Допустимо: 'ollama' или 'groq'."
+        )
+
+    ttl = int(getattr(settings, "summary_cache_ttl", 0) or 0)
+    if ttl <= 0:
+        return inner
+    cache = SummaryCache(ttl=ttl, max_size=int(getattr(settings, "summary_cache_size", 512) or 512))
+    return CachedSummarizer(inner, cache)

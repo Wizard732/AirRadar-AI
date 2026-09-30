@@ -119,11 +119,17 @@ def render_evidence_alert(
             f"📍 Рух: цілі прямують з {region_name(fact.origin_region)} "
             f"на {region_name(fact.destination_region)}"
         )
-    # Типовое время подлёта по классу оружия. Правило проекта: ETA можно
+    # ETA: приоритет — расчёт по вектору «з X на Y» (конкретное число минут),
+    # иначе — типовой диапазон по классу оружия. Правило проекта: ETA можно
     # публиковать только с пометкой «орієнтовно». «—» (нет данных) не показываем.
-    eta = weapon_eta(fact.weapon_class)
-    if eta and eta != "—":
-        lines.append(f"⏱ Типовий підліт: {eta} (орієнтовно)")
+    from eta import vector_eta_text
+    vec = vector_eta_text(fact)
+    if vec:
+        lines.append(vec)
+    else:
+        eta = weapon_eta(fact.weapon_class)
+        if eta and eta != "—":
+            lines.append(f"⏱ Типовий підліт: {eta} (орієнтовно)")
     lines.append("")
     status_line = _status(confirmation)
     if status_line:

@@ -36,6 +36,9 @@ class PendingAlert:
     fact: IncidentFact
     confirmation: dict
     regions: list[str] = field(default_factory=list)
+    # Wall-clock момент поступления поста из источника (до агрегации).
+    # Для метрики задержки конвейера «пост источника → пост в канале».
+    received_ts: int = 0
 
 
 class AlertAggregator:

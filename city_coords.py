@@ -192,6 +192,7 @@ CITIES: dict[str, tuple[str, str, float, float, tuple[str, ...]]] = {
     "kamianets": ("Кам'янець-Подільський", "khmelnytska", 48.683, 26.585, ("кам'янець", "каменец")),
     # --- Черкаська ---
     "cherkasy": ("Черкаси", "cherkaska", 49.444, 32.059, ("черкас",)),
+    "chernivtsi": ("Чернівці", "chernivetska", 48.292, 25.935, ("чернівц", "черновц", "chernivtsi")),
     "uman": ("Умань", "cherkaska", 48.753, 30.221, ("уман",)),
     "smila": ("Сміла", "cherkaska", 49.229, 31.871, ("сміла", "смела")),
     "zolotonosha": ("Золотоноша", "cherkaska", 49.668, 32.047, ("золотонош",)),
@@ -226,6 +227,7 @@ REGION_CENTROIDS: dict[str, tuple[float, float]] = {
     "ivano_frankivska": (48.92, 24.71), "zakarpatska": (48.62, 22.29), "mykolaivska": (46.97, 32.00),
     "khersonska": (46.64, 32.62), "zaporizka": (47.84, 35.14), "kirovohradska": (48.51, 32.26),
     "donetska": (48.00, 37.80), "luhanska": (48.57, 39.31), "crimea": (44.95, 34.10),
+    "chernivetska": (48.29, 25.94),
 }
 
 # Обратный индекс: ключ города -> slug города (строится один раз).
@@ -268,6 +270,29 @@ def city_by_slug(slug: str) -> tuple[str, str, float, float] | None:
     if not entry:
         return None
     return entry[0], entry[1], entry[2], entry[3]
+
+
+def region_for_point(lat: float, lon: float) -> str:
+    """Slug региона по точке: ближайший город → его область, иначе центроид.
+
+    Для «🎯 Моя зона»: пользователь прислал геопозицию — определяем область,
+    на алерты которой подписывать маркер «Торкнеться вашої зони».
+    '' — регион определить не удалось (пустые таблицы).
+    """
+    point = (lat, lon)
+    best_region, best_km = "", float("inf")
+    for _slug, (_name, region, clat, clon, _keys) in CITIES.items():
+        km = _haversine_km(point, (clat, clon))
+        if km < best_km:
+            best_region, best_km = region, km
+    if best_region and best_km <= 25.0:
+        return best_region
+    best_slug, best_km = "", float("inf")
+    for slug, (rlat, rlon) in REGION_CENTROIDS.items():
+        km = _haversine_km(point, (rlat, rlon))
+        if km < best_km:
+            best_slug, best_km = slug, km
+    return best_slug
 
 
 def nearest_place(lat: float, lon: float, max_km: float = 25.0) -> str:

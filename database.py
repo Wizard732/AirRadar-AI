@@ -183,6 +183,45 @@ class Database:
                 )
             except sqlite3.OperationalError:
                 pass  # колонка уже существует
+            # Режим «Укриття» (персональный): доставляем только тревогу
+            # (критичные классы) и відбій — без апдейтов и нотисов.
+            try:
+                cur.execute(
+                    "ALTER TABLE user_prefs ADD COLUMN shelter_mode INTEGER NOT NULL DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # колонка уже существует
+            # «Моя зона»: slug города/района/области, выбранного по геопозиции.
+            # Пусто = зона не задана (маркер «ваша зона» в постах не ставится).
+            try:
+                cur.execute(
+                    "ALTER TABLE user_prefs ADD COLUMN home_region TEXT NOT NULL DEFAULT ''"
+                )
+            except sqlite3.OperationalError:
+                pass  # колонка уже существует
+            # Задержка конвейера «пост источника → пост в канале» (мс).
+            # Основа метрики p50/p95 в админке /status.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pipeline_latency (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts          INTEGER NOT NULL,
+                    latency_ms  INTEGER NOT NULL
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_pipeline_latency_ts ON pipeline_latency(ts)")
+            # Официальные сирены (alerts.in.ua): последнее известное состояние
+            # «тривога/нет» по регионам. Пишется только при заданном токене.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS siren_states (
+                    region      TEXT PRIMARY KEY,
+                    air_raid    INTEGER NOT NULL DEFAULT 0,
+                    updated_ts  INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
             # Репорты угроз от пользователей (share location в боте).
             # Координаты храним округлёнными до ~100 м; в публичный API не
             # отдаём user_id — только точку и возраст.
@@ -800,6 +839,34 @@ class Database:
             logger.warning("Не удалось прочитать завершённые тревоги: %s", exc)
             return []
 
+    def alert_counts_by_day(self, region: str, days: int = 7, *, now: int | None = None) -> list[tuple[str, int]]:
+        """Число эпизодов тревог по дням (по started_ts, локальное время).
+
+        Возвращает [(«дд.мм», count)] для графика «📈 Тиждень»: days точек,
+        старшая — первой. Эпизоды считаются по дню старта тревоги.
+        """
+        now = int(now if now is not None else time.time())        # Локальная полночь сегодня (mktime с isdst=-1 корректно учитывает DST).
+        lt = time.localtime(now)
+        day_start = int(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)))
+        out: list[tuple[str, int]] = []
+        try:
+            with self._lock:
+                assert self._conn is not None
+                for offset in range(days - 1, -1, -1):
+                    start = day_start - offset * 86400
+                    end = start + 86400
+                    row = self._conn.execute(
+                        "SELECT COUNT(*) AS c FROM alerts "
+                        "WHERE region = ? AND started_ts >= ? AND started_ts < ?",
+                        (region, start, end),
+                    ).fetchone()
+                    label = time.strftime("%d.%m", time.localtime(start))
+                    out.append((label, int(row["c"]) if row else 0))
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось собрать статистику тревог по дням: %s", exc)
+            return []
+        return out
+
     def record_wave_notice(self, region: str, episode_end_ts: int, *, sent_ts: int | None = None) -> None:
         """Запомнить, что уведомление «можлива тривога» по этому эпизоду отправлено."""
         try:
@@ -1250,6 +1317,150 @@ class Database:
                 self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось сохранить night_mode: %s", exc)
+
+    def get_shelter_mode(self, user_id: int) -> bool:
+        """Режим «Укриття»: доставлять только тревогу (критичные) и відбій."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT shelter_mode FROM user_prefs WHERE user_id = ?", (user_id,)
+                ).fetchone()
+                return bool(row["shelter_mode"]) if row else False
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать shelter_mode: %s", exc)
+            return False
+
+    def set_shelter_mode(self, user_id: int, enabled: bool) -> None:
+        """Включить/выключить режим «Укриття» (одно сообщение на тревогу/відбій)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO user_prefs (user_id, shelter_mode) VALUES (?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET shelter_mode = ?",
+                    (user_id, 1 if enabled else 0, 1 if enabled else 0),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить shelter_mode: %s", exc)
+
+    def get_home_region(self, user_id: int) -> str:
+        """Slug «Моєї зони» (город/район/область по геопозиции); '' — не задана."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT home_region FROM user_prefs WHERE user_id = ?", (user_id,)
+                ).fetchone()
+                return str(row["home_region"] or "") if row else ""
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать home_region: %s", exc)
+            return ""
+
+    def set_home_region(self, user_id: int, slug: str) -> None:
+        """Сохранить «Мою зону» по геопозиции ('' — сбросить)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO user_prefs (user_id, home_region) VALUES (?, ?) "
+                    "ON CONFLICT(user_id) DO UPDATE SET home_region = ?",
+                    (user_id, slug or "", slug or ""),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить home_region: %s", exc)
+
+    # ------------------------------------------------------------------
+    #  Задержка конвейера «пост источника → пост в канале» (p50/p95)
+    # ------------------------------------------------------------------
+    def record_pipeline_latency(self, latency_ms: int) -> None:
+        """Записать замер задержки публикации (мс) для метрики /status."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO pipeline_latency (ts, latency_ms) VALUES (?, ?)",
+                    (int(time.time()), max(0, int(latency_ms))),
+                )
+                # Метрика — окно 48ч: старше не нужно, подчищаем чтобы не росло.
+                self._conn.execute(
+                    "DELETE FROM pipeline_latency WHERE ts < ?",
+                    (int(time.time()) - 2 * 86400,),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать pipeline latency: %s", exc)
+
+    def latency_percentiles(self, seconds: int = 86400) -> dict[str, Any]:
+        """p50/p95 задержки конвейера за окно (мс) + число замеров."""
+        cutoff = int(time.time()) - int(seconds)
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT latency_ms FROM pipeline_latency WHERE ts >= ? ORDER BY latency_ms",
+                    (cutoff,),
+                ).fetchall()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать pipeline latency: %s", exc)
+            rows = []
+        samples = [int(r["latency_ms"]) for r in rows]
+        if not samples:
+            return {"p50_ms": 0, "p95_ms": 0, "samples": 0}
+
+        def _pct(p: float) -> int:
+            idx = min(len(samples) - 1, max(0, round(p * (len(samples) - 1))))
+            return samples[idx]
+
+        return {"p50_ms": _pct(0.50), "p95_ms": _pct(0.95), "samples": len(samples)}
+
+    # ------------------------------------------------------------------
+    #  Официальные сирены (alerts.in.ua, опционально — по токену)
+    # ------------------------------------------------------------------
+    def set_siren_state(self, region: str, active: bool) -> None:
+        """Сохранить последнее известное состояние сирены региона."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO siren_states (region, air_raid, updated_ts) VALUES (?, ?, ?) "
+                    "ON CONFLICT(region) DO UPDATE SET air_raid = ?, updated_ts = ?",
+                    (region, 1 if active else 0, int(time.time()),
+                     1 if active else 0, int(time.time())),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить состояние сирен: %s", exc)
+
+    def siren_states_active(self) -> list[str]:
+        """Регионы с активной сиреной по последнему опросу (пусто = нет данных)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT region FROM siren_states WHERE air_raid = 1"
+                ).fetchall()
+                return [r["region"] for r in rows]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать сирены: %s", exc)
+            return []
+
+    def siren_states_fresh(self, max_age_sec: int = 900) -> list[str]:
+        """Активные сирены, если данные обновлены недавно (иначе полл мёртв)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT region FROM siren_states "
+                    "WHERE air_raid = 1 AND updated_ts >= ?",
+                    (int(time.time()) - int(max_age_sec),),
+                ).fetchall()
+                return [r["region"] for r in rows]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать сирены (fresh): %s", exc)
+            return []
 
     # ------------------------------------------------------------------
     #  Персональный фильтр типов угроз (weapon_classes)

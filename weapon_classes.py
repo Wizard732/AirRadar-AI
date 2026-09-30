@@ -380,6 +380,27 @@ def weapon_severity(slug: str) -> str:
     return cls["severity"] if cls else "LOW"
 
 
+# Средняя путевая скорость по прямой для ETA по вектору (км/ч). Значения —
+# консервативные оценки открытых источников; в постах всегда «орієнтовно».
+WEAPON_KMH: dict[str, float] = {
+    "ballistic": 2200.0,        # балістика (ефективна швидкість траєкторії)
+    "air_missile": 2200.0,
+    "cruise_missile": 800.0,
+    "coastal_missile": 800.0,
+    "missile": 800.0,
+    "kab": 600.0,
+    "shahed": 180.0,
+    "uav": 180.0,
+    "recon_drone": 150.0,
+    "fpv": 120.0,
+}
+
+
+def weapon_speed_kmh(slug: str) -> float:
+    """Скорость класса для расчёта ETA по вектору; 0 = не считаем."""
+    return WEAPON_KMH.get(slug, 0.0)
+
+
 def all_weapon_slugs() -> list[str]:
     """Список всех slug-ов классов оружия (включая 'unknown')."""
     return [cls["slug"] for cls in WEAPON_CLASSES] + ["unknown"]

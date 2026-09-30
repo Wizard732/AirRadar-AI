@@ -32,6 +32,7 @@ from aggregator import AlertAggregator, PendingAlert
 from ai_summarizer import SummarizerProtocol, is_ignored_summary, make_summarizer
 from alert_renderer import render_evidence_alert
 from bot_ui import register_handlers
+from city_coords import CITIES, detect_city
 from database import Database
 from dedup import DedupCache
 from fast_filter import clean_signature, matches_keywords
@@ -348,6 +349,31 @@ async def run() -> None:
             settings.standdown_notice, settings.pre_wave_notice,
         )
 
+    # --- официальный учёт сирен alerts.in.ua (опционально, по токену) ---
+    sirens_task = None
+    if settings.alerts_in_ua_token:
+        sirens_task = asyncio.create_task(
+            _sirens_loop(db, settings.alerts_in_ua_token, http_session=http_session),
+            name="sirens-poll",
+        )
+        logger.info("Опрос сирен alerts.in.ua включён (раз в %d сек).", SIRENS_POLL_INTERVAL)
+
+    # --- еженедельный пост «🎯 Точність прогнозів» (день/час по Києву) ---
+    accuracy_task = None
+    if settings.accuracy_post_enabled:
+        accuracy_task = asyncio.create_task(
+            _accuracy_post_loop(
+                db, publisher,
+                day=settings.accuracy_post_weekday,
+                hour=settings.accuracy_post_hour,
+            ),
+            name="accuracy-post",
+        )
+        logger.info(
+            "Недельный пост точности включён (день %d, %02d:00 за Києвом).",
+            settings.accuracy_post_weekday, settings.accuracy_post_hour,
+        )
+
     # --- graceful shutdown ---
     stop_event = asyncio.Event()
 
@@ -407,6 +433,18 @@ async def run() -> None:
             pre_wave_task.cancel()
             try:
                 await pre_wave_task
+            except asyncio.CancelledError:
+                pass
+        if sirens_task is not None:
+            sirens_task.cancel()
+            try:
+                await sirens_task
+            except asyncio.CancelledError:
+                pass
+        if accuracy_task is not None:
+            accuracy_task.cancel()
+            try:
+                await accuracy_task
             except asyncio.CancelledError:
                 pass
         interests_task.cancel()
@@ -544,6 +582,7 @@ async def _process_message(
                 PendingAlert(
                     text=text, source=source, event_ts=event_ts, fact=fact,
                     confirmation=confirmation, regions=regions,
+                    received_ts=int(time.time()),
                 )
             )
         else:
@@ -673,6 +712,15 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
     if not published:
         logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
         return
+    # Метрика задержки конвейера «пост источника → пост в канале»: от самого
+    # старого received_ts набора до момента публикации (мс). Замер только для
+    # реально опубликованных постов; legacy-алерты без received_ts пропускаем.
+    received = [int(it.received_ts) for it in items if int(getattr(it, "received_ts", 0) or 0)]
+    if received:
+        try:
+            db.record_pipeline_latency(int((time.time() - min(received)) * 1000))
+        except Exception:  # noqa: BLE001 — метрика не роняет публикацию
+            logger.debug("pipeline latency: не удалось записать замер")
     regions = _notify_regions(last.fact, [
         slug for item in items for slug in item.regions if slug
     ])
@@ -735,11 +783,11 @@ def _notify_regions(fact, regions: list[str]) -> list[str]:
     return list(regions or [])
 
 
-def _kyiv_hour() -> int:
-    """Текущий час в Киеве (23:00–06:00 — ночное окно продукта).
+def _kyiv_datetime():
+    """Текущее время в Киеве как naive datetime (без tzdata на Windows).
 
-    Украине без tzdata на Windows: переходы часов считаются вручную —
-    последнее воскресенье марта/октября, момент 01:00 UTC в обоих случаях.
+    Переходы часов считаются вручную — последнее воскресенье марта/октября,
+    момент 01:00 UTC в обоих случаях.
     """
     from datetime import datetime, timedelta, timezone as tz
     now = datetime.now(tz.utc)
@@ -751,7 +799,17 @@ def _kyiv_hour() -> int:
         return day
 
     eest = _dst_transition(3) <= now < _dst_transition(10)
-    return (now.hour + (3 if eest else 2)) % 24
+    return now + timedelta(hours=(3 if eest else 2))
+
+
+def _kyiv_hour() -> int:
+    """Текущий час в Киеве (23:00–06:00 — ночное окно продукта)."""
+    return _kyiv_datetime().hour
+
+
+def _kyiv_date_str() -> str:
+    """Текущая дата в Киеве «РРРР-ММ-ДД» (дедуп недельного поста по дате)."""
+    return _kyiv_datetime().strftime("%Y-%m-%d")
 
 
 def _is_night_time() -> bool:
@@ -825,6 +883,13 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     critical = is_stand_down or weapon_class in NIGHT_CRITICAL_CLASSES
     # Группа для персонального фильтра ('' = отбой/неизвестно — без фильтра).
     group = weapon_group(weapon_class)
+    # Область города из текста алерта: маркер «ваша зона» срабатывает и когда
+    # пост не дошёл до подписчика его области через список регионов
+    # (например, текст честно называет город, а фьюжен дал другую цель).
+    city_region = ""
+    city_slug = detect_city(text)
+    if city_slug:
+        city_region = str(CITIES.get(city_slug, ("", ""))[1] or "")
 
     # Собираем уникальных подписчиков по всем регионам сообщения.
     # Пустой список = нечего рассылать (фьюжен не нашёл цель, а в тексте
@@ -853,14 +918,24 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
                     if allowed and group not in allowed.split(","):
                         # Фильтр типов включён, этой группы в нём нет.
                         continue
+                home = db.get_home_region(user_id)
+                zone_hit = bool(home) and (
+                    home in regions
+                    or (city_region != "" and city_region == home)
+                )
+                if db.get_shelter_mode(user_id) and not (critical or zone_hit):
+                    # Режим «Укриття»: проходят только критичные (тревога),
+                    # відбій и сообщения, касающиеся своей зоны.
+                    continue
+                out_text = f"🎯 Торкнеться вашої зони\n{text}" if zone_hit else text
                 try:
                     if feedback_key:
                         await bot_client.send_message(
-                            user_id, text, link_preview=False,
+                            user_id, out_text, link_preview=False,
                             buttons=_feedback_kb(feedback_key, text),
                         )
                     else:
-                        await bot_client.send_message(user_id, text, link_preview=False)
+                        await bot_client.send_message(user_id, out_text, link_preview=False)
                     sent_count += 1
                 except Exception as exc:  # noqa: BLE001 — один неудачный не стопит остальных
                     logger.debug("Не удалось отправить подписку %s: %s", user_id, exc)
@@ -888,6 +963,9 @@ async def _healthcheck_loop(summarizer: SummarizerProtocol, interval: int) -> No
 # «відбій орієнтовно за ~N хв» во время тревоги и «можлива нова тривога»
 # после отбоя.
 PRE_WAVE_CHECK_INTERVAL = 60
+
+# Интервал опроса официальных сирен alerts.in.ua (сек).
+SIRENS_POLL_INTERVAL = 60
 
 
 async def _check_standdown(bot_client, db: Database, publisher=None) -> int:
@@ -993,6 +1071,82 @@ async def _pre_wave_loop(bot_client, db: Database, interval: int = PRE_WAVE_CHEC
                 logger.exception("Сбой проверки «можлива нова тривога»")
     except asyncio.CancelledError:
         raise
+
+
+async def _sirens_loop(db: Database, token: str, http_session=None,
+                       interval: int = SIRENS_POLL_INTERVAL) -> None:
+    """Фоновый опрос официальных сирен alerts.in.ua → таблица siren_states.
+
+    Данные нужны /status (свежесть) и сверке наших прогнозов с официальными
+    тревогами. Ошибка сети/токена не роняет цикл и НЕ трогает состояния
+    (иначе краткосрочный сбой «выключил» бы все сирены): устаревание видно
+    по updated_ts через siren_states_fresh.
+    """
+    session = http_session or aiohttp.ClientSession(
+        timeout=aiohttp.ClientTimeout(total=20)
+    )
+    own_session = http_session is None
+    try:
+        while True:
+            incoming = await _sirens_fetch(session, token)
+            if incoming is not None:
+                try:
+                    current = set(db.siren_states_active())
+                    for slug in sorted(incoming - current):
+                        db.set_siren_state(slug, True)
+                        logger.info("Сирена ВКЛ (официально): %s", slug)
+                    for slug in sorted(current - incoming):
+                        db.set_siren_state(slug, False)
+                        logger.info("Сирена ВЫКЛ (официально): %s", slug)
+                    for slug in sorted(incoming & current):
+                        db.set_siren_state(slug, True)  # обновить updated_ts
+                except Exception:  # noqa: BLE001 — БД не роняет цикл
+                    logger.exception("Сирены: не удалось сохранить состояния")
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        if own_session:
+            await session.close()
+        raise
+
+
+async def _sirens_fetch(session, token: str) -> set[str] | None:
+    """Один опрос alerts.in.ua → множество слагов; None = опрос не удался."""
+    from sirens import active_alert_slugs, fetch_active_alerts
+    payload = await fetch_active_alerts(session, token)
+    if payload is None:
+        return None
+    return active_alert_slugs(payload)
+
+
+async def _accuracy_post_loop(db: Database, publisher=None, *,
+                              day: int = 1, hour: int = 9,
+                              check_interval: int = 300) -> None:
+    """Еженедельный пост «🎯 Точність прогнозів» в канал.
+
+    Публикуется в заданный день недели и час по киевскому времени
+    (day: 0=понеділок … 6=неділя). Дедуп по киевской дате в памяти процесса:
+    повторный пост в тот же день невозможен, рестарт в час публикации в
+    худшем случае даёт второй пост — риск принят (пост еженедельный).
+    """
+    from wave_forecast import accuracy_post_text
+
+    last_sent_date = ""
+    while True:
+        await asyncio.sleep(check_interval)
+        kdt = _kyiv_datetime()
+        if kdt.weekday() != day or kdt.hour != hour:
+            continue
+        today = kdt.strftime("%Y-%m-%d")
+        if last_sent_date == today:
+            continue
+        last_sent_date = today
+        try:
+            text = accuracy_post_text(db)
+        except Exception:  # noqa: BLE001 — пост не роняет цикл
+            logger.exception("Не удалось собрать пост точности прогнозов")
+            continue
+        await _publish_notice(publisher, text)
+        logger.info("Опубликован недельный пост «Точність прогнозів»")
 
 
 def main() -> None:

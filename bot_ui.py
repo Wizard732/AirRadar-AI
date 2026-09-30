@@ -25,6 +25,7 @@ from telethon import Button, TelegramClient, events
 from telethon.errors import MessageNotModifiedError
 
 from database import Database
+from city_coords import region_for_point
 from eta import build_eta_text
 from fast_filter import public_text
 from regions import (
@@ -69,9 +70,20 @@ CB_STATS_ALL = "sall"    # общая статистика
 CB_ACTIVE = "active"     # текущие угрозы
 CB_NIGHT_MODE = "night"  # персональный ночной режим (toggle)
 CB_REPORT = "report"     # подсказка: сообщить угрозу своей геопозицией
+CB_MY_ZONE = "myzone"    # «Моя зона»: следующая геопозиция = домашний регион
+CB_SHELTER = "shelter"   # «Укриття»: экран режима (только тревога + відбій)
+CB_SHELTER_TOGGLE = "sht"  # toggle режима «Укриття»
 CB_WEAPONS = "weapons"   # меню персонального фильтра типов угроз
 CB_WEAPONS_ALL = "wall"  # «увімкнути всі»: сброс фильтра типов
 CB_WEAPON_TOGGLE = "wt:" # toggle группы типов: wt:ballistic / wt:uav / wt:other
+CB_REGION_WEEK = "rwk:"  # недельный график тревог региона: rwk:kyivska
+
+# TTL ожидания геопозиции после «🎯 Моя зона» (сек): за это время нужно
+# прислать локацию, иначе запрос сбрасывается и geo работает как репорт.
+ZONE_PROMPT_TTL = 600
+
+# Юникод-бары для «📈 Тиждень» (от минимума к максимуму).
+WEEK_BARS = "▁▂▃▄▅▆▇█"
 
 # Человекочитаемые подписи типов угроз.
 TYPE_LABELS = {
@@ -111,6 +123,10 @@ CB_INTERESTS = "interests"  # переход в Interests-модуль
 def _main_menu_kb():
     return [
         [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
+        [
+            Button.inline("🎯 Моя зона", data=CB_MY_ZONE),
+            Button.inline("🛡 Укриття", data=CB_SHELTER),
+        ],
         [Button.inline("📍 Повідомити загрозу", data=CB_REPORT)],
         [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS)],
         [Button.inline("🎯 Типи тривог", data=CB_WEAPONS)],
@@ -138,6 +154,10 @@ def _main_menu_with_webapp(webapp_url: str, map_webapp_url: str = ""):
         rows.append([_webapp_button("⚙️ Settings (Mini App)", webapp_url)])
     return rows + [
         [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
+        [
+            Button.inline("🎯 Моя зона", data=CB_MY_ZONE),
+            Button.inline("🛡 Укриття", data=CB_SHELTER),
+        ],
         [Button.inline("📍 Повідомити загрозу", data=CB_REPORT)],
         [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS)],
         [Button.inline("🎯 Типи тривог", data=CB_WEAPONS)],
@@ -202,10 +222,13 @@ def _region_menu_kb(slug: str, subscribed: bool = False, zones: tuple[bool, bool
     return [
         [
             Button.inline("📊 Статистика тревог", data=CB_REGION_STATS + slug),
-            Button.inline("⏱ ETA угроз", data=CB_REGION_ETA + slug),
+            Button.inline("📈 Тиждень", data=CB_REGION_WEEK + slug),
         ],
         [
+            Button.inline("⏱ ETA угроз", data=CB_REGION_ETA + slug),
             Button.inline("💥 История ударов", data=CB_REGION_HIST + slug),
+        ],
+        [
             Button.inline("🔥 Последствия", data=CB_REGION_CONS + slug),
         ],
         sub_row,
@@ -305,6 +328,101 @@ def _region_menu_text(slug: str) -> str:
             "(Лівий/Правий), алерты Киева приходят в ЛС по выбранному берегу."
         )
     return f"📍 <b>{region_name(slug)}</b>\n\nВыбери, что показать:"
+
+
+def _zone_text(db: Database, user_id: int) -> str:
+    """Экран «🎯 Моя зона»: текущая домашняя зона по геопозиции."""
+    home = db.get_home_region(user_id)
+    if home:
+        return (
+            "🎯 <b>Моя зона</b>\n\n"
+            f"Зараз: <b>{html.escape(region_name(home))}</b>.\n\n"
+            "Алерты, що торкаються твоєї зони, отримують позначку "
+            "«🎯 Торкнеться вашої зони» — видно одразу, навіть без читання.\n\n"
+            "Щоб змінити зону — натисни кнопку нижче та надішли нову "
+            "геопозицію (скріпка 📎 → «Локація»)."
+        )
+    return (
+        "🎯 <b>Моя зона</b>\n\n"
+        "Ще не задана. Натисни кнопку нижче та надішли геопозицію "
+        "(скріпка 📎 → «Локація» → «Надіслати мою поточну локацію») — "
+        "бот визначить область і позначатиме алерти, що її торкаються.\n\n"
+        "⚠️ Координати зберігаються лише як область: точні координати "
+        "ніде не публікуються."
+    )
+
+
+def _zone_kb() -> list:
+    """Кнопка запроса геопозиции (reply-кнопка «Локація») + назад в меню."""
+    rows = []
+    try:
+        rows.append([Button.request_location("📎 Надіслати локацію")])
+    except AttributeError:  # старые версии telethon без request_location
+        pass
+    rows.append([Button.inline("🏠 Главное меню", data=CB_MAIN)])
+    return rows
+
+
+def _shelter_text(db: Database, user_id: int) -> str:
+    """Экран «🛡 Укриття»: режим «только тревога + відбій»."""
+    state = db.get_shelter_mode(user_id)
+    if state:
+        return (
+            "🛡 <b>Режим «Укриття» — увімкнено</b>\n\n"
+            "У ЛС приходитимуть лише: 🚨 тривога по твоїх регіонах, "
+            "🟢 відбій та повідомлення з позначкою 🎯 (ваша зона).\n"
+            "Шум (ППО, розвідка, артилерія) глушиться, поки ти в укритті.\n\n"
+            "💡 Відбій і тривога — управляючі повідомлення, вони проходять "
+            "завжди, навіть з увімкненим режимом."
+        )
+    return (
+        "🛡 <b>Режим «Укриття» — вимкнено</b>\n\n"
+        "Одна кнопка для часу в укритті: увімкни, коли зайшов, — і в ЛС "
+        "залишиться лише тривога та відбій по твоїх регіонах. Увімкнеш "
+        "назад, коли вийдеш, — повернуться всі типи.\n\n"
+        "Не замінює фільтр «Типи тривог» — це тимчасовий режим на одну "
+        "тривогу."
+    )
+
+
+def _shelter_kb(db: Database, user_id: int) -> list:
+    state = db.get_shelter_mode(user_id)
+    return [
+        [Button.inline(
+            ("🔕 Вимкнути режим" if state else "🛡 Увімкнути режим"),
+            data=CB_SHELTER_TOGGLE,
+        )],
+        [Button.inline("🏠 Главное меню", data=CB_MAIN)],
+    ]
+
+
+def _week_text(db: Database, slug: str) -> str:
+    """Недельный график тревог региона юникод-барами ▁▂▃▄▅▆▇█."""
+    name = region_name(slug)
+    counts = db.alert_counts_by_day(slug, days=7)
+    if not counts:
+        return (
+            f"📈 <b>{name}</b> — тривоги за 7 днів\n\n"
+            "Даних поки немає: епізоди тривог фіксуються з моменту запуску."
+        )
+    total = sum(c for _, c in counts)
+    peak = max(c for _, c in counts) if total else 0
+    if peak == 0:
+        bars_line = " ".join("▁" for _ in counts)
+    else:
+        bars_line = " ".join(
+            WEEK_BARS[min(len(WEEK_BARS) - 1, round(c / peak * (len(WEEK_BARS) - 1)))]
+            for _, c in counts
+        )
+    labels_line = " ".join(label[:5] for label, _ in counts)
+    lines = [
+        f"📈 <b>{name}</b> — тривоги за 7 днів\n",
+        f"<code>{bars_line}</code>",
+        f"<code>{labels_line}</code>",
+        f"\nВсього епізодів: <b>{total}</b>",
+        "Висота стовпчика — кількість тривог за день (відносно найгіршого дня).",
+    ]
+    return "\n".join(lines)
 
 
 def _stats_all_text(db: Database) -> str:
@@ -526,6 +644,18 @@ def register_handlers(
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/start"))
     async def _start(event: events.NewMessage.Event) -> None:  # noqa: ANN001
+        # В группах/каналах меню не показываем: бота там используют только
+        # для /city (подписка чата). Короткое приветствие без кнопок.
+        if not getattr(event, "is_private", True):
+            await event.respond(
+                "👋 Це AirRadar AI — бот тривог.\n\n"
+                "Повне меню працює в особистих повідомленнях: натисніть "
+                "<code>/start</code> у ЛС бота.\n\n"
+                "Тут, у чаті, можна підписати весь чат на алерти: "
+                "<code>/city Дарниця</code> — повторна команда відписує.",
+                parse_mode="html",
+            )
+            return
         # Меню доступно всем пользователям (подписки, статистика, алерты).
         await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb(event.sender_id))
 
@@ -554,6 +684,44 @@ def register_handlers(
     else:
         bot._airradar_commands_task = loop.create_task(_register_bot_commands(bot))
 
+    # Геопозиция в ЛС: если пользователь перед этим нажал «🎯 Моя зона» —
+    # сохраняем домашний регион и глотаем событие (events.StopPropagation),
+    # чтобы оно не ушло в geo_report как репорт угрозы. Хендлер регистрируется
+    # до geo_report (register_handlers вызывается раньше).
+    @bot.on(
+        events.NewMessage(
+            incoming=True,
+            func=lambda e: getattr(getattr(e, "message", None), "geo", None) is not None
+            and e.is_private,
+        )
+    )
+    async def _zone_geo(event: events.NewMessage.Event) -> None:  # noqa: ANN001
+        uid = event.sender_id
+        pending = getattr(bot, "_airradar_zone_pending", None)
+        deadline = (pending or {}).get(uid, 0)
+        if not pending or deadline < time.time():
+            return  # запроса не было/истёк — работает обычный geo-репорт
+        pending.pop(uid, None)
+        geo = event.message.geo
+        lat, lon = float(geo.lat), float(geo.long)
+        slug = region_for_point(lat, lon)
+        if slug:
+            db.set_home_region(uid, slug)
+            logger.info("Моя зона %s: %s (%.3f, %.3f)", uid, slug, lat, lon)
+            await event.respond(
+                f"🎯 <b>Зону збережено: {html.escape(region_name(slug))}</b>\n\n"
+                "Алерти, що торкаються цієї області, отримуватимуть позначку "
+                "«🎯 Торкнеться вашої зони».",
+                parse_mode="html",
+            )
+        else:
+            await event.respond(
+                "Не вдалося визначити регіон за цією точкою. Спробуй ще раз "
+                "або обери область через <b>Военные алерты</b>.",
+                parse_mode="html",
+            )
+        raise events.StopPropagation
+
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/city\s+(.+)$"))
     async def _city(event: events.NewMessage.Event) -> None:  # noqa: ANN001
         """Подписка на регион/берег по названию города: /city Дарниця.
@@ -561,9 +729,14 @@ def register_handlers(
         Находит подходящие регионы/зоны и сразу подписывает (toggle —
         повторная команда отписывает). Ответ — кнопки, чтобы можно было
         открыть меню региона или отписаться.
+
+        В личке подписывается пользователь (sender_id), в группах — весь
+        чат (chat_id), чтобы алерты падали в общий чат.
         """
         query = (event.pattern_match.group(1) or "").strip()
         matches = find_regions_by_text(query)
+        is_private = getattr(event, "is_private", True)
+        target = event.sender_id if is_private else getattr(event, "chat_id", event.sender_id)
         if not matches:
             await event.respond(
                 f"🔎 Не нашёл «{html.escape(query)}». Попробуй область или район, "
@@ -573,12 +746,16 @@ def register_handlers(
             return
         # Подписываем на первый (самый точный) результат, остальные — кнопками.
         slug = matches[0]
-        if db.is_subscribed(event.sender_id, slug):
-            db.unsubscribe(event.sender_id, slug)
+        if db.is_subscribed(target, slug):
+            db.unsubscribe(target, slug)
             answer = "🔕 Отписка от " + region_name(slug)
         else:
-            db.subscribe(event.sender_id, slug)
-            answer = "🔔 Подписка на " + region_name(slug)
+            db.subscribe(target, slug)
+            answer = (
+                "🔔 Подписка на " + region_name(slug)
+                if is_private
+                else "🔔 Чат підписано на " + region_name(slug)
+            )
         await event.respond(answer, parse_mode="html", buttons=_city_results_kb(matches))
 
     @bot.on(events.CallbackQuery())
@@ -621,6 +798,38 @@ def register_handlers(
                 from geo_report import REPORT_HINT
                 await event.answer()
                 await event.respond(REPORT_HINT, parse_mode="html")
+
+            elif data == CB_MY_ZONE:
+                # «Моя зона»: ждём геопозицию TTL секунд, потом сбрасываем.
+                pending = getattr(bot, "_airradar_zone_pending", None)
+                if pending is None:
+                    pending = bot._airradar_zone_pending = {}
+                pending[event.sender_id] = time.time() + ZONE_PROMPT_TTL
+                await event.answer()
+                await event.respond(
+                    _zone_text(db, event.sender_id),
+                    parse_mode="html",
+                    buttons=_zone_kb(),
+                )
+
+            elif data == CB_SHELTER:
+                # Экран «Укриття»: состояние + toggle.
+                await _safe_edit(
+                    _shelter_text(db, event.sender_id),
+                    _shelter_kb(db, event.sender_id),
+                )
+
+            elif data == CB_SHELTER_TOGGLE:
+                new_state = not db.get_shelter_mode(event.sender_id)
+                db.set_shelter_mode(event.sender_id, new_state)
+                await event.answer(
+                    "🛡 Укриття: лише тривога + відбій" if new_state
+                    else "🛡 Режим укриття вимкнено"
+                )
+                await _safe_edit(
+                    _shelter_text(db, event.sender_id),
+                    _shelter_kb(db, event.sender_id),
+                )
 
             elif data == CB_WEAPONS:
                 # Экран «Типи тривог»: персональный фильтр групп алертов.
@@ -727,6 +936,18 @@ def register_handlers(
                             db.is_subscribed(event.sender_id, "kyiv_right"),
                         )
                     await _safe_edit(_region_menu_text(slug), _region_menu_kb(slug, sub, zones))
+
+            elif data.startswith(CB_REGION_WEEK):
+                slug = data[len(CB_REGION_WEEK):]
+                await event.answer()
+                sub = db.is_subscribed(event.sender_id, slug)
+                zones = None
+                if slug == "kyivska":
+                    zones = (
+                        db.is_subscribed(event.sender_id, "kyiv_left"),
+                        db.is_subscribed(event.sender_id, "kyiv_right"),
+                    )
+                await _safe_edit(_week_text(db, slug), _region_menu_kb(slug, sub, zones))
 
             elif data.startswith(CB_REGION_STATS):
                 slug = data[len(CB_REGION_STATS):]

@@ -656,3 +656,45 @@ def format_wave_forecast(db: Database, region: str, name: str) -> str:
 
     lines.append("\n⚠️ Статистична оцінка, не гарантія. Спираюйся на офіційні сирени.")
     return "\n".join(lines)
+
+
+def accuracy_post_text(db: Database, *, now: int | None = None) -> str:
+    """Недельный пост «🎯 Точність прогнозів» для канала (plain, самодостаточный).
+
+    Открытая метрика доверия: что бот реально угадывает. Считаем по окну
+    эпизодов (EPISODE_WINDOW_DAYS):
+      • % отбоев в межах медианы (leave-one-out, без подглядывания в будущее);
+      • опережение официальной сирены (siren_lead_stats за 7 дней).
+    Если данных мало — честно «недостатньо даних», пост не хвастается.
+    """
+    lead = db.siren_lead_stats(days=7)
+    lines: list[str] = ["🎯 <b>Точність прогнозів</b> — тиждень\n"]
+
+    acc = public_accuracy(db, now=now)
+    if acc.get("available") and acc.get("total"):
+        pct = round(100 * int(acc["hits"]) / int(acc["total"]))
+        lines.append(
+            f"• Відбій у межах медіани: <b>{pct}%</b> "
+            f"({acc['hits']}/{acc['total']} епізодів, "
+            f"{acc.get('regions', 0)} регіонів)."
+        )
+    else:
+        lines.append("• Прогнози відбоїв: недостатньо даних за тиждень.")
+
+    if lead.get("episodes"):
+        lead_min = lead["avg_lead_sec"] / 60
+        line = (
+            f"• Випередження офіційної тривоги: <b>{lead['before_count']} з "
+            f"{lead['episodes']}</b> епізодів"
+        )
+        if lead_min > 0:
+            line += f", у середньому на <b>{lead_min:.0f} хв</b>"
+        lines.append(line + ".")
+    else:
+        lines.append("• Випередження сирени: офіційних епізодів за тиждень не було.")
+
+    lines.append(
+        "\nМетрики відкриті: рахуємо з історії БД, без підтасувань. "
+        "Сирени — головне джерело, наші прогнози допомагають готуватись."
+    )
+    return "\n".join(lines)

@@ -132,6 +132,26 @@ class Settings:
     # возвращает прежний мгновенный CRITICAL-байпас.
     critical_needs_confirmation: bool = True
 
+    # Официальные сирены alerts.in.ua (https://alerts.in.ua/api).
+    # Пусто = опрос выключен, бот живёт как раньше.
+    alerts_in_ua_token: str = ""
+
+    # Еженедельный пост «🎯 Точність прогнозів» в канал: день недели по Киеву
+    # (0=понеділок … 6=неділя) и час публикации. accuracy_post_enabled=0
+    # выключает пост.
+    accuracy_post_enabled: bool = True
+    accuracy_post_weekday: int = 1
+    accuracy_post_hour: int = 9
+
+    # Эскалация Groq: при «деградировавшем» ответе лёгкой модели пересуммировать
+    # на сильной. Пусто = эскалация выключена.
+    groq_model_strong: str = "llama-3.3-70b-versatile"
+
+    # Кэш резюме LLM: sha1(текст) → результат. TTL в секундах (0 = выключен),
+    # максимум записей (LRU-вытеснение).
+    summary_cache_ttl: int = 900
+    summary_cache_size: int = 512
+
 
 def load_settings() -> Settings:
     """Прочитать и провалидировать настройки окружения.
@@ -191,4 +211,11 @@ def load_settings() -> Settings:
         pre_wave_notice=os.getenv("PRE_WAVE_NOTICE", "1").strip() not in ("0", "false", "no"),
         standdown_notice=os.getenv("STANDDOWN_NOTICE", "1").strip() not in ("0", "false", "no"),
         critical_needs_confirmation=os.getenv("CRITICAL_NEEDS_CONFIRMATION", "1").strip() not in ("0", "false", "no"),
+        alerts_in_ua_token=os.getenv("ALERTS_IN_UA_TOKEN", "").strip(),
+        accuracy_post_enabled=os.getenv("ACCURACY_POST", "1").strip() not in ("0", "false", "no"),
+        accuracy_post_weekday=min(6, max(0, int(os.getenv("ACCURACY_POST_DAY", "1")))),
+        accuracy_post_hour=min(23, max(0, int(os.getenv("ACCURACY_POST_HOUR", "9")))),
+        groq_model_strong=os.getenv("GROQ_MODEL_STRONG", "llama-3.3-70b-versatile").strip(),
+        summary_cache_ttl=max(0, int(os.getenv("SUMMARY_CACHE_TTL", "900"))),
+        summary_cache_size=max(1, int(os.getenv("SUMMARY_CACHE_SIZE", "512"))),
     )
