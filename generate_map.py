@@ -49,11 +49,13 @@ def generate():
     threats = db.active_threats(within_seconds=1800, include_reported=True)
     threats = [t for t in threats if t.get("type") in MAP_THREAT_TYPES]
     now = int(time.time())
+    # Текст — публичный (правило №6): без ссылок/имён каналов и «multi:».
+    from fast_filter import public_text
     data = [
         {
             "type": t["type"],
             "region": t["region"],
-            "text": t["text"][:200],
+            "text": public_text(t.get("text") or "", 200),
             "sources": t.get("source_count", 2),
             "origin": t.get("origin", ""),
             "destination": t.get("destination", ""),

@@ -201,6 +201,38 @@ def standdown_accuracy(db: Database, region: str, *, now: int | None = None) -> 
         return {"available": False, "hits": 0, "total": 0}
 
 
+def public_accuracy(db: Database, regions: list[str] | None = None, *, now: int | None = None) -> dict[str, Any]:
+    """Публичная точность прогнозов: «X% відбоїв у межах медіани».
+
+    Сумма leave-one-out hit-rate (standdown_accuracy) по регионам с
+    эпизодами за окно. Регионы без достаточной выборки честно не
+    учитываются — метрика не завышается. Используется в статистике бота
+    («🎯 Точність прогнозів») как открытая метрика доверия.
+    """
+    now = int(now if now is not None else time.time())
+    if regions is None:
+        try:
+            conn = db._conn  # type: ignore[attr-defined]
+            if conn is None:
+                return {"available": False, "hits": 0, "total": 0, "regions": 0}
+            since = now - EPISODE_WINDOW_DAYS * 86400
+            rows = conn.execute(
+                "SELECT DISTINCT region FROM alerts WHERE started_ts>=?", (since,)
+            ).fetchall()
+            regions = [r["region"] for r in rows]
+        except sqlite3.Error:
+            return {"available": False, "hits": 0, "total": 0, "regions": 0}
+    hits = total = 0
+    counted = 0
+    for slug in regions:
+        acc = standdown_accuracy(db, slug, now=now)
+        hits += int(acc.get("hits", 0))
+        total += int(acc.get("total", 0))
+        if acc.get("available"):
+            counted += 1
+    return {"available": total > 0, "hits": hits, "total": total, "regions": counted}
+
+
 def wave_hour_profile(db: Database, region: str, *, now: int | None = None) -> dict[str, Any]:
     """Часы суток (Київ), когда тревоги региона начинаются чаще всего.
 

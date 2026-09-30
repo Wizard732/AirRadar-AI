@@ -59,49 +59,75 @@
   .tick-line b { color: #cfe9f5; }
 
   #legend {
-    position: absolute; bottom: 0; left: 0; right: 0; z-index: 1100;
-    background: rgba(11,14,20,0.94); padding: 7px 14px; font-size: 10.5px;
-    display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;
-    border-top: 1px solid rgba(90,200,250,0.12);
+    position: absolute; bottom: calc(100% + 8px); left: 8px; right: 8px; z-index: 1150;
+    background: rgba(11,14,20,0.96); border: 1px solid rgba(90,200,250,0.25);
+    border-radius: 12px; padding: 9px 12px; font-size: 11.5px;
+    display: flex; gap: 10px 14px; justify-content: center; flex-wrap: wrap;
+    box-shadow: 0 -6px 24px rgba(0,0,0,0.5);
   }
-  .leg-item { display: flex; align-items: center; gap: 4px; color: #c8c8d0; }
+  #legend[hidden] { display: none; }
+  .leg-item { display: flex; align-items: center; gap: 5px; color: #c8c8d0; }
   .leg-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
   .pulse { animation: pulse 1.5s infinite; }
   @keyframes pulse { 0%{opacity:1} 50%{opacity:0.35} 100%{opacity:1} }
 
-  #filters {
-    position: absolute; top: 82px; right: 8px; z-index: 1080;
-    display: flex; flex-direction: column; gap: 5px; align-items: flex-end;
+  /* Кнопка «Слої»: сворачивает колонку фильтров в один контрол (мобильный фикс:
+     10 чипов вертикально вылетали за край экрана). */
+  #layersBtn {
+    position: absolute; top: 82px; right: 8px; z-index: 1160;
+    background: rgba(11,14,20,0.92); border: 1px solid rgba(90,200,250,0.35); color: #fff;
+    padding: 8px 13px; border-radius: 18px; font-size: 12.5px; cursor: pointer;
+    backdrop-filter: blur(8px);
   }
+  #layersBtn:active { transform: scale(0.96); border-color: #5ac8fa; }
+  #layersPanel {
+    position: absolute; top: 124px; right: 8px; z-index: 1155;
+    background: rgba(11,14,20,0.96); border: 1px solid rgba(90,200,250,0.3);
+    border-radius: 14px; padding: 10px; backdrop-filter: blur(12px);
+    display: none; grid-template-columns: 1fr 1fr; gap: 6px;
+    max-width: min(230px, 62vw); max-height: calc(100vh - 280px); overflow-y: auto;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+  }
+  #layersPanel.open { display: grid; }
+
   .chip {
     background: rgba(11,14,20,0.92); border: 1px solid rgba(90,200,250,0.25); color: #fff;
-    padding: 5px 9px; border-radius: 15px; font-size: 11.5px; cursor: pointer;
-    user-select: none; backdrop-filter: blur(8px);
+    padding: 6px 9px; border-radius: 13px; font-size: 11.5px; cursor: pointer;
+    user-select: none; backdrop-filter: blur(8px); text-align: left; white-space: nowrap;
     transition: opacity .2s, border-color .2s, transform .1s;
   }
   .chip:active { transform: scale(0.96); border-color: #5ac8fa; }
   .chip.off { opacity: 0.35; text-decoration: line-through; }
 
-  #geoBtn, #shelterBtn, #shareBtn {
-    position: absolute; right: 8px; z-index: 1080;
-    background: rgba(11,14,20,0.92); border: 1px solid rgba(90,200,250,0.25); color: #fff;
-    padding: 8px 11px; border-radius: 20px; font-size: 12.5px; cursor: pointer;
-    backdrop-filter: blur(8px);
+  /* Нижняя панель: таймлайн + действия. Кнопки «Укриття/Розташування/
+     Поділитися» больше не плавают поверх карты — живут в одной панели. */
+  #bottomBar {
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 1100;
+    background: rgba(11,14,20,0.94); border-top: 1px solid rgba(90,200,250,0.15);
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); backdrop-filter: blur(10px);
+    display: flex; flex-direction: column; gap: 7px;
   }
-  #shareBtn { bottom: 82px; }
-  #geoBtn { bottom: 122px; }
-  #shelterBtn { bottom: 162px; }
-
   #timeline {
-    position: absolute; bottom: 30px; left: 8px; right: 8px; z-index: 1080;
-    display: flex; align-items: center; gap: 8px;
-    background: rgba(11,14,20,0.94); padding: 5px 10px; border-radius: 12px;
+    position: static; display: flex; align-items: center; gap: 8px;
+    background: rgba(90,200,250,0.06); padding: 5px 10px; border-radius: 12px;
     font-size: 11.5px; border: 1px solid rgba(90,200,250,0.15);
   }
   #timeline input[type=range] { flex: 1; accent-color: #ff9500; min-width: 60px; }
   #playBtn {
     background: rgba(90,200,250,0.12); border: 1px solid rgba(90,200,250,0.3); color: #5ac8fa;
     font-size: 14px; cursor: pointer; padding: 3px 10px; border-radius: 10px; line-height: 1.2;
+  }
+  #actions { display: flex; gap: 7px; }
+  #actions button {
+    flex: 1; background: rgba(90,200,250,0.10); border: 1px solid rgba(90,200,250,0.3);
+    color: #fff; padding: 9px 4px; border-radius: 12px; font-size: 12.5px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #actions button:active { transform: scale(0.96); border-color: #5ac8fa; }
+  #legendBtn {
+    background: rgba(90,200,250,0.12); border: 1px solid rgba(90,200,250,0.3); color: #5ac8fa;
+    font-size: 13px; cursor: pointer; padding: 2px 9px; border-radius: 10px; line-height: 1.4;
+    margin-left: 8px; flex: none;
   }
 
   /* Bottom Sheet — карточка объекта */
@@ -137,7 +163,8 @@
   }
 
   #toast {
-    position: absolute; bottom: 88px; left: 50%; transform: translateX(-50%);
+    position: absolute; bottom: calc(132px + env(safe-area-inset-bottom)); left: 50%;
+    transform: translateX(-50%);
     z-index: 2500; background: rgba(15,19,28,0.95); border: 1px solid rgba(90,200,250,0.3);
     padding: 8px 16px; border-radius: 20px; font-size: 12.5px; color: #cfe9f5;
     opacity: 0; pointer-events: none; transition: opacity .25s; max-width: 86vw; text-align: center;
@@ -166,37 +193,42 @@
 <div id="tactical-grid"></div>
 <div id="alert-flash"></div>
 
-<div id="filters">
+<button id="layersBtn" type="button">🗂 Слої</button>
+<div id="layersPanel" role="group" aria-label="Шарі карти">
   <div class="chip" data-layer="rockets">🔴 Ракети</div>
   <div class="chip" data-layer="uav">🟡 БПЛА</div>
   <div class="chip" data-layer="alerts">🟢 Тривоги</div>
   <div class="chip" data-layer="impacts">💥 Наслідки</div>
   <div class="chip" data-layer="zones">🌀 Зони</div>
   <div class="chip" data-layer="vectors">➤ Вектори</div>
-  <div class="chip" data-layer="reports">👤 Повідомлення</div>
+  <div class="chip" data-layer="reports">👤 Повідомл.</div>
   <div class="chip" data-layer="green">✅ Відбої</div>
   <div class="chip off" data-layer="shields">🛡 Укриття</div>
   <div class="chip" data-layer="sound">🔊</div>
 </div>
-<button id="geoBtn" type="button">📍 Моє розташування</button>
-<button id="shelterBtn" type="button">🛡 Укриття поруч</button>
-<button id="shareBtn" type="button">📤 Поділитися</button>
 
-<div id="timeline">
-  <button id="playBtn" type="button" title="Плейбэк за 2 години">▶</button>
-  <input id="tlRange" type="range" min="0" max="120" step="5" value="0">
-  <span id="tlLabel">зараз</span>
-</div>
-
-<div id="legend">
-  <div class="leg-item">🛸 Шахед/БПЛА</div>
-  <div class="leg-item pulse">🚀 Ракета/балістика</div>
-  <div class="leg-item">✈️ КАБ/авіація</div>
-  <div class="leg-item">💥 Приліт</div>
-  <div class="leg-item">👁 Розвідка</div>
-  <div class="leg-item">🛡 ППО</div>
-  <div class="leg-item pulse">👤 Повідомлення</div>
-  <div class="leg-item">➤ напрямок · ⏳/🔁 прогноз</div>
+<div id="bottomBar">
+  <div id="legend" hidden>
+    <div class="leg-item">🛸 Шахед/БПЛА</div>
+    <div class="leg-item pulse">🚀 Ракета/балістика</div>
+    <div class="leg-item">✈️ КАБ/авіація</div>
+    <div class="leg-item">💥 Приліт</div>
+    <div class="leg-item">👁 Розвідка</div>
+    <div class="leg-item">🛡 ППО</div>
+    <div class="leg-item pulse">👤 Повідомлення</div>
+    <div class="leg-item">➤ напрямок · ⏳/🔁 прогноз</div>
+  </div>
+  <div id="timeline">
+    <button id="playBtn" type="button" title="Плейбэк за 2 години">▶</button>
+    <input id="tlRange" type="range" min="0" max="120" step="5" value="0">
+    <span id="tlLabel">зараз</span>
+    <button id="legendBtn" type="button" title="Легенда позначок" aria-label="Легенда">ⓘ</button>
+  </div>
+  <div id="actions">
+    <button id="geoBtn" type="button">📍 Я тут</button>
+    <button id="shelterBtn" type="button">🛡 Укриття</button>
+    <button id="shareBtn" type="button">📤 Поділитися</button>
+  </div>
 </div>
 
 <!-- Bottom Sheet -->
@@ -222,13 +254,19 @@ const KYIV_BANK = {
   kyiv_left: {
     coords: [50.4668, 30.6380], // Дарниця / Лівобережна
     keys: ['лівий берег', 'левый берег', 'левый', 'лівобереж', 'лівобережж', 'дарниц',
-      'позняк', 'осокорк', 'харківськ', 'деснянськ', 'троєщин', 'русанів', 'бортнич', 'дніпровськ'],
+      'позняк', 'осокорк', 'харківськ', 'деснянськ', 'троєщин', 'русанів', 'бортнич', 'дніпровськ',
+      // Лівобережні райцентри Київщини
+      'бровар', 'переяслав', 'яготин', 'баришівк', 'згурівк', 'кагарлик', 'славутич'],
   },
   kyiv_right: {
     coords: [50.4440, 30.5150], // правобережный центр
     keys: ['правий берег', 'правый берег', 'правый', 'правобереж', 'правобережж',
       'оболон', 'печерськ', 'голосіїв', 'теремки', 'святошин', "солом'янск", 'соломянск',
-      'шулявк', 'подол', 'борщагівк', 'жуляни', 'видубичі'],
+      'шулявк', 'подол', 'борщагівк', 'жуляни', 'видубичі',
+      // Правобережні райцентри Київщини: «курсом на Ржищів» — не «весь Киев»
+      'ржищів', 'миронівк', 'васильк', 'біла церкв', 'белая церков',
+      'фастів', 'фастов', 'обухів', 'вишгород', 'буч', 'ірпін', 'ирпен',
+      'гостомел', 'боярк', 'вишнев', 'сквир', 'тетіїв', 'димер'],
   },
 };
 
@@ -255,6 +293,8 @@ const REGION_NAMES = {
   khersonska: 'Херсонщина', zaporizka: 'Запоріжжя', kirovohradska: 'Кіровоградщина',
   donetska: 'Донеччина', luhanska: 'Луганщина', crimea: 'Крим',
   kyiv_left: 'Київ — лівий берег', kyiv_right: 'Київ — правий берег',
+  // Служебные slug-и инцидентов — человекочитаемо, не сырым «multi:».
+  multi: 'Кілька областей', unknown: 'Регіон уточнюється',
 };
 
 // === Города/посёлки: точечный пин по упоминанию в тексте ===
@@ -611,9 +651,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "БпЛА на Київ\n\nслки", "sources": 2, "origin": "", "destination": "kyivska", "age_min": 17}];
+const EMBEDDED_THREATS = [];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 34, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_FORECAST = {};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
@@ -657,7 +697,26 @@ const layerOf = t => {
 };
 const enabled = { rockets: true, uav: true, alerts: true, impacts: true };
 
-document.querySelectorAll('#filters .chip').forEach(chip => {
+// Панель слоёв: свёрнута в кнопку «Слої» (мобильный фикс — колонка чипов
+// не влезала в экран). Закрывается повторным тапом и тапом по карте.
+const layersBtn = document.getElementById('layersBtn');
+const layersPanel = document.getElementById('layersPanel');
+function toggleLayers(force) {
+  layersPanel.classList.toggle('open', force);
+}
+layersBtn.addEventListener('click', () => {
+  tapFeedback();
+  toggleLayers(!layersPanel.classList.contains('open'));
+});
+
+// Легенда скрыта по умолчанию: «ⓘ» в панели времени показывает её попапом.
+document.getElementById('legendBtn').addEventListener('click', () => {
+  tapFeedback();
+  const legend = document.getElementById('legend');
+  legend.hidden = !legend.hidden;
+});
+
+document.querySelectorAll('#layersPanel .chip').forEach(chip => {
   chip.addEventListener('click', () => {
     tapFeedback();
     const layer = chip.dataset.layer;
@@ -737,6 +796,8 @@ playBtn.addEventListener('click', () => {
 // === Инициализация карты ===
 const map = L.map('map', { zoomControl: false }).setView([48.5, 32.0], 6);
 L.control.zoom({ position: 'topleft' }).addTo(map);
+// Тап по карте закрывает открытую панель слоёв (не мешает читаемости).
+map.on('click', () => toggleLayers(false));
 // Esri World Dark Gray — тёмная подложка без API-ключей (CartoDB с 2025
 // требует ключ и отдаёт заглушку «api key required»).
 L.tileLayer(
@@ -867,14 +928,35 @@ const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-
 
 function resetAnim() { animDots = []; }
 
+// Мини-силуэт летящего аппарата для ведущей точки вектора: та же форма,
+// что у пина (WEAPON_SVG), нос повёрнут по курсу (0° = север).
+function flyingIconHtml(type, color, angle) {
+  const shape = TYPE_ICON_SHAPE[type] || 'drone';
+  const svg = (WEAPON_SVG[shape] || WEAPON_SVG.drone)
+    .replaceAll('{c}', color)
+    .replaceAll('{s}', 'rgba(0,0,0,0.55)');
+  return `<div style="transform:rotate(${angle}deg);filter:drop-shadow(0 0 4px ${color});display:flex">` +
+    `<svg width="20" height="20" viewBox="0 0 24 24" style="display:block">${svg}</svg></div>`;
+}
+
 function spawnAnimDots(from, to, color, type) {
   if (REDUCED_MOTION) return;
-  const dots = [];
-  for (let i = 0; i < 4; i++) {
+  const angle = Math.round(Math.atan2(to[1] - from[1], to[0] - from[0]) * 180 / Math.PI);
+  // Ведущий элемент вектора — сам летящий аппарат: мини-силуэт типа,
+  // развёрнутый носом по курсу. Позади — тающий шлейф точек.
+  const lead = L.marker(from, {
+    icon: L.divIcon({
+      className: '', html: flyingIconHtml(type, color, angle),
+      iconSize: [20, 20], iconAnchor: [10, 10],
+    }),
+    interactive: false,
+  }).addTo(vectorLayer);
+  const dots = [lead];
+  for (let i = 1; i < 4; i++) {
     dots.push(L.circleMarker(from, {
-      radius: i === 0 ? 4.5 : Math.max(1.5, 3 - i * 0.5),
-      color: i === 0 ? '#fff' : color, weight: i === 0 ? 1 : 0,
-      fillColor: color, fillOpacity: i === 0 ? 0.95 : 0.38 - i * 0.09,
+      radius: Math.max(1.5, 3 - i * 0.5),
+      color: color, weight: 0,
+      fillColor: color, fillOpacity: 0.38 - i * 0.09,
       interactive: false,
     }).addTo(vectorLayer));
   }
@@ -967,10 +1049,15 @@ function renderAll() {
     const fresh = items.some(t => t.age_min < 10);
     const confirmed = items.some(t => Number(t.sources || 1) >= 2);
 
-    // Слой 1: мягкая пульсирующая зона. Город — компактная зона,
-    // область/берег — широкая (как раньше).
-    if (fresh) {
-      const zoneR = pin.isCity ? 8000 : (confirmed ? 34000 : 24000);
+    // Слой 1: мягкая пульсирующая зона — только там, где она честна.
+    // Район/город — компактные 8 км. Берег Киева — тоже компактный,
+    // иначе снова «угроза на весь Киев». Голая «kyivska» (район в тексте
+    // не назван) зону не получает вовсе: силуэт и вектор показывают
+    // конкретный полёт, а не «весь Киев под угрозой».
+    const zoneR = (pin.isCity || pin.key === 'kyiv_left' || pin.key === 'kyiv_right')
+      ? 8000
+      : (pin.key === 'kyivska' ? 0 : (confirmed ? 34000 : 24000));
+    if (fresh && zoneR > 0) {
       L.circle(coords, {
         radius: zoneR,
         color: color, weight: 1, opacity: 0.35,
@@ -1000,7 +1087,7 @@ function renderAll() {
             `🎯 на підході</span>` : ''),
         iconSize: [38, 38], iconAnchor: [19, 19],
       }),
-    }).addTo(markersLayer).bindTooltip(regionTooltip(pin) + (approach ? ' · 🎯 курс на ціль' : ''), { direction: 'top' });
+    }).addTo(markersLayer).bindTooltip(regionTooltip(pin, items) + (approach ? ' · 🎯 курс на ціль' : ''), { direction: 'top' });
     marker.on('click', () => { tapFeedback(); openThreatSheet(pin, items); });
 
     if (items.length > 1) {
@@ -1034,7 +1121,7 @@ function renderAll() {
         L.polyline([route.from, end], {
           color: color, weight: wMain, opacity: oMain, dashArray: '2 7', lineCap: 'round',
         }).addTo(vectorLayer)
-          .bindTooltip(`➤ ${route.fromName} → ${route.toName} · ≈${eta} хв (орієнтовно${confirmedVec ? '' : ', одне джерело'})`, { direction: 'top' });
+          .bindTooltip(`➤ ${route.fromName} → ${route.toName} · ≈${eta} хв (орієнтовно)`, { direction: 'top' });
         // наконечник стрелки
         const w = 0.05, d = 0.09;
         const left = [end[0] - ux * d - uy * w, end[1] - uy * d + ux * w];
@@ -1058,6 +1145,15 @@ function renderAll() {
 }
 
 // === Тикер событий (бегущая строка + раскрытие) ===
+// Текст события приходит уже публичным (правило №6: API срезает ссылки/
+// имена каналов и служебные «multi:»); здесь только обрезка по слову.
+function truncateWords(s, max = 60) {
+  const text = (s || '').trim();
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const trimmed = cut.lastIndexOf(' ') > max * 0.5 ? cut.slice(0, cut.lastIndexOf(' ')) : cut;
+  return trimmed.trimEnd().replace(/[ ,;:.!«»()[\]-]+$/, '') + '…';
+}
 function renderTicker() {
   const el = document.getElementById('tickerInner');
   const ticker = document.getElementById('ticker');
@@ -1067,7 +1163,7 @@ function renderTicker() {
     return;
   }
   const line = t =>
-    `<b>${fmtClock(t.age_min)}</b> — ${escapeHtml(TYPE_LABELS[t.type] || '🚨')} · ${escapeHtml(REGION_NAMES[t.region] || t.region)}: ${escapeHtml((t.text || '').slice(0, 60))}`;
+    `<b>${fmtClock(t.age_min)}</b> — ${escapeHtml(TYPE_LABELS[t.type] || '🚨')} · ${escapeHtml(REGION_NAMES[t.region] || t.region)}: ${escapeHtml(truncateWords(t.text, 60))}`;
   if (ticker.classList.contains('expanded')) {
     el.innerHTML = events.map(t => `<div class="tick-line">${line(t)}</div>`).join('');
   } else {
@@ -1132,9 +1228,14 @@ function forecastHtml(regionSlug) {
     `${parts.join(' · ')} <span style="color:#667">(статистика регіону)</span></div>`;
 }
 
-function regionTooltip(pin) {
-  // Тултип пина региона: название + живой countdown отбоя, если он есть.
+function regionTooltip(pin, items) {
+  // Тултип пина региона: название + метка свежести «N хв тому»
+  // + живой countdown отбоя, если он есть.
   let label = `📍 ${pin.label}`;
+  if (items && items.length) {
+    const fresh = Math.min(...items.map(t => Number(t.age_min) || 0));
+    label += ` · ${fresh} хв тому`;
+  }
   const fc = forecastCache && forecastCache[pin.region];
   if (fc && fc.standdown_live) {
     const sd = parseInt(fc.standdown_min, 10);
@@ -1172,8 +1273,10 @@ function openThreatSheet(pin, items) {
   if (['uav', 'rockets'].includes(layerOf(top)) && eta) {
     etaLine = ` · ≈${etaMinutes(eta.from, eta.to, top.type)} хв до ${eta.toName} (орієнтовно)`;
   }
+  // Одиночный источник не помечаем: «одне джерело» в каждой карточке — шум.
+  // Подтверждение несколькими источниками по-прежнему показываем.
   document.getElementById('sheetMeta').textContent =
-    `${items.length} подія(й) · ${confirmed ? 'підтверджено кількома джерелами' : 'одне джерело — очікує підтвердження'}${etaLine}`;
+    `${items.length} подія(й)${confirmed ? ' · підтверджено кількома джерелами' : ''}${etaLine}`;
   document.getElementById('sheetBody').innerHTML = items.slice(0, 6).map(t =>
     `<div class="ev"><div class="t">${fmtClock(t.age_min)} · ${t.age_min} хв тому · джерел: ${escapeHtml(t.sources)}</div>` +
     `${escapeHtml(TYPE_LABELS[t.type] || t.type)}<br>${escapeHtml((t.text || '').replaceAll('**', ''))}</div>`
@@ -1410,7 +1513,7 @@ try {
     window.Telegram.WebApp.expand();
   }
 } catch (e) { /* браузер вне Telegram */ }
-const soundChip = document.querySelector('#filters .chip[data-layer="sound"]');
+const soundChip = document.querySelector('#layersPanel .chip[data-layer="sound"]');
 if (soundChip && !soundOn) soundChip.textContent = '🔇';
 
 fetchData();

@@ -96,5 +96,97 @@ class AggregatorTests(unittest.TestCase):
         self.assertEqual(len(agg._buffers), 0)
 
 
+class CriticalConfirmGateTests(unittest.TestCase):
+    """Гард ложных CRITICAL: одиночный пост не публикуется до подтверждения."""
+
+    def test_single_source_critical_held_until_window_expiry(self):
+        """Одиночная «загроза балістики» не байпасит и не публикуется вовсе."""
+        log = FlushLogger()
+        agg = AlertAggregator(0.05, log, critical_needs_confirmation=True)
+
+        async def run():
+            await agg.submit(_alert(weapon="ballistic", source="solo"))
+            await asyncio.sleep(0.05)  # ещё в окне
+            self.assertEqual(log.flushes, [], "байпас для одиночного CRITICAL закрыт")
+            await asyncio.sleep(0.3)  # окно истекло
+
+        asyncio.run(run())
+        self.assertEqual(log.flushes, [], "окно без подтверждения — тишина")
+        self.assertEqual(agg._buffers, {}, "буфер вылит (пост отброшен)")
+
+    def test_corroborated_critical_bypasses(self):
+        """2-й независимый источник → corroborated → мгновенный флаш набора."""
+        log = FlushLogger()
+        agg = AlertAggregator(60, log, critical_needs_confirmation=True)
+
+        async def run():
+            await agg.submit(_alert(weapon="ballistic", source="a",
+                                    confirmation={"status": "reported", "sources": 1}))
+            await agg.submit(_alert(weapon="ballistic", source="b",
+                                    confirmation={"status": "corroborated", "sources": 2,
+                                                  "material_update": True}))
+            await asyncio.sleep(0.05)
+
+        asyncio.run(run())
+        self.assertEqual(len(log.flushes), 1)
+        self.assertEqual(len(log.flushes[0]), 2, "оба поста инцидента уходят одним набором")
+
+    def test_official_critical_bypasses(self):
+        """Официальное подтверждение одиночки проходит сразу."""
+        log = FlushLogger()
+        agg = AlertAggregator(60, log, critical_needs_confirmation=True)
+
+        async def run():
+            await agg.submit(_alert(weapon="ballistic",
+                                    confirmation={"status": "officially_confirmed"}))
+            await asyncio.sleep(0.05)
+
+        asyncio.run(run())
+        self.assertEqual(len(log.flushes), 1)
+
+    def test_non_critical_unaffected_by_gate(self):
+        """БПЛА/отбой/обновления при гарде ведут себя как раньше."""
+        log = FlushLogger()
+        agg = AlertAggregator(60, log, critical_needs_confirmation=True)
+
+        async def run():
+            await agg.submit(_alert(weapon="uav"))       # HIGH — обычное окно
+            await agg.submit(_alert(weapon="stand_down"))
+            await asyncio.sleep(0.05)
+
+        asyncio.run(run())
+        self.assertEqual(len(log.flushes), 1)
+        self.assertEqual(log.flushes[0][0].fact.weapon_class, "stand_down")
+
+    def test_gate_disabled_keeps_old_bypass(self):
+        """critical_needs_confirmation=False — прежнее мгновенное поведение."""
+        log = FlushLogger()
+        agg = AlertAggregator(60, log)  # дефолт без гарда
+
+        async def run():
+            await agg.submit(_alert(weapon="ballistic", source="solo"))
+            await asyncio.sleep(0.05)
+
+        asyncio.run(run())
+        self.assertEqual(len(log.flushes), 1)
+
+    def test_window_expiry_with_confirmed_sibling_publishes_all(self):
+        """Одиночка + подтверждённый в одном окне → публикуется всё набором."""
+        log = FlushLogger()
+        agg = AlertAggregator(0.05, log, critical_needs_confirmation=True)
+
+        async def run():
+            await agg.submit(_alert(weapon="ballistic", source="a",
+                                    confirmation={"status": "reported", "sources": 1}))
+            # «b» — вторая группа того же инцидента, статус уже corroborated.
+            await agg.submit(_alert(weapon="ballistic", source="b",
+                                    confirmation={"status": "corroborated", "sources": 2}))
+            await asyncio.sleep(0.3)  # окно истекает: в наборе есть подтверждение
+
+        asyncio.run(run())
+        self.assertEqual(len(log.flushes), 1)
+        self.assertEqual(len(log.flushes[0]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

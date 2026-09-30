@@ -238,8 +238,11 @@ class ShareButtonTests(unittest.TestCase):
 
     def test_feedback_kb_has_share_row(self):
         kb = main._feedback_kb("k1", text="🟢 ВІДБІЙ — КИЇВ ТА ОБЛАСТЬ — 12:00\nдалі")
-        self.assertEqual(len(kb), 2)
-        btn = kb[1][0]
+        # 3 ряда: [✅ Корисно / ➖ Шум], [❌ Помилка], [↗ Поділитися].
+        self.assertEqual(len(kb), 3)
+        error_btn = kb[1][0]
+        self.assertIn("Помилка", getattr(error_btn, "text", ""))
+        btn = kb[2][0]
         # В Telethon URL лежит в btn.type.url (InlineButtonTypeUrl).
         url = getattr(getattr(btn, "type", None), "url", "") or getattr(btn, "url", "")
         self.assertIn("t.me/share/url", url)
@@ -247,7 +250,9 @@ class ShareButtonTests(unittest.TestCase):
 
     def test_feedback_kb_without_text(self):
         kb = main._feedback_kb("k1")
-        self.assertEqual(len(kb), 1)
+        # Без текста ряда «Поділитися» нет: [✅/➖], [❌ Помилка].
+        self.assertEqual(len(kb), 2)
+        self.assertIn("Помилка", getattr(kb[1][0], "text", ""))
 
 
 class RegionForecastPayloadTests(unittest.TestCase):

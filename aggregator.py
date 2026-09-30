@@ -45,20 +45,41 @@ class AlertAggregator:
     одним постом (в main.py это _publish_items).
     """
 
-    def __init__(self, window_sec: float, flush_callback) -> None:
+    def __init__(self, window_sec: float, flush_callback,
+                 critical_needs_confirmation: bool = False) -> None:
         self._window = max(0.05, float(window_sec))
         self._flush = flush_callback
+        self._critical_gate = critical_needs_confirmation
         self._buffers: dict[tuple[str, str], list[PendingAlert]] = {}
         self._timers: dict[tuple[str, str], asyncio.Task] = {}
         self._closed = False
 
     def _is_bypass(self, alert: PendingAlert) -> bool:
-        """Немедленный флаш: критично / отбой / материальное обновление."""
+        """Немедленный флаш: подтверждено / отбой / материальное обновление.
+
+        Гард подтверждения (critical_needs_confirmation=True): CRITICAL-класс
+        (балістика, крилаті, КАБ…) от одного источника НЕ байпасит и не
+        публикуется вовсе, пока инцидент не подтвердит второй независимый
+        источник или официальный канал. Пост при этом записан в БД и виден
+        на карте. Защита от ложных «загроза балістики» от одного канала.
+        """
         if alert.fact.weapon_class == "stand_down":
             return True
         if alert.confirmation.get("material_update"):
             return True
-        return weapon_severity(alert.fact.weapon_class) == "CRITICAL"
+        if not self._critical_gate:
+            return weapon_severity(alert.fact.weapon_class) == "CRITICAL"
+        if weapon_severity(alert.fact.weapon_class) != "CRITICAL":
+            return False  # некритичный класс — обычное окно агрегации, без байпаса
+        status = alert.confirmation.get("status", "reported")
+        return status in ("corroborated", "officially_confirmed")
+
+    def _confirm_ok(self, items: list[PendingAlert]) -> bool:
+        """В наборе есть подтверждённый инцидент (2+ источника / официально)."""
+        return any(
+            it.confirmation.get("status") in ("corroborated", "officially_confirmed")
+            for it in items
+        )
 
     async def submit(self, alert: PendingAlert) -> None:
         """Добавить сообщение в буфер; при байпасе — сразу опубликовать."""
@@ -85,12 +106,30 @@ class AlertAggregator:
         await self._flush_key(key)
 
     async def _flush_key(self, key: tuple[str, str]) -> None:
-        """Вылить один буфер. Ошибки публикации не роняют агрегатор."""
+        """Вылить один буфер. Ошибки публикации не роняют агрегатор.
+
+        Гард подтверждения: если в буфере только одиночные непідтверджені
+        CRITICAL-посты — окно истекает в тишину (посты уже в БД/карте).
+        Как только в наборе есть подтверждённый инцидент — публикуется всё
+        накопленное по ключу одним постом. Некритичные классы (БПЛА, отбой,
+        артобстрел) гард не трогает: ключ = (регион, класс), класс у набора
+        общий, поэтому проверки достаточно на ключе.
+        """
         items = self._buffers.pop(key, None)
         timer = self._timers.pop(key, None)
         if timer is not None and not timer.done():
             timer.cancel()
         if not items:
+            return
+        if (
+            self._critical_gate
+            and weapon_severity(key[1]) == "CRITICAL"
+            and not self._confirm_ok(items)
+        ):
+            logger.info(
+                "CRITICAL без подтверждения не публикуется (ключ %s) — ждём 2-й источник",
+                key,
+            )
             return
         try:
             await self._flush(items)

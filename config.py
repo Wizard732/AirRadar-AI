@@ -125,6 +125,13 @@ class Settings:
     # сообщение на эпизод полёта).
     standdown_notice: bool = True
 
+    # Гард ложных критичных угроз: пост CRITICAL-класса (балістика, крилаті,
+    # КАБ…) от ОДНОГО источника не публикуется в канал мгновенно — ждёт
+    # подтверждения (2+ независимых источника). В БД/карту пишется сразу,
+    # поэтому при реальном подтверждении пост уходит байпасом. Выключение
+    # возвращает прежний мгновенный CRITICAL-байпас.
+    critical_needs_confirmation: bool = True
+
 
 def load_settings() -> Settings:
     """Прочитать и провалидировать настройки окружения.
@@ -183,4 +190,5 @@ def load_settings() -> Settings:
         in_flight_only=os.getenv("IN_FLIGHT_ONLY", "1").strip() not in ("0", "false", "no"),
         pre_wave_notice=os.getenv("PRE_WAVE_NOTICE", "1").strip() not in ("0", "false", "no"),
         standdown_notice=os.getenv("STANDDOWN_NOTICE", "1").strip() not in ("0", "false", "no"),
+        critical_needs_confirmation=os.getenv("CRITICAL_NEEDS_CONFIRMATION", "1").strip() not in ("0", "false", "no"),
     )

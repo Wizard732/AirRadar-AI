@@ -16,6 +16,7 @@ register_handlers(). Текст сообщений — HTML (parse_mode=HTML).
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 import time
@@ -25,6 +26,7 @@ from telethon.errors import MessageNotModifiedError
 
 from database import Database
 from eta import build_eta_text
+from fast_filter import public_text
 from regions import (
     REGIONS,
     ZONE_NAMES,
@@ -333,6 +335,21 @@ def _stats_all_text(db: Database) -> str:
             + (f", у середньому на {lead_min:.0f} хв" if lead_min > 0 else "")
         )
 
+    # Публичная точность прогнозов (публикуем открыто, раз в неделю
+    # попадает в дайджест): «X% відбоїв у межах медіани». Конкуренты
+    # свою точность не показывают — это доверие к бренду.
+    try:
+        from wave_forecast import public_accuracy
+        acc = public_accuracy(db)
+        if acc.get("available"):
+            pct = round(100 * acc["hits"] / acc["total"])
+            lead_line += (
+                f"\n🎯 <b>Точність прогнозів</b>: {pct}% відбоїв у межах медіани "
+                f"({acc['hits']}/{acc['total']} епізодів)"
+            )
+    except Exception:  # noqa: BLE001 — метрика не роняет статистику
+        pass
+
     return (
         "📊 <b>Подтверждённые инциденты</b>\n\n"
         f"{render(day, 'За 24 часа')}\n\n"
@@ -352,7 +369,7 @@ def _active_text(db: Database) -> str:
         ago = int((time.time() - t["ts"]) / 60)
         lines.append(
             f"{TYPE_LABELS.get(t['type'], '🚨')} {region_name(t['region'])} "
-            f"— {ago} мин назад\n   <i>{html.escape(t['text'][:60])}</i>"
+            f"— {ago} мин назад\n   <i>{html.escape(public_text(t.get('text') or '', 60))}</i>"
         )
     return "\n".join(lines)
 
@@ -399,7 +416,7 @@ def _region_hist_text(db: Database, slug: str) -> str:
     lines = [f"🗂 <b>{name}</b> — последние сообщения\n"]
     for it in items:
         when = time.strftime("%d.%m %H:%M", time.localtime(it["ts"]))
-        lines.append(f"{TYPE_LABELS.get(it['type'], '🚨')} {when}\n   <i>{html.escape(it['text'][:70])}</i>")
+        lines.append(f"{TYPE_LABELS.get(it['type'], '🚨')} {when}\n   <i>{html.escape(public_text(it.get('text') or '', 70))}</i>")
     return "\n".join(lines)
 
 
@@ -417,7 +434,7 @@ def _region_cons_text(db: Database, slug: str) -> str:
         when = time.strftime("%d.%m %H:%M", time.localtime(it["ts"]))
         lines.append(
             f"💥 {when} · {it['source_count']} незалежних джерел\n"
-            f"   <i>{html.escape((it['text'] or '')[:160])}</i>"
+            f"   <i>{html.escape(public_text(it.get('text') or '', 160))}</i>"
         )
     return "\n".join(lines)
 
@@ -455,6 +472,36 @@ def _city_results_kb(matches: list[str]) -> list:
 #  Регистрация обработчиков
 # =====================================================================
 
+# Пользовательские команды для «синей кнопки меню» Telegram (0 ввода текста).
+BOT_COMMANDS = [
+    ("start", "Головне меню"),
+    ("city", "Підписка: місто або район"),
+    ("report", "Повідомити загрозу"),
+]
+
+
+async def _register_bot_commands(bot: TelegramClient) -> None:
+    """Зарегистрировать команды меню бота (best effort, с ожиданием коннекта)."""
+    from telethon.tl.functions.bots import SetBotCommandsRequest
+    from telethon.tl.types import BotCommand, BotCommandScopeDefault
+
+    commands = [BotCommand(command=name, description=desc) for name, desc in BOT_COMMANDS]
+    for _ in range(60):
+        try:
+            if not bot.is_connected():
+                await asyncio.sleep(2)
+                continue
+            await bot(SetBotCommandsRequest(
+                scope=BotCommandScopeDefault(), lang_code="", commands=commands,
+            ))
+            logger.info("Bot commands зарегистрированы: меню кнопкой, без ввода текста")
+            return
+        except Exception as exc:  # noqa: BLE001 — не критично для работы меню
+            logger.debug("set_bot_commands повтор: %s", exc)
+            await asyncio.sleep(2)
+    logger.warning("Не удалось зарегистрировать bot commands (меню работает по /start)")
+
+
 def register_handlers(
     bot: TelegramClient, db: Database, admin_id: int, webapp_url: str = "", map_webapp_url: str = ""
 ) -> None:
@@ -481,6 +528,31 @@ def register_handlers(
     async def _start(event: events.NewMessage.Event) -> None:  # noqa: ANN001
         # Меню доступно всем пользователям (подписки, статистика, алерты).
         await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb(event.sender_id))
+
+    # Фулл управление кнопками (0 ввода текста): любой обычный текст в ЛС
+    # открывает главное меню. Команды (/…), JSON из Mini App и сообщения
+    # без текста (геопозиция) обрабатывают свои хендлеры — сюда не попадают.
+    @bot.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
+    async def _any_text_menu(event: events.NewMessage.Event) -> None:  # noqa: ANN001
+        raw = (getattr(event.message, "text", "") or "").strip()
+        if not raw or raw.startswith("/") or raw.startswith('{"action"'):
+            return
+        await event.respond(
+            "Керуйте кнопками нижче — текстові команди не потрібні.",
+            parse_mode=None,
+            buttons=_menu_kb(event.sender_id),
+        )
+
+    # Команды в «синей кнопке меню» Telegram: пользователь видит действия
+    # списком и запускает тапом — вводить текст не нужно вовсе.
+    # create_task требует активного loop: в боевом запуске (main.run) он есть,
+    # а вне loop (юнит-тесты) задачу не планируем — иначе RuntimeError.
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        bot._airradar_commands_task = None
+    else:
+        bot._airradar_commands_task = loop.create_task(_register_bot_commands(bot))
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/city\s+(.+)$"))
     async def _city(event: events.NewMessage.Event) -> None:  # noqa: ANN001
@@ -598,14 +670,19 @@ def register_handlers(
                     _weapons_kb(db, event.sender_id),
                 )
 
-            elif data.startswith("fbu:") or data.startswith("fbn:"):
-                # Фидбек под алертом в ЛС: «✅ корисно / ➖ шум».
-                vote = "useful" if data.startswith("fbu:") else "noise"
+            elif data.startswith("fbu:") or data.startswith("fbn:") or data.startswith("fbe:"):
+                # Фидбек под алертом в ЛС: «✅ корисно / ➖ шум / ❌ помилка».
+                vote = (
+                    "useful" if data.startswith("fbu:")
+                    else "error" if data.startswith("fbe:")
+                    else "noise"
+                )
                 key = data[4:].strip()
                 if key:
                     db.add_alert_feedback(key, vote)
                 await event.answer(
                     "Дякуємо за відгук!" if vote == "useful"
+                    else "Помилку зафіксовано — розберемось." if vote == "error"
                     else "Прийнято — працюємо над точністю."
                 )
 

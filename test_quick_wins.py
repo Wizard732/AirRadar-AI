@@ -163,15 +163,20 @@ class FeedbackTests(unittest.TestCase):
         os.unlink(self.file.name)
 
     def test_feedback_counters(self):
-        self.assertEqual(self.db.get_alert_feedback("k1"), {"useful": 0, "noise": 0})
+        self.assertEqual(self.db.get_alert_feedback("k1"), {"useful": 0, "noise": 0, "error": 0})
         self.db.add_alert_feedback("k1", "useful")
         self.db.add_alert_feedback("k1", "useful")
         self.db.add_alert_feedback("k1", "noise")
-        self.assertEqual(self.db.get_alert_feedback("k1"), {"useful": 2, "noise": 1})
+        self.assertEqual(self.db.get_alert_feedback("k1"), {"useful": 2, "noise": 1, "error": 0})
 
     def test_feedback_invalid_vote_ignored(self):
         self.db.add_alert_feedback("k1", "wat")
-        self.assertEqual(self.db.get_alert_feedback("k1"), {"useful": 0, "noise": 0})
+        self.assertEqual(self.db.get_alert_feedback("k1"), {"useful": 0, "noise": 0, "error": 0})
+
+    def test_feedback_error_vote(self):
+        """Кнопка «❌ Помилка»: третий голос фиксирует ошибочный пост."""
+        self.db.add_alert_feedback("k1", "error")
+        self.assertEqual(self.db.get_alert_feedback("k1"), {"useful": 0, "noise": 0, "error": 1})
 
 
 class SirenLeadTests(unittest.TestCase):

@@ -154,10 +154,18 @@ class Database:
                     message_key  TEXT PRIMARY KEY,
                     ts           INTEGER NOT NULL,
                     useful       INTEGER NOT NULL DEFAULT 0,
-                    noise        INTEGER NOT NULL DEFAULT 0
+                    noise        INTEGER NOT NULL DEFAULT 0,
+                    error        INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            # Мягкая миграция старых БД: кнопка «❌ Помилка» добавила третий голос.
+            try:
+                cur.execute(
+                    "ALTER TABLE alert_feedback ADD COLUMN error INTEGER NOT NULL DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # колонка уже существует
             # Ночной режим: персональная настройка (по умолчанию выкл).
             cur.execute(
                 """
@@ -584,8 +592,15 @@ class Database:
     def merge_incident_fact(
         self, *, event_ts: int, source: str, source_group: str, fact, text: str,
         window_seconds: int = 1200, confirmation_sources: int = 2,
+        official: bool = False,
     ) -> dict[str, Any]:
-        """Attach an explicit follow-up to a recent compatible open incident."""
+        """Attach an explicit follow-up to a recent compatible open incident.
+
+        official=True (пост из официального канала из OFFICIAL_SOURCES) —
+        инцидент помечается 'officially_confirmed' сразу, как и в
+        register_incident: публичная точность честно разделяет
+        «підтверджено офіційним джерелом» и обычную корроборацию.
+        """
         cutoff = event_ts - max(60, window_seconds)
         try:
             with self._lock:
@@ -601,7 +616,7 @@ class Database:
                 if row is None:
                     key = f"{event_ts}:{fact.destination_region}:{fact.weapon_class}:{fact.stage}"
                     groups = [source_group] if source_group else []
-                    status = "reported"
+                    status = "officially_confirmed" if official else "reported"
                     self._conn.execute(
                         "INSERT INTO incidents (incident_key, created_ts, updated_ts, weapon_class, stage, region, source_count, sources, status, origin_region, destination_region, count_kind, count_value, weapon_raw, state) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')",
@@ -615,7 +630,15 @@ class Database:
                     groups = [item for item in row["sources"].split(",") if item]
                     if source_group and source_group not in groups:
                         groups.append(source_group)
-                    status = "corroborated" if len(groups) >= confirmation_sources else row["status"]
+                    if official or row["status"] == "officially_confirmed":
+                        # Официальный пост подтверждает инцидент сразу и
+                        # навсегда; подтверждённый статус не откатывается.
+                        status = "officially_confirmed"
+                    else:
+                        status = (
+                            "corroborated" if len(groups) >= confirmation_sources
+                            else row["status"]
+                        )
                     count_kind, count_value = row["count_kind"], row["count_value"]
                     if fact.count_kind == "delta" and fact.count_value is not None:
                         count_value = (count_value or 0) + fact.count_value
@@ -1167,11 +1190,11 @@ class Database:
             return {"episodes": 0, "avg_lead_sec": 0.0, "before_count": 0}
 
     def add_alert_feedback(self, message_key: str, vote: str) -> None:
-        """Учесть голос по посту: vote 'useful' | 'noise' (по одному голосу
-        на пост — счётчик, повторный клик той же кнопки игнорируется)."""
-        if vote not in ("useful", "noise"):
+        """Учесть голос по посту: vote 'useful' | 'noise' | 'error' (голоса
+        независимы — счётчики; повторный клик той же кнопки увеличивает счёт)."""
+        if vote not in ("useful", "noise", "error"):
             return
-        column = "useful" if vote == "useful" else "noise"
+        column = vote
         try:
             with self._lock:
                 assert self._conn is not None
@@ -1185,18 +1208,21 @@ class Database:
             logger.warning("Не удалось учесть фидбек: %s", exc)
 
     def get_alert_feedback(self, message_key: str) -> dict:
-        """Счётчики фидбека поста {useful, noise}."""
+        """Счётчики фидбека поста {useful, noise, error}."""
         try:
             with self._lock:
                 assert self._conn is not None
                 row = self._conn.execute(
-                    "SELECT useful, noise FROM alert_feedback WHERE message_key = ?",
+                    "SELECT useful, noise, error FROM alert_feedback WHERE message_key = ?",
                     (message_key,),
                 ).fetchone()
-                return {"useful": row["useful"], "noise": row["noise"]} if row else {"useful": 0, "noise": 0}
+                return (
+                    {"useful": row["useful"], "noise": row["noise"], "error": row["error"]}
+                    if row else {"useful": 0, "noise": 0, "error": 0}
+                )
         except sqlite3.Error as exc:
             logger.warning("Не удалось прочитать фидбек: %s", exc)
-            return {"useful": 0, "noise": 0}
+            return {"useful": 0, "noise": 0, "error": 0}
 
     def get_night_mode(self, user_id: int) -> bool:
         """Включён ли ночной режим у пользователя."""

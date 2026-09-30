@@ -112,9 +112,13 @@ async def run() -> None:
 
     # Агрегатор: сообщения одного инцидента в окне AGGREGATE_WINDOW_SEC
     # уходят в канал одним постом (критичные/отбой — мгновенно, байпасом).
+    # Гард ложных CRITICAL («загроза балістики» от одного канала): одиночный
+    # пост критичного класса не публикуется, пока инцидент не подтвердит
+    # второй независимый источник (настройка CRITICAL_NEEDS_CONFIRMATION).
     aggregator = AlertAggregator(
         settings.aggregate_window_sec,
         lambda items: _publish_items(db, publisher, bot_client, items),
+        critical_needs_confirmation=getattr(settings, "critical_needs_confirmation", False),
     )
 
     # --- второй клиент: бот @AirRadar_AI_bot (Bot API) для интерактивного меню ---
@@ -326,14 +330,16 @@ async def run() -> None:
         )
 
     # --- проактивные прогнозы (статистика волн): countdown отбоя во время
-    #     тревоги + «можлива нова тривога» после отбоя ---
+    #     тревоги + «можлива нова тривога» после отбоя. Уходят и в ЛС
+    #     подписчиков, и в целевой канал; работают даже без бота-меню. ---
     pre_wave_task = None
-    if bot_client is not None and (settings.pre_wave_notice or settings.standdown_notice):
+    if settings.pre_wave_notice or settings.standdown_notice:
         pre_wave_task = asyncio.create_task(
             _pre_wave_loop(
                 bot_client, db,
                 pre_wave=settings.pre_wave_notice,
                 standdown=settings.standdown_notice,
+                publisher=publisher,
             ),
             name="pre-wave-notice",
         )
@@ -503,11 +509,15 @@ async def _process_message(
         regions = detect_region(text, channel=source)
         fact = extract_incident_fact(text, weapon, stage)
         group = source_group(source, getattr(settings, "source_groups", {}))
+        # Официальный источник (OFFICIAL_SOURCES) подтверждает инцидент сразу:
+        # «підтверджено офіційним джерелом» вместо обычной корроборации.
+        is_official = str(source) in getattr(settings, "official_sources", frozenset())
         # Fusion owns the target location: in "from Sumy to Kyiv" Kyiv is the incident.
         confirmation = db.merge_incident_fact(
             event_ts=event_ts, source=source, source_group=group, fact=fact, text=text,
             window_seconds=getattr(settings, "incident_window_seconds", 1200),
             confirmation_sources=getattr(settings, "confirmation_sources", 2),
+            official=is_official,
         )
         # 5) Publish active recognised threats immediately; a single source is
         # allowed and clearly labelled in the alert. Fast monitoring posts
@@ -703,6 +713,7 @@ def weapon_group(weapon_class: str) -> str:
 # Callback-префиксы фидбека под алертами в ЛС.
 CB_FEEDBACK_USEFUL = "fbu:"
 CB_FEEDBACK_NOISE = "fbn:"
+CB_FEEDBACK_ERROR = "fbe:"  # «❌ Помилка»: разметка ошибочных постов для обучения
 
 # Ссылка для кнопки «Поділитися» (переопределяется из settings в run()).
 PROMO_URL = "https://t.me/AirRadarAI"
@@ -764,11 +775,17 @@ def _share_row(text: str) -> list:
 
 
 def _feedback_kb(message_key: str, text: str = "") -> list:
-    """Кнопки «✅ корисно / ➖ шум» + «↗ Поділитися» под алертом в ЛС."""
+    """Кнопки «✅ корисно / ➖ шум / ❌ помилка» + «↗ Поділитися» под алертом в ЛС.
+
+    «Помилка» — разметка пользователями ошибочных постов: датасет для
+    обучения точности (считается отдельным голосом в alert_feedback.error).
+    """
     from telethon import Button
     rows = [[
         Button.inline("✅ Корисно", data=CB_FEEDBACK_USEFUL + message_key),
         Button.inline("➖ Шум", data=CB_FEEDBACK_NOISE + message_key),
+    ], [
+        Button.inline("❌ Помилка", data=CB_FEEDBACK_ERROR + message_key),
     ]]
     if text:
         rows.append(_share_row(text))
@@ -798,7 +815,7 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     только разрешённые группы (ballistic/uav/other). Отбой и алерты без
     канонического класса фильтр не глушит — управляющие сообщения важнее.
 
-    feedback_key: ключ поста для кнопок «✅ корисно / ➖ шум» (если задан).
+    feedback_key: ключ поста для кнопок «✅ корисно / ➖ шум / ❌ помилка» (если задан).
     """
     # Ночной режим не глушит отбой: определяем по первой строке рендера.
     is_stand_down = text.startswith("🟢 ВІДБІЙ")
@@ -873,7 +890,7 @@ async def _healthcheck_loop(summarizer: SummarizerProtocol, interval: int) -> No
 PRE_WAVE_CHECK_INTERVAL = 60
 
 
-async def _check_standdown(bot_client, db: Database) -> int:
+async def _check_standdown(bot_client, db: Database, publisher=None) -> int:
     """Один проход: countdown отбоя «відбій орієнтовно за ~N хв».
 
     Для каждого региона с активной тревогой проверяем standdown_notice:
@@ -882,7 +899,8 @@ async def _check_standdown(bot_client, db: Database) -> int:
     содержит «почему»: возраст последнего полётного поста и медиану
     статистики. Отправка через _notify_subscribers — ночной режим и
     фильтры работают как у обычных алертов (weapon_class='' — без
-    фильтрации типов: управляющее сообщение).
+    фильтрации типов: управляющее сообщение). publisher: тот же текст
+    дополнительно уходит в целевой канал (чат), а не только в ЛС.
     Возвращает число отправленных уведомлений (для тестов и лога).
     """
     from wave_forecast import format_standdown_notice, standdown_notice
@@ -893,9 +911,11 @@ async def _check_standdown(bot_client, db: Database) -> int:
         if not info.get("notify"):
             continue
         text = format_standdown_notice(slug, info)
-        await _notify_subscribers(bot_client, db, [slug], text, weapon_class="")
+        if bot_client is not None:
+            await _notify_subscribers(bot_client, db, [slug], text, weapon_class="")
+            sent += 1
+        await _publish_notice(publisher, text)
         db.record_standdown_notice(slug, int(info["flight_ts"]))
-        sent += 1
         logger.info(
             "Countdown отбоя: %s — орієнтовно ~%s хв (медіана ~%d хв)",
             slug, info.get("remaining_min", 0), info.get("median_minutes", 0),
@@ -903,13 +923,14 @@ async def _check_standdown(bot_client, db: Database) -> int:
     return sent
 
 
-async def _check_pre_wave(bot_client, db: Database) -> int:
+async def _check_pre_wave(bot_client, db: Database, publisher=None) -> int:
     """Один проход: уведомить подписчиков о возможной новой волне.
 
     Для каждого региона с недавним отбоем проверяем статистику волн
     (pre_wave_notice): окно «медиана паузы ± LEAD/LAG» + не отправляли
     ли уже на этот эпизод. Отправка идёт через _notify_subscribers —
     ночной режим фильтрует получателей так же, как обычные алерты.
+    publisher: тот же текст дополнительно уходит в целевой канал (чат).
     Возвращает число отправленных уведомлений (для тестов и лога).
     """
     from wave_forecast import format_pre_wave_notice, pre_wave_notice
@@ -921,9 +942,11 @@ async def _check_pre_wave(bot_client, db: Database) -> int:
         if not info.get("notify"):
             continue
         text = format_pre_wave_notice(slug, info)
-        await _notify_subscribers(bot_client, db, [slug], text, weapon_class="")
+        if bot_client is not None:
+            await _notify_subscribers(bot_client, db, [slug], text, weapon_class="")
+            sent += 1
+        await _publish_notice(publisher, text)
         db.record_wave_notice(slug, int(info["episode_end_ts"]))
-        sent += 1
         logger.info(
             "Предупреждение «можлива тривога»: %s (медіана ~%d хв)",
             slug, info.get("median_minutes", 0),
@@ -931,20 +954,41 @@ async def _check_pre_wave(bot_client, db: Database) -> int:
     return sent
 
 
+async def _publish_notice(publisher, text: str) -> None:
+    """Опубликовать прогнозное уведомление в канал (best effort).
+
+    Прогнозы (countdown отбоя, «можлива нова тривога») раньше уходили
+    только в ЛС подписчикам. По правилу продукта они должны быть видны
+    и в канале. Бренд-строка в конце — как у обычных постов (Publisher
+    делает её кликабельной ссылкой на наш канал).
+    """
+    if publisher is None:
+        return
+    from alert_renderer import SOURCE_BRAND_LINE
+
+    try:
+        sent = await publisher.send(f"{text}\n\n{SOURCE_BRAND_LINE}")
+        if not sent:
+            logger.warning("Прогноз не опубликован в канал: отправка не удалась")
+    except Exception as exc:  # noqa: BLE001 — прогноз не должен ронять цикл
+        logger.warning("Прогноз не опубликован в канал: %s", exc)
+
+
 async def _pre_wave_loop(bot_client, db: Database, interval: int = PRE_WAVE_CHECK_INTERVAL,
-                         pre_wave: bool = True, standdown: bool = True) -> None:
+                         pre_wave: bool = True, standdown: bool = True,
+                         publisher=None) -> None:
     """Фоновый цикл прогнозов: countdown отбоя + «можлива нова тривога»."""
     try:
         while True:
             await asyncio.sleep(interval)
             try:
                 if standdown:
-                    await _check_standdown(bot_client, db)
+                    await _check_standdown(bot_client, db, publisher)
             except Exception:  # noqa: BLE001 — фоновая задача не должна падать
                 logger.exception("Сбой проверки «відбій орієнтовно»")
             try:
                 if pre_wave:
-                    await _check_pre_wave(bot_client, db)
+                    await _check_pre_wave(bot_client, db, publisher)
             except Exception:  # noqa: BLE001 — фоновая задача не должна падать
                 logger.exception("Сбой проверки «можлива нова тривога»")
     except asyncio.CancelledError:

@@ -297,11 +297,21 @@ def detect_region(text: str, channel: str = "") -> list[str]:
     return found
 
 
+# Служебные slug-и инцидентов (не области): отображаются человекочитаемо,
+# а не сырым «multi:» в тикере/статистике (правило: без внутренностей).
+SPECIAL_REGION_NAMES: dict[str, str] = {
+    "multi": "Кілька областей",
+    "unknown": "Регіон уточнюється",
+}
+
+
 def region_name(slug: str) -> str:
     """Отображаемое имя региона по slug-у (для меню/сообщений)."""
     entry = REGIONS.get(slug)
     if entry:
         return entry[0]
+    if slug in SPECIAL_REGION_NAMES:
+        return SPECIAL_REGION_NAMES[slug]
     return ZONE_NAMES.get(slug, slug)  # fallback: Київ-зоны и неизвестные slug-и
 
 

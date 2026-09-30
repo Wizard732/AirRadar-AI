@@ -337,3 +337,55 @@ def clean_signature(text: str) -> str:
     # Схлопнуть пустые строки, оставшиеся после вырезанных подписей.
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned).strip()
     return cleaned if cleaned else head.strip()
+
+
+# Служебные префиксы внутренних статусов, попавшие в текст поста
+# (сборные сводки агрегатора: «multi: …», «unknown: …»).
+_SERVICE_PREFIX_RE = re.compile(r"^\s*(?:multi|unknown)\s*:\s*", re.IGNORECASE)
+
+# Markdown-ссылки общего вида [текст](url) — не только t.me: news-сайты и
+# репосты мониторинговых каналов. Имя ссылки оставляем, URL вырезаем.
+_MD_LINK_RE = re.compile(r"\[([^\]\n]{0,120})\]\([^)\n]{0,300}\)")
+
+# Голые ссылки (http/https/www) — в выводе им не место (правило №6).
+_URL_RE = re.compile(r"\b(?:https?:)?//[^\s]{2,120}|\bwww\.[^\s]{2,120}")
+
+
+def public_text(text: str, limit: int = 90) -> str:
+    """Однострочный публичный текст события для карты, тикера и бота.
+
+    Правило №6: имена каналов и ссылки не попадают в вывод. Срезает
+    подписи (clean_signature), любые t.me-ссылки и декоративные вставки,
+    общие markdown-ссылки и голые URL, служебные префиксы ('multi:'),
+    схлопывает переносы и обрезает по границе слова с «…» (не «Терни Б»,
+    а «БПЛА на Терни…»).
+    """
+    if not text:
+        return ""
+    cleaned = clean_signature(text)
+    if not cleaned:
+        # clean_signature счёл весь текст подписью (канал-префикс вида
+        # «✙ Розвідка неба ✙ БпЛА…»): для вывода всё равно берём текст,
+        # вырезав только ссылки и декор, а не теряя контент целиком.
+        cleaned = _strip_channel_links(text)
+    cleaned = _strip_channel_links(cleaned)
+    # Markdown-разметка жирного/курсива («**Чернігівщина:**») в вывод не идёт.
+    cleaned = cleaned.replace("**", "")
+    cleaned = _MD_LINK_RE.sub(r"\1", cleaned)
+    cleaned = _URL_RE.sub(" ", cleaned)
+    cleaned = _SERVICE_PREFIX_RE.sub("", cleaned)
+    # После срезанной ссылки-атрибуции остаётся «: текст» — ведущие знаки прочь.
+    cleaned = re.sub(r"^[\s:;,.\-–—]+", "", cleaned)
+    # Одна строка: переносы и двойные пробелы после вырезанных блоков.
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    # Хвостовая атрибуция после срезанной ссылки: «Сумщина: БПЛА…» без
+    # markdown уже чистый текст, но ведущее имя региона с «:» — читаемо.
+    if len(cleaned) <= limit:
+        return cleaned
+    cut = cleaned[:limit]
+    # По границе слова: режем до последнего пробела, хвост-мусор счищаем.
+    # Если пробелов нет (одно длинное слово) — оставляем жёсткий кусок.
+    if " " in cut:
+        cut = cut[: cut.rfind(" ")]
+    cut = cut.rstrip(" ,;:!.«»()[]-–—")
+    return (cut + "…") if cut else (cleaned[:limit].rstrip() + "…")

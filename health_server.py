@@ -69,7 +69,9 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
                     forecast[slug] = fc
         except Exception as exc:  # noqa: BLE001
             logger.debug("forecast failed: %s", exc)
-        # Добавим возраст в минутах.
+        # Добавим возраст в минутах. Текст — публичный (правило №6):
+        # без ссылок/имён каналов и служебных префиксов, одна строка.
+        from fast_filter import public_text
         now = int(time.time())
         result = []
         for t in threats:
@@ -77,7 +79,7 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
                 "ts": t["ts"],
                 "type": t["type"],
                 "region": t["region"],
-                "text": t["text"][:200],
+                "text": public_text(t.get("text") or "", 200),
                 "status": t.get("status", "corroborated"),
                 "sources": t.get("source_count", 2),
                 "origin": t.get("origin", ""),
