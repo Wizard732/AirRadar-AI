@@ -653,9 +653,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kharkivska", "text": "Харківщина: БПЛА на Печеніги", "sources": 1, "origin": "", "destination": "kharkivska", "age_min": 14}, {"type": "uav", "region": "chernigivska", "text": "БПЛА на Чернігів", "sources": 1, "origin": "", "destination": "chernigivska", "age_min": 14}, {"type": "uav", "region": "poltavska", "text": "Полтавщина: БПЛА на Котельву", "sources": 1, "origin": "", "destination": "poltavska", "age_min": 26}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Київщина: БПЛА на Вишгород", "sources": 1, "origin": "", "destination": "kyivska", "age_min": 0}, {"type": "uav", "region": "kharkivska", "text": "БПЛА на Харків", "sources": 1, "origin": "", "destination": "kharkivska", "age_min": 7}, {"type": "uav", "region": "chernigivska", "text": "БПЛА на Чернігів", "sources": 1, "origin": "", "destination": "chernigivska", "age_min": 24}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 5, "standdown_live": true, "next_wave_min": 32, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
