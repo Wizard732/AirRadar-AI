@@ -27,6 +27,14 @@ class CityCoordsTests(unittest.TestCase):
     def test_no_city(self):
         self.assertEqual(city_coords.detect_city("Тривога у Києві"), "")
 
+    def test_district_beats_city(self):
+        # Район конкретнее города: «Харків, Салтівка» → Салтівка,
+        # а не центр Харкова (самое длинное совпадение побеждает).
+        self.assertEqual(city_coords.detect_city("Приліт у Харків, Салтівка"), "saltivka")
+        self.assertEqual(city_coords.detect_city("ППО працює над Оболонню"), "obolon")
+        self.assertEqual(city_coords.detect_city("БпЛА на Русанівці"), "rusanivka")
+        self.assertEqual(city_coords.detect_city("Корабельний район Миколаєва"), "korabelnyi")
+
     def test_city_region_consistency(self):
         for slug, (name, region, lat, lon, keys) in city_coords.CITIES.items():
             self.assertIn(region, city_coords.REGION_CENTROIDS, slug)

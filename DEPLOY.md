@@ -96,12 +96,12 @@ python3 -m venv .venv
 ```bash
 nano .env
 ```
-Вставь (заполни `GROQ_API_KEY` и проверь остальное):
+Вставь (заполни все `replace_me` — значения индивидуальны, НИКОГДА не коммить реальные ключи):
 ```
-TG_API_ID=39886153
-TG_API_HASH=4a35674168077b76ceaf6d3a2bffb1b6
+TG_API_ID=replace_me_with_api_id
+TG_API_HASH=replace_me_with_api_hash
 SESSION_NAME=airradar
-BOT_TOKEN=8560184184:AAHc1eIDI_0zbIxyJpyBsKugxNH6X-9soqI
+BOT_TOKEN=replace_me_with_bot_token
 TARGET_CHANNEL=@AirRadarAI
 SOURCE_CHANNELS=@rozvidkaneba,@KievskiyVanek,@poznyakyosokorkykharkivskiy,@truexakyiv,@raketa_trevoga,@kiev_levyy_bereg,-1003979438669
 LLM_BACKEND=groq
@@ -113,6 +113,10 @@ DEDUP_TTL=60
 HTTP_TIMEOUT=30
 HEALTHCHECK_INTERVAL=300
 ```
+> 🔒 Реальные `TG_API_ID` / `TG_API_HASH` / `BOT_TOKEN` / номер телефона —
+> только в `.env` на сервере (он в `.gitignore`). Если секрет попал в git —
+> он считается скомпрометированным: отзови токен у @BotFather и выпусти новый,
+> чистка файла из истории не помогает (история остаётся).
 Сохранить: **Ctrl+O**, Enter, **Ctrl+X**.
 
 ## Шаг 7. Первый запуск — вход в Telegram
@@ -124,7 +128,7 @@ HEALTHCHECK_INTERVAL=300
 .venv/bin/python main.py
 ```
 Telethon спросит:
-- **Phone:** `+380501760096` (твой номер — НЕ bot token!)
+- **Phone:** твой номер (он нигде не должен попадать в git)
 - **Code:** код из SMS/TG
 - **Password:** твой 2FA-пароль (если включён)
 
