@@ -653,9 +653,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kirovohradska", "text": "БпЛА на Кропивницький слкир", "sources": 1, "origin": "", "destination": "kirovohradska", "age_min": 1}, {"type": "uav", "region": "multi", "text": "Київщина: БпЛА на Бородянку БпЛА на Обухів БпЛА на Ржищів БпЛА на Яготин Сумщина: БпЛА на Білопілля БпЛА на Терни Миколаївщина: БпЛА на Вознесенськ", "sources": 1, "origin": "", "destination": "multi", "age_min": 2}, {"type": "uav", "region": "multi", "text": "Київщина: Реактивний БпЛА курсом на Бородянку Реактивний БпЛА курсом на Обухів Реактивний БпЛА курсом на Ржищів Реактивні БпЛА курсом на Яготин Сумщина: Реактивний БпЛА курсом на Білопілля Реактивний…", "sources": 1, "origin": "", "destination": "multi", "age_min": 3}, {"type": "uav", "region": "kyivska", "text": "БпЛА на Київ", "sources": 2, "origin": "", "destination": "kyivska", "age_min": 11}, {"type": "strat_aviation", "region": "unknown", "text": "⚠️На Борти", "sources": 1, "origin": "", "destination": "unknown", "age_min": 17}, {"type": "uav", "region": "unknown", "text": "Лукʼянівка - БпЛА", "sources": 1, "origin": "", "destination": "unknown", "age_min": 19}, {"type": "uav", "region": "multi", "text": "Київщина: БпЛА на Димер Чернігівщина: 2 БпЛА на Срібне Сумщина: БпЛА на Ворожбу Полтавщина: БпЛА на Кременчук", "sources": 1, "origin": "", "destination": "multi", "age_min": 24}, {"type": "stand_down", "region": "unknown", "text": "Там нові шахеди летять. Останнім часом «відбій» відчувається, як коротка рекламна пауза", "sources": 1, "origin": "", "destination": "unknown", "age_min": 28}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 4, "standdown_live": true, "next_wave_min": 32, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
