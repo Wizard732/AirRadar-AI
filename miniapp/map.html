@@ -222,13 +222,19 @@ const KYIV_BANK = {
   kyiv_left: {
     coords: [50.4668, 30.6380], // Дарниця / Лівобережна
     keys: ['лівий берег', 'левый берег', 'левый', 'лівобереж', 'лівобережж', 'дарниц',
-      'позняк', 'осокорк', 'харківськ', 'деснянськ', 'троєщин', 'русанів', 'бортнич', 'дніпровськ'],
+      'позняк', 'осокорк', 'харківськ', 'деснянськ', 'троєщин', 'русанів', 'бортнич', 'дніпровськ',
+      // Лівобережні райцентри Київщини
+      'бровар', 'переяслав', 'яготин', 'баришівк', 'згурівк', 'кагарлик', 'славутич'],
   },
   kyiv_right: {
     coords: [50.4440, 30.5150], // правобережный центр
     keys: ['правий берег', 'правый берег', 'правый', 'правобереж', 'правобережж',
       'оболон', 'печерськ', 'голосіїв', 'теремки', 'святошин', "солом'янск", 'соломянск',
-      'шулявк', 'подол', 'борщагівк', 'жуляни', 'видубичі'],
+      'шулявк', 'подол', 'борщагівк', 'жуляни', 'видубичі',
+      // Правобережні райцентри Київщини: «курсом на Ржищів» — не «весь Киев»
+      'ржищів', 'миронівк', 'васильк', 'біла церкв', 'белая церков',
+      'фастів', 'фастов', 'обухів', 'вишгород', 'буч', 'ірпін', 'ирпен',
+      'гостомел', 'боярк', 'вишнев', 'сквир', 'тетіїв', 'димер'],
   },
 };
 
@@ -868,14 +874,35 @@ const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-
 
 function resetAnim() { animDots = []; }
 
+// Мини-силуэт летящего аппарата для ведущей точки вектора: та же форма,
+// что у пина (WEAPON_SVG), нос повёрнут по курсу (0° = север).
+function flyingIconHtml(type, color, angle) {
+  const shape = TYPE_ICON_SHAPE[type] || 'drone';
+  const svg = (WEAPON_SVG[shape] || WEAPON_SVG.drone)
+    .replaceAll('{c}', color)
+    .replaceAll('{s}', 'rgba(0,0,0,0.55)');
+  return `<div style="transform:rotate(${angle}deg);filter:drop-shadow(0 0 4px ${color});display:flex">` +
+    `<svg width="20" height="20" viewBox="0 0 24 24" style="display:block">${svg}</svg></div>`;
+}
+
 function spawnAnimDots(from, to, color, type) {
   if (REDUCED_MOTION) return;
-  const dots = [];
-  for (let i = 0; i < 4; i++) {
+  const angle = Math.round(Math.atan2(to[1] - from[1], to[0] - from[0]) * 180 / Math.PI);
+  // Ведущий элемент вектора — сам летящий аппарат: мини-силуэт типа,
+  // развёрнутый носом по курсу. Позади — тающий шлейф точек.
+  const lead = L.marker(from, {
+    icon: L.divIcon({
+      className: '', html: flyingIconHtml(type, color, angle),
+      iconSize: [20, 20], iconAnchor: [10, 10],
+    }),
+    interactive: false,
+  }).addTo(vectorLayer);
+  const dots = [lead];
+  for (let i = 1; i < 4; i++) {
     dots.push(L.circleMarker(from, {
-      radius: i === 0 ? 4.5 : Math.max(1.5, 3 - i * 0.5),
-      color: i === 0 ? '#fff' : color, weight: i === 0 ? 1 : 0,
-      fillColor: color, fillOpacity: i === 0 ? 0.95 : 0.38 - i * 0.09,
+      radius: Math.max(1.5, 3 - i * 0.5),
+      color: color, weight: 0,
+      fillColor: color, fillOpacity: 0.38 - i * 0.09,
       interactive: false,
     }).addTo(vectorLayer));
   }
@@ -968,10 +995,15 @@ function renderAll() {
     const fresh = items.some(t => t.age_min < 10);
     const confirmed = items.some(t => Number(t.sources || 1) >= 2);
 
-    // Слой 1: мягкая пульсирующая зона. Город — компактная зона,
-    // область/берег — широкая (как раньше).
-    if (fresh) {
-      const zoneR = pin.isCity ? 8000 : (confirmed ? 34000 : 24000);
+    // Слой 1: мягкая пульсирующая зона — только там, где она честна.
+    // Район/город — компактные 8 км. Берег Киева — тоже компактный,
+    // иначе снова «угроза на весь Киев». Голая «kyivska» (район в тексте
+    // не назван) зону не получает вовсе: силуэт и вектор показывают
+    // конкретный полёт, а не «весь Киев под угрозой».
+    const zoneR = (pin.isCity || pin.key === 'kyiv_left' || pin.key === 'kyiv_right')
+      ? 8000
+      : (pin.key === 'kyivska' ? 0 : (confirmed ? 34000 : 24000));
+    if (fresh && zoneR > 0) {
       L.circle(coords, {
         radius: zoneR,
         color: color, weight: 1, opacity: 0.35,
@@ -1035,7 +1067,7 @@ function renderAll() {
         L.polyline([route.from, end], {
           color: color, weight: wMain, opacity: oMain, dashArray: '2 7', lineCap: 'round',
         }).addTo(vectorLayer)
-          .bindTooltip(`➤ ${route.fromName} → ${route.toName} · ≈${eta} хв (орієнтовно${confirmedVec ? '' : ', одне джерело'})`, { direction: 'top' });
+          .bindTooltip(`➤ ${route.fromName} → ${route.toName} · ≈${eta} хв (орієнтовно)`, { direction: 'top' });
         // наконечник стрелки
         const w = 0.05, d = 0.09;
         const left = [end[0] - ux * d - uy * w, end[1] - uy * d + ux * w];
@@ -1173,8 +1205,10 @@ function openThreatSheet(pin, items) {
   if (['uav', 'rockets'].includes(layerOf(top)) && eta) {
     etaLine = ` · ≈${etaMinutes(eta.from, eta.to, top.type)} хв до ${eta.toName} (орієнтовно)`;
   }
+  // Одиночный источник не помечаем: «одне джерело» в каждой карточке — шум.
+  // Подтверждение несколькими источниками по-прежнему показываем.
   document.getElementById('sheetMeta').textContent =
-    `${items.length} подія(й) · ${confirmed ? 'підтверджено кількома джерелами' : 'одне джерело — очікує підтвердження'}${etaLine}`;
+    `${items.length} подія(й)${confirmed ? ' · підтверджено кількома джерелами' : ''}${etaLine}`;
   document.getElementById('sheetBody').innerHTML = items.slice(0, 6).map(t =>
     `<div class="ev"><div class="t">${fmtClock(t.age_min)} · ${t.age_min} хв тому · джерел: ${escapeHtml(t.sources)}</div>` +
     `${escapeHtml(TYPE_LABELS[t.type] || t.type)}<br>${escapeHtml((t.text || '').replaceAll('**', ''))}</div>`

@@ -83,8 +83,8 @@ def build_rich_alert(
         if confirmation.get("status") in {"corroborated", "officially_confirmed"}:
             label = "офіційним джерелом" if confirmation.get("status") == "officially_confirmed" else f"{confirmation.get('sources', 2)} незалежними джерелами"
             lines.append(f"✅ Підтверджено {label}")
-        else:
-            lines.append("⚪ Повідомлення одного джерела; потребує підтвердження")
+        # Одиночное сообщение статуса не получает: «повідомлення одного
+        # джерела» в каждой сводке — шум без пользы для читателя.
 
     if regions:
         lines.append(f"📍 Регіон: {region_name(regions[0])}")

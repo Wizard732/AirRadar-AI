@@ -26,25 +26,28 @@ except (AttributeError, OSError):  # pragma: no cover
 TEMPLATE = Path(__file__).parent / "miniapp" / "map.html"
 OUTPUT = Path(__file__).parent / "map_live.html"
 
-
 # Типы, которые действительно летят/бьют сейчас. Всё остальное
 # («могут быть пуски», новости ВПК, болтовня) на карту не попадает:
-# пользователь должен видеть цель, а не слухи.
+# пользователь должен видеть цель, а не слухи. Стадия 'potential'
+# («могут быть пуски») отсечена ещё на уровне БД (active_threats) —
+# здесь второй рубеж по типу: новости/болтовня/alert/decoy мимо
+# белого списка в map_live.html не вшиваются вовсе.
 MAP_THREAT_TYPES = frozenset({
     "shahed", "uav", "fpv", "recon_drone",
     "ballistic", "cruise_missile", "missile", "air_missile", "coastal_missile",
     "kab", "aviation", "tac_aviation", "strat_aviation",
     "mlrs", "artillery", "air_defense",
     "explosion",
-    "other",   # тип уточняется, но инцидент реальный (stage=imminent/unknown)
+    "stand_down",  # зелёная зона «тихо» после отбоя
+    "other",       # тип уточняется, но инцидент реальный (stage=imminent/unknown)
 })
 
 
 def generate():
     db = Database("airradar.db")
-    # Стаupia 'potential' («могут быть пуски») отсечены на уровне БД —
-    # см. database.active_threats. Здесь второй рубеж: только летящие типы.
+    # 'potential' отсечён на уровне БД; здесь второй рубеж — белый список типов.
     threats = db.active_threats(within_seconds=1800, include_reported=True)
+    threats = [t for t in threats if t.get("type") in MAP_THREAT_TYPES]
     now = int(time.time())
     data = [
         {
@@ -57,7 +60,6 @@ def generate():
             "age_min": (now - t["ts"]) // 60,
         }
         for t in threats
-        if t["type"] in MAP_THREAT_TYPES
     ]
     reports = [
         {"lat": r["lat"], "lon": r["lon"], "region": r["region"],

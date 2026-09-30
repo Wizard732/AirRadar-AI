@@ -355,6 +355,84 @@ def live_standdown(db: Database, region: str, *, now: int | None = None) -> dict
     }
 
 
+# Проактивное «відбій орієнтовно за ~N хв»: сообщаем один раз на эпизод
+# полёта, когда расчётный остаток до отбоя опускается до этого порога.
+STANDDOWN_NOTICE_LEAD_MIN = 25
+
+
+def standdown_notice(db: Database, region: str, *, now: int | None = None) -> dict[str, Any]:
+    """Нужно ли прямо сейчас написать в чат «відбій орієнтовно за ~N хв».
+
+    Логика (KISS, честно): в регионе активная тревога + live-статистика
+    доступна (≥ MIN_SAMPLES эпизодов) + цель в воздухе (полётный пост в
+    пределах STANDDOWN_MAX_GAP_S) + остаток до отбоя по медиане опустился
+    до STANDDOWN_NOTICE_LEAD_MIN + на этот эпизод (ключ — ts последнего
+    полётного поста) уведомление ещё не отправлялось. Новый полётный
+    пост = новый эпизод = сообщение можно отправить снова.
+    """
+    now = int(now if now is not None else time.time())
+    try:
+        conn = db._conn  # type: ignore[attr-defined]
+        if conn is None:
+            return {"notify": False, "reason": "no_db"}
+        active = conn.execute(
+            "SELECT 1 FROM alerts WHERE region=? AND ended_ts IS NULL LIMIT 1",
+            (region,),
+        ).fetchone()
+        if not active:
+            return {"notify": False, "reason": "no_alert"}
+        live = live_standdown(db, region, now=now)
+        # no_active_flight приходит с available=False — проверяем его ДО
+        # общей ветки no_stats, иначе «нет полёта» навсегда маскируется под
+        # «недостаточно данных» (регрессия test_silent_when_no_recent_flight).
+        if live.get("no_active_flight"):
+            return {"notify": False, "reason": "no_flight", "samples": live.get("samples", 0)}
+        if not live["available"]:
+            return {"notify": False, "reason": "no_stats", "samples": live.get("samples", 0)}
+        last = _last_flight_ts(conn, region, now - STANDDOWN_MAX_GAP_S, now)
+        if last is None:
+            return {"notify": False, "reason": "no_flight"}
+        if db.standdown_notice_sent(region, last):
+            return {"notify": False, "reason": "already_sent"}
+        if live["remaining_min"] > STANDDOWN_NOTICE_LEAD_MIN:
+            return {"notify": False, "reason": "too_early"}
+        return {
+            "notify": True,
+            "flight_ts": int(last),
+            "remaining_min": int(live["remaining_min"]),
+            "any_minute_now": bool(live["any_minute_now"]),
+            "median_minutes": int(live["median_minutes"]),
+            "elapsed_minutes": int(live["elapsed_minutes"]),
+            "samples": int(live["samples"]),
+        }
+    except sqlite3.Error:
+        return {"notify": False, "reason": "db_error"}
+
+
+def format_standdown_notice(region: str, info: dict[str, Any], name: str = "") -> str:
+    """Текст countdown-сообщения «відбій орієнтовно за ~N хв» + почему."""
+    from regions import region_name
+
+    title = name or region_name(region)
+    mins = int(info.get("remaining_min", 0))
+    head = (
+        f"⏳ {title} — відбій орієнтовно будь-якої хвилини"
+        if info.get("any_minute_now")
+        else f"⏳ {title} — відбій орієнтовно за ~{mins} хв"
+    )
+    reason = (
+        f"Чому: останнє повідомлення про ціль у повітрі було ~"
+        f"{int(info.get('elapsed_minutes', 0))} хв тому, а за статистикою "
+        f"регіону ({int(info.get('samples', 0))} епізодів) від останнього "
+        f"поста про політ до відбою проходить ~"
+        f"{int(info.get('median_minutes', 0))} хв."
+    )
+    return (
+        f"{head}\n\n{reason}\n\n"
+        "⚠️ Статистична оцінка, не гарантія. Сирени — головне джерело."
+    )
+
+
 def region_forecast(db: Database, region: str, *, now: int | None = None) -> dict[str, Any]:
     """Компактный прогноз для карты/API: только числа, без текста.
 

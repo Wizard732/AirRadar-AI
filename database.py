@@ -94,6 +94,19 @@ class Database:
                 )
                 """
             )
+            # Проактивные уведомления «відбій орієнтовно за ~N хв»: одно на
+            # эпизод полёта (ключ — ts последнего полётного поста). Новый
+            # полётный пост = новый эпизод = можно уведомить снова.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS standdown_notices (
+                    region    TEXT    NOT NULL,
+                    flight_ts INTEGER NOT NULL,
+                    sent_ts   INTEGER NOT NULL,
+                    UNIQUE(region, flight_ts)
+                )
+                """
+            )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_end ON alerts(region, ended_ts)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_region ON threats(region)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_ts ON threats(ts)")
@@ -789,6 +802,45 @@ class Database:
                 return row is not None
         except sqlite3.Error:
             return False
+
+    def record_standdown_notice(self, region: str, flight_ts: int, *, sent_ts: int | None = None) -> None:
+        """Запомнить, что «відбій орієнтовно за ~N хв» по этому полёту отправлено."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO standdown_notices (region, flight_ts, sent_ts) VALUES (?, ?, ?)",
+                    (region, int(flight_ts), int(sent_ts if sent_ts is not None else time.time())),
+                )
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать standdown-notice: %s", exc)
+
+    def standdown_notice_sent(self, region: str, flight_ts: int) -> bool:
+        """True, если countdown отбоя по этому полётному посту уже отправляли."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT 1 FROM standdown_notices WHERE region = ? AND flight_ts = ?",
+                    (region, int(flight_ts)),
+                ).fetchone()
+                return row is not None
+        except sqlite3.Error:
+            return False
+
+    def active_alert_regions(self) -> list[str]:
+        """Регионы с активной (незакрытой) тревогой — база countdown-цикла."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT DISTINCT region FROM alerts WHERE ended_ts IS NULL"
+                ).fetchall()
+                return [r["region"] for r in rows]
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось прочитать активные тревоги: %s", exc)
+            return []
 
     # ------------------------------------------------------------------
     #  Персистентная дедупликация (отсев повторов между каналами)

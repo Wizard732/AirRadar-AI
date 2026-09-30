@@ -61,12 +61,19 @@ SOURCE_BRAND_LINE = "📡 Джерело: AirRadar AI"
 
 
 def _status(confirmation: dict) -> str:
+    """Строка статуса; '' = строку не рисуем вовсе.
+
+    Одиночное сообщение одного источника НЕ помечается никак: строка
+    «⚠️ Статус: повідомлення одного джерела» в каждом посте — шум без
+    пользы для читателя. Подтверждение (2+ источника / официальное)
+    по-прежнему показываем — это ценная информация.
+    """
     status = confirmation.get("status", "reported")
     if status == "officially_confirmed":
         return "підтверджено офіційним джерелом"
     if status == "corroborated":
         return f"підтверджено {confirmation.get('sources', 2)} незалежними джерелами"
-    return "повідомлення одного джерела"
+    return ""
 
 
 def _region_title(fact: IncidentFact) -> str:
@@ -118,7 +125,9 @@ def render_evidence_alert(
     if eta and eta != "—":
         lines.append(f"⏱ Типовий підліт: {eta} (орієнтовно)")
     lines.append("")
-    lines.append(f"⚠️ Статус: {_status(confirmation)}")
+    status_line = _status(confirmation)
+    if status_line:
+        lines.append(f"⚠️ Статус: {status_line}")
     # Текст источника — недоверенные данные: без разметки, но с сохранением
     # авторских переносов строк (сводки вида «Київщина \n 1 БпЛА на Димер»
     # схлопывать в одну строку нечитаемо). Лимит 1200: полные сводки

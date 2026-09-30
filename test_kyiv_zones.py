@@ -58,6 +58,19 @@ class KyivZoneTests(unittest.TestCase):
         self.assertEqual(detect_kyiv_zone("Повітряна тривога у Києві"), "")
         self.assertEqual(detect_kyiv_zone(""), "")
 
+    def test_oblast_towns_map_to_bank(self):
+        """Райцентры Киевщины знают свой берег: Ржищів/Миронівка — правый."""
+        # Живой кейс: сводка «курсом на Ржищів / Миронівку» — правый берег.
+        self.assertEqual(
+            detect_kyiv_zone("Реактивний БпЛА курсом на Ржищів"), "kyiv_right"
+        )
+        self.assertEqual(
+            detect_kyiv_zone("Реактивний БпЛА курсом на Миронівку"), "kyiv_right"
+        )
+        # Левый берег: Бровары/Кагарлик.
+        self.assertEqual(detect_kyiv_zone("БпЛА на Бровари"), "kyiv_left")
+        self.assertEqual(detect_kyiv_zone("цілі на Кагарлик"), "kyiv_left")
+
     # --- рассылка ---
     def test_notification_routes_to_zone_subscribers(self):
         """Подписчики kyivska + лівого берега получают текст про Дарницю, правый — нет."""
@@ -90,6 +103,28 @@ class KyivZoneTests(unittest.TestCase):
 
         recipients = sorted(uid for uid, _t, _b in bot.sent)
         self.assertEqual(recipients, [1, 2, 3])
+
+    def test_notification_oblast_town_routes_to_one_bank(self):
+        """«Курсом на Ржищів» (правый берег): подписчик левого берега молчит.
+
+        Живой кейс из прод-поста «Кілька областей»: подписчик выбрал только
+        левый берег, но получил пост про Ржищів/Миронівку.
+        """
+        bot = FakeBotClient()
+        db = self.db
+        db.subscribe(1, "kyivska")
+        db.subscribe(2, "kyiv_left")
+        db.subscribe(3, "kyiv_right")
+
+        text = (
+            "🔴 Кілька областей | БПЛА\n"
+            "Київщина:\nРеактивний БпЛА курсом на Ржищів\n"
+            "Реактивний БпЛА курсом на Миронівку"
+        )
+        asyncio.run(main._notify_subscribers(bot, db, ["kyivska"], text))
+
+        recipients = sorted(uid for uid, _t, _b in bot.sent)
+        self.assertEqual(recipients, [1, 3])
 
     def test_notification_deduplicates_user_across_regions(self):
         """Подписчик двух затронутых регионов получает алерт один раз."""

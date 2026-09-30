@@ -119,6 +119,12 @@ class Settings:
     # подписчики региона получают одно предупреждение на эпизод.
     pre_wave_notice: bool = True
 
+    # Проактивный countdown отбоя: во время тревоги, когда по медиане
+    # «останній політ → відбій» до отбоя остаётся ~25 мин, подписчики
+    # региона получают «відбій орієнтовно за ~N хв» с объяснением (одно
+    # сообщение на эпизод полёта).
+    standdown_notice: bool = True
+
 
 def load_settings() -> Settings:
     """Прочитать и провалидировать настройки окружения.
@@ -176,4 +182,5 @@ def load_settings() -> Settings:
         aggregate_window_sec=max(5, int(os.getenv("AGGREGATE_WINDOW_SEC", "35"))),
         in_flight_only=os.getenv("IN_FLIGHT_ONLY", "1").strip() not in ("0", "false", "no"),
         pre_wave_notice=os.getenv("PRE_WAVE_NOTICE", "1").strip() not in ("0", "false", "no"),
+        standdown_notice=os.getenv("STANDDOWN_NOTICE", "1").strip() not in ("0", "false", "no"),
     )

@@ -325,14 +325,22 @@ async def run() -> None:
             name="digest-scheduler",
         )
 
-    # --- проактивные предупреждения «можлива нова тривога» (статистика волн) ---
+    # --- проактивные прогнозы (статистика волн): countdown отбоя во время
+    #     тревоги + «можлива нова тривога» после отбоя ---
     pre_wave_task = None
-    if bot_client is not None and settings.pre_wave_notice:
+    if bot_client is not None and (settings.pre_wave_notice or settings.standdown_notice):
         pre_wave_task = asyncio.create_task(
-            _pre_wave_loop(bot_client, db),
+            _pre_wave_loop(
+                bot_client, db,
+                pre_wave=settings.pre_wave_notice,
+                standdown=settings.standdown_notice,
+            ),
             name="pre-wave-notice",
         )
-        logger.info("Предупреждения «можлива нова тривога» включены (статистика волн).")
+        logger.info(
+            "Проактивные прогнозы включены (відбій-countdown: %s, можлива тривога: %s).",
+            settings.standdown_notice, settings.pre_wave_notice,
+        )
 
     # --- graceful shutdown ---
     stop_event = asyncio.Event()
@@ -859,8 +867,40 @@ async def _healthcheck_loop(summarizer: SummarizerProtocol, interval: int) -> No
         raise
 
 
-# Интервал фоновой проверки «можлива нова тривога» (статистика волн).
+# Интервал фоновой проверки прогнозов (статистика волн):
+# «відбій орієнтовно за ~N хв» во время тревоги и «можлива нова тривога»
+# после отбоя.
 PRE_WAVE_CHECK_INTERVAL = 60
+
+
+async def _check_standdown(bot_client, db: Database) -> int:
+    """Один проход: countdown отбоя «відбій орієнтовно за ~N хв».
+
+    Для каждого региона с активной тревогой проверяем standdown_notice:
+    цель в воздухе + медиана «останній політ → відбій» по региону известна
+    + остаток опустился до порога + на этот эпизод ещё не писали. Текст
+    содержит «почему»: возраст последнего полётного поста и медиану
+    статистики. Отправка через _notify_subscribers — ночной режим и
+    фильтры работают как у обычных алертов (weapon_class='' — без
+    фильтрации типов: управляющее сообщение).
+    Возвращает число отправленных уведомлений (для тестов и лога).
+    """
+    from wave_forecast import format_standdown_notice, standdown_notice
+
+    sent = 0
+    for slug in db.active_alert_regions():
+        info = standdown_notice(db, slug)
+        if not info.get("notify"):
+            continue
+        text = format_standdown_notice(slug, info)
+        await _notify_subscribers(bot_client, db, [slug], text, weapon_class="")
+        db.record_standdown_notice(slug, int(info["flight_ts"]))
+        sent += 1
+        logger.info(
+            "Countdown отбоя: %s — орієнтовно ~%s хв (медіана ~%d хв)",
+            slug, info.get("remaining_min", 0), info.get("median_minutes", 0),
+        )
+    return sent
 
 
 async def _check_pre_wave(bot_client, db: Database) -> int:
@@ -891,13 +931,20 @@ async def _check_pre_wave(bot_client, db: Database) -> int:
     return sent
 
 
-async def _pre_wave_loop(bot_client, db: Database, interval: int = PRE_WAVE_CHECK_INTERVAL) -> None:
-    """Фоновый цикл проактивных предупреждений о возможной новой волне."""
+async def _pre_wave_loop(bot_client, db: Database, interval: int = PRE_WAVE_CHECK_INTERVAL,
+                         pre_wave: bool = True, standdown: bool = True) -> None:
+    """Фоновый цикл прогнозов: countdown отбоя + «можлива нова тривога»."""
     try:
         while True:
             await asyncio.sleep(interval)
             try:
-                await _check_pre_wave(bot_client, db)
+                if standdown:
+                    await _check_standdown(bot_client, db)
+            except Exception:  # noqa: BLE001 — фоновая задача не должна падать
+                logger.exception("Сбой проверки «відбій орієнтовно»")
+            try:
+                if pre_wave:
+                    await _check_pre_wave(bot_client, db)
             except Exception:  # noqa: BLE001 — фоновая задача не должна падать
                 logger.exception("Сбой проверки «можлива нова тривога»")
     except asyncio.CancelledError:

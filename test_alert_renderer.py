@@ -13,7 +13,9 @@ class EvidenceAlertTests(unittest.TestCase):
         )
         # Заголовок капсом — визуальный якорь.
         self.assertIn("🔴 ОДЕСЬКА ОБЛ. | БПЛА", result)
-        self.assertIn("повідомлення одного джерела", result)
+        # Одиночное сообщение статуса не получает вовсе (шум в каждом посте).
+        self.assertNotIn("повідомлення одного джерела", result)
+        self.assertNotIn("Статус:", result)
         self.assertIn("🕒 ", result)
         self.assertIn("БпЛА на Одесу", result)
         # Читабельность: блоки разделены пустыми строками.
