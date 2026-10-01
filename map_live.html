@@ -653,9 +653,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "unknown", "text": "🟢Відбій, всім горілочки🏻[", "sources": 1, "origin": "", "destination": "unknown", "age_min": 21}, {"type": "uav", "region": "kyivska", "text": "Реактивний БпЛА курсом на Київ", "sources": 2, "origin": "", "destination": "kyivska", "age_min": 26}, {"type": "uav", "region": "kyivska", "text": "• 1 БпЛА на Київщині в районі Димера.", "sources": 1, "origin": "", "destination": "kyivska", "age_min": 28}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "sumska", "text": "БПЛА на Суми", "sources": 1, "origin": "", "destination": "sumska", "age_min": 3}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 32, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 6, "standdown_live": true, "next_wave_min": 80, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
