@@ -653,9 +653,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "kab", "region": "zaporizka", "text": "Загроза КАБ для Запорізької області", "sources": 1, "origin": "", "destination": "zaporizka", "age_min": 6}, {"type": "stand_down", "region": "unknown", "text": "✅ Отбой тревожной воздухи", "sources": 1, "origin": "", "destination": "unknown", "age_min": 8}, {"type": "uav", "region": "dnipropetrovska", "text": "• Дніпро, 1 БпЛА у бік міста!", "sources": 1, "origin": "", "destination": "dnipropetrovska", "age_min": 12}, {"type": "uav", "region": "multi", "text": "Київщина: 1 БпЛА на Обухів/Васильків/Київ Полтавщина/Кіровоградщина: 1 БпЛА на Кременчук/Світловодськ з Дніпропетровщини Чернігівщина: 1 БпЛА на Куликівку/Київщину Дніпропетровщина: 1 БпЛА на…", "sources": 1, "origin": "", "destination": "multi", "age_min": 24}];
+const EMBEDDED_THREATS = [{"type": "stand_down", "region": "kyivska", "text": "💚Відбій у столиці. Насолоджуйтесь тихим часом, поки він є!", "sources": 1, "origin": "", "destination": "kyivska", "age_min": 4}, {"type": "stand_down", "region": "unknown", "text": "🟢Відбій, всім горілочки🏻[", "sources": 2, "origin": "", "destination": "unknown", "age_min": 4}, {"type": "kab", "region": "zaporizka", "text": "Загроза КАБ для Запорізької області", "sources": 1, "origin": "", "destination": "zaporizka", "age_min": 16}, {"type": "uav", "region": "dnipropetrovska", "text": "• Дніпро, 1 БпЛА у бік міста!", "sources": 1, "origin": "", "destination": "dnipropetrovska", "age_min": 22}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 34, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
