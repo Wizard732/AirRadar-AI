@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "shahed", "region": "unknown", "text": "Ожидаем до 16 шахедов в нашу сторону", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 5}, {"type": "uav", "region": "kyivska", "text": "⚠️Штож Бориспіль Якщо не зібʼють, буде віу-віу, дронова небезпека і Києве мій", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [50.619, 26.251], "to": [50.353, 30.955], "from_name": "Рівне", "to_name": "Бориспіль", "speed_kmh": 179.4, "course_deg": 93, "minutes": 14, "points": 4}, "age_min": 20}, {"type": "uav", "region": "kyivska", "text": "Київщина: БпЛА курсом на Бориспіль", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [50.619, 26.251], "to": [50.353, 30.955], "from_name": "Рівне", "to_name": "Бориспіль", "speed_kmh": 179.4, "course_deg": 93, "minutes": 14, "points": 4}, "age_min": 22}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Дніпропетровщина БпЛА курсом на Царичанку Миколаївщина БпЛА курсом на Очаків Полтавщина БпЛА курсом на Кобеляки Одещина 2 на Затоку 2 на Курортне 2 на Базарянку 2 на Приморське/Лиман", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 1}, {"type": "uav", "region": "odeska", "text": "БПЛА з АЧМ на Одещину слод", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 6}, {"type": "shahed", "region": "unknown", "text": "Ожидаем до 16 шахедов в нашу сторону", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 15}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 26, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_FORECAST = {};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
