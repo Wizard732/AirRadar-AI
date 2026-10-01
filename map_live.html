@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "unknown", "text": "✅ Отбой тревожной воздухи", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 8}, {"type": "uav", "region": "unknown", "text": "🫡 Перший дрон, який наближався до нас, збили. Тому тривога трохи відкладається.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 15}, {"type": "uav", "region": "unknown", "text": "Наразі летять два БпЛА.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 23}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Київщина 2 реактивні БпЛА на Ржищів", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 6}, {"type": "uav", "region": "kyivska", "text": "Київщина: 2х Реактивні БпЛА курсом на Ржищів", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 6}, {"type": "stand_down", "region": "unknown", "text": "✅ Отбой тревожной воздухи", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 18}, {"type": "uav", "region": "unknown", "text": "🫡 Перший дрон, який наближався до нас, збили. Тому тривога трохи відкладається.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 25}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 26, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
