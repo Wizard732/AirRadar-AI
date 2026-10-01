@@ -653,9 +653,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "mykolaivska", "text": "БПЛА на Миколаїв", "sources": 1, "origin": "", "destination": "mykolaivska", "age_min": 10}, {"type": "uav", "region": "rivnenska", "text": "Реактивний БПЛА з Житомирщини на Хмельниччину/Рівненщину", "sources": 1, "origin": "zhytomyrska", "destination": "rivnenska", "age_min": 21}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Реактивний БпЛА через Київське водосховище курсом на Вишгород/Київ.", "sources": 1, "origin": "", "destination": "kyivska", "age_min": 2}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 3, "standdown_live": true, "next_wave_min": 32, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
@@ -1366,6 +1366,8 @@ function requestGeo(forShelters) {
 
 // «Що поруч зі мною»: топ-3 активні загрози з відстанню до геопозиції.
 // Источник данных — pinGroupsCache, заполненный последним renderAll().
+// При плейбэке (minutesAgo > 0) группы не рендерятся для тостов — берём
+// кэш последнего «живого» рендера.
 function toastNearestThreats() {
   if (!userPos) return;
   const near = [];
