@@ -184,27 +184,93 @@ sudo journalctl -u airradar -f          # логи в реальном врем�
 
 ---
 
-# Обновление кода
+# ПРОД (актуально): Proxmox-хост + LXC контейнер 100 «AI-radar»
 
-После `git push` с компа — на сервере:
+Бот живёт здесь. GCP-инструкция ниже — исторический путь установки.
+
+## Топология
+
+| Компонент | Значение |
+|---|---|
+| Хост | Proxmox VE 9.1.1, `ssh root@100.114.186.112` (пароль у владельца; UI `https://100.114.186.112:8006/#`) |
+| Контейнер | **CT 100 «AI-radar»** (Ubuntu 24.04, 4 vCPU, 16 GB RAM, rootfs ~120G на `local-btrfs`) |
+| Код в CT | `/opt/airradar` — git-репо, remote `git@github.com:Wizard732/AirRadar-AI.git` (SSH-ключ контейнера) |
+| venv | `/opt/airradar/.venv` (Python 3.12) |
+| Секреты | `/opt/airradar/.env` (в `.gitignore`, деплоем не трогается), сессия `airradar.session` |
+| LLM | Ollama в CT100 (`LLM_BACKEND=ollama`, модель `airradar-qwen7b:q4`), Groq — резерв в `.env` |
+
+## Сервисы systemd внутри CT100
+
+| Юнит | Что делает |
+|---|---|
+| `airradar-bot.service` | основной бот: Telethon-слушатель + health_server (:8080, /map, /api/threats) |
+| `airradar-map-sync.timer` | каждые 10 мин: `map_sync.sh` — пересборка `map_live.html` (generate_map.py) + commit + push в main (снапшот для GitHub Pages) |
+| `airradar-history-sync-5min.timer` | каждые 5 мин: дозагрузка истории каналов в БД (sync_history.py) |
+| `airradar-overnight-train.service` | ночное обучение (по расписанию) |
+
+## Стандартный деплой (git push с локалки → CT100)
+
 ```bash
-cd ~/AirRadar-AI && sudo bash deploy.sh
+# 1. Локалка: коммит и пуш (main всегда должен быть впереди контейнера)
+git push origin main
+
+# 2. С хоста Proxmox — обновить код в контейнере и перезапустить бота:
+#    (пароль root@100.114.186.112 — см. у владельца)
+ssh root@100.114.186.112
+pct exec 100 -- bash -c 'cd /opt/airradar && git fetch -q origin main && git reset -q --hard origin/main && git log --oneline -1'
+pct exec 100 -- systemctl restart airradar-bot
+
+# 3. Проверка:
+pct exec 100 -- systemctl is-active airradar-bot          # active
+pct exec 100 -- bash -c 'curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/api/threats?minutes=60'  # 200
+pct exec 100 -- bash -c 'journalctl -u airradar-bot -n 20 --no-pager'
 ```
-`deploy.sh` сделает `git pull`, обновит зависимости и перезапустит сервис.
-`.env` и `airradar.session` не трогаются.
+
+`git reset --hard` безопасен: секреты (`​.env`, `airradar.session`) в `.gitignore`
+и физически не в репо. Незатреканный мусор в /opt/airradar reset не трогает.
+
+**Важно:** `map_sync.sh` пушит снапшоты в main каждые 10 минут. Если пуш
+с локалки отклонён (`fetch first`) — сначала `git pull --rebase origin main`,
+разрешить конфликт в `EMBEDDED_THREATS` (брать серверную строку-снапшот),
+затем пушить снова.
+
+## Разовые операции (нестандартные)
+
+```bash
+# Исполнить команду внутри CT100 с хоста:
+pct exec 100 -- <cmd>
+
+# Копировать файл локалка → CT100 (через хост, sftp на хост + pct push):
+#   sftp на 100.114.186.112 → /tmp/  →  pct push 100 /tmp/file /opt/airradar/path
+
+# Интерактивная консоль в контейнер:
+pct enter 100
+
+# Расширение rootfs (теперь безопасно, ФС чистая):
+pct resize 100 rootfs +10G
+# Если онлайн-ресайз упал (флаг errors на ext4): stop → e2fsck -fy на
+# loop-устройство образа с хоста → resize2fs → start (см. историю 2026-10-01).
+```
+
+## Старые аккуратно названные скрипты
+
+- `deploy.sh` (в репо) — рассчитан на старый GCP-путь (`systemctl restart airradar`);
+  в CT100 сервис называется `airradar-bot`, деплой по разделу выше.
 
 ---
 
-# Шпаргалка команд
+# Шпаргалка команд (прод: Proxmox CT100, ssh root@100.114.186.112)
 
-| Действие | Команда |
+| Действие | Команда (на хосте Proxmox) |
 |----------|---------|
-| Статус бота | `sudo systemctl status airradar` |
-| Логи в реальном времени | `sudo journalctl -u airradar -f` |
-| Перезапустить | `sudo systemctl restart airradar` |
-| Остановить | `sudo systemctl stop airradar` |
-| Обновить код | `cd ~/AirRadar-AI && sudo bash deploy.sh` |
-| (только Ollama) Статус Ollama | `sudo systemctl status ollama` |
+| Статус бота | `pct exec 100 -- systemctl status airradar-bot` |
+| Логи в реальном времени | `pct exec 100 -- journalctl -u airradar-bot -f` |
+| Перезапустить бота | `pct exec 100 -- systemctl restart airradar-bot` |
+| Остановить бота | `pct exec 100 -- systemctl stop airradar-bot` |
+| Обновить код | `pct exec 100 -- bash -c 'cd /opt/airradar && git fetch -q origin main && git reset -q --hard origin/main'` + рестарт |
+| Проверить API/карту | `pct exec 100 -- curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/map` |
+| Снапшот карты сейчас | `pct exec 100 -- systemctl start airradar-map-sync.service` |
+| Статус Ollama (CT100) | `pct exec 100 -- systemctl status ollama` |
 
 ---
 
