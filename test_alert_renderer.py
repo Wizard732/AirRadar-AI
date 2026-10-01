@@ -107,6 +107,37 @@ class EvidenceAlertTests(unittest.TestCase):
         self.assertFalse(result.splitlines()[0].startswith("🔴 ПОЛТАВСЬКА"))
         self.assertFalse(result.splitlines()[0].startswith("🔴 ОДЕСЬКА"))
 
+    def test_track_line_displaces_typical_eta(self):
+        """Каскад ETA в шапке: трек по засечкам вытесняет «типовий підліт»."""
+        fact = extract_incident_fact("БпЛА на Київ", "uav", "imminent")
+        kwargs = dict(
+            text="БпЛА на Київ", source="a", event_ts=1_700_000_000,
+            fact=fact, confirmation={"status": "reported", "sources": 1},
+        )
+        # Без трека каскад падает до типового подлёта класса (орієнтовно).
+        plain = render_evidence_alert(**kwargs)
+        self.assertIn("Типовий підліт", plain)
+        self.assertIn("орієнтовно", plain)
+        # Измеренный трек: строка «За треком», типовой диапазон вытеснен.
+        track = {
+            "available": True, "points": 2,
+            "from_name": "Конотоп", "to_name": "Бровари",
+            "from": [51.243, 33.207], "to": [50.511, 30.790],
+            "km": 188.2, "speed_kmh": 188.2, "course_deg": 244,
+            "minutes": 8, "region": fact.destination_region,
+        }
+        with_track = render_evidence_alert(**kwargs, track=track)
+        self.assertIn("За треком: Конотоп → Бровари", with_track)
+        self.assertIn("≈8 хв", with_track)
+        self.assertIn("188 км/год", with_track)
+        self.assertIn("орієнтовно", with_track)
+        self.assertNotIn("Типовий підліт", with_track)
+        # Недоступный трек ведёт себя как отсутствие трека.
+        dead = dict(track, available=False, minutes=None)
+        fallback = render_evidence_alert(**kwargs, track=dead)
+        self.assertNotIn("За треком", fallback)
+        self.assertIn("Типовий підліт", fallback)
+
     def test_long_roundup_body_not_truncated(self):
         """Сводка мониторинга >300 знаков не режется: все направления на месте.
 

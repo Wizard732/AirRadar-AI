@@ -51,18 +51,31 @@ def generate():
     now = int(time.time())
     # Текст — публичный (правило №6): без ссылок/имён каналов и «multi:».
     from fast_filter import public_text
-    data = [
-        {
-            "type": t["type"],
-            "region": t["region"],
-            "text": public_text(t.get("text") or "", 200),
-            "sources": t.get("source_count", 2),
-            "origin": t.get("origin", ""),
-            "destination": t.get("destination", ""),
-            "age_min": (now - t["ts"]) // 60,
-        }
-        for t in threats
-    ]
+    # Вектор скорости по засечкам (курс/скорость/ETA) — для карты.
+    from track_speed import build_track, track_payload
+    from weapon_classes import detect_speed_profile
+    data = []
+    for t in threats:
+        try:
+            track = track_payload(build_track(
+                db, t["region"], t["type"], t["ts"],
+                speed_profile=detect_speed_profile(t.get("text") or "", t["type"]),
+            ))
+        except Exception as exc:  # noqa: BLE001 — карта важнее трека
+            print(f"⚠ Трек не построен ({t['region']}): {exc}")
+            track = None
+        data.append(
+            {
+                "type": t["type"],
+                "region": t["region"],
+                "text": public_text(t.get("text") or "", 200),
+                "sources": t.get("source_count", 2),
+                "origin": t.get("origin", ""),
+                "destination": t.get("destination", ""),
+                "track": track,
+                "age_min": (now - t["ts"]) // 60,
+            }
+        )
     reports = [
         {"lat": r["lat"], "lon": r["lon"], "region": r["region"],
          "text": r["text"], "age_min": r["age_min"]}

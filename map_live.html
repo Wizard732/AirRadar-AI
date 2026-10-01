@@ -519,10 +519,20 @@ function cityTargetOf(text, regionSlug) {
   return null;
 }
 
-// Маршрут вектора: приоритет — данные фьюжена из БД («з X на Y» сохранено
-// в incidents.origin/destination), фолбэк — keyword-угадыватель. Если цель
-// неясна, но origin явный — рисуем входящий луч origin → пин.
+// Маршрут вектора: см. комментарий внутри routeOf.
 function routeOf(t, pin) {
+  // Приоритет — измеренный трек (track_speed из БД): реальные засечки
+  // «город → город» с фактической скоростью и курсом. Фолбэк — данные
+  // фьюжена из БД («з X на Y» сохранено в incidents.origin/destination),
+  // затем keyword-угадыватель. Если цель неясна, но origin явный — рисуем
+  // входящий луч origin → пин.
+  if (t.track && t.track.from && t.track.to) {
+    return {
+      from: t.track.from, to: t.track.to,
+      fromName: t.track.from_name || '—', toName: t.track.to_name || '—',
+      isTrack: true, track: t.track,
+    };
+  }
   const sourceRegion = pin.isCity ? pin.region : pinSlugOf(t);
   const originKnown = t.origin && t.origin !== sourceRegion && t.origin !== t.region
     && REGION_COORDS[t.origin];
@@ -869,9 +879,10 @@ const ETA_KMH = {
   shahed: 170, uav: 170, fpv: 130, recon_drone: 130,
   cruise_missile: 870, missile: 870, ballistic: 3000,
 };
-function etaMinutes(from, to, type) {
+function etaMinutes(from, to, type, kmh) {
   const km = distanceKm(from, to);
-  const v = ETA_KMH[type] || 170;
+  // Приоритет — фактическая скорость трека (track_speed), фолбэк — типовая.
+  const v = kmh || ETA_KMH[type] || 170;
   return Math.max(1, Math.round(km / v * 60));
 }
 
@@ -942,7 +953,7 @@ function flyingIconHtml(type, color, angle) {
     `<svg width="20" height="20" viewBox="0 0 24 24" style="display:block">${svg}</svg></div>`;
 }
 
-function spawnAnimDots(from, to, color, type) {
+function spawnAnimDots(from, to, color, type, kmh) {
   if (REDUCED_MOTION) return;
   const angle = Math.round(Math.atan2(to[1] - from[1], to[0] - from[0]) * 180 / Math.PI);
   // Ведущий элемент вектора — сам летящий аппарат: мини-силуэт типа,
@@ -963,7 +974,7 @@ function spawnAnimDots(from, to, color, type) {
       interactive: false,
     }).addTo(vectorLayer));
   }
-  animDots.push({ dots, from, to, t: Math.random(), step: (ETA_KMH[type] || 170) >= 800 ? 1 / 1400 : 1 / 2600 });
+  animDots.push({ dots, from, to, t: Math.random(), step: (kmh || ETA_KMH[type] || 170) >= 800 ? 1 / 1400 : 1 / 2600 });
   ensureAnim();
 }
 
@@ -1042,6 +1053,12 @@ function renderAll() {
   resetAnim();
 
   let criticalCount = 0;
+  // Трек из БД (track_speed) уникален по паре «город → город»: одна и та же
+  // цель часто даёт несколько пинов/событий, рисуем её луч один раз.
+  const trackSeen = new Set();
+  const trackSigOf = t => (t.track && t.track.from && t.track.to)
+    ? `${t.track.from[0].toFixed(2)},${t.track.from[1].toFixed(2)}>${t.track.to[0].toFixed(2)},${t.track.to[1].toFixed(2)}`
+    : '';
   groups.forEach(({ pin, items }) => {
     const slug = pin.region;
     const coords = pin.coord;
@@ -1073,12 +1090,20 @@ function renderAll() {
     }
 
     // Вектор считаем один раз: он нужен и для разворота силуэта, и для луча.
-    const route = (fresh && ['uav', 'rockets'].includes(layerOf(top)))
+    let route = (fresh && ['uav', 'rockets'].includes(layerOf(top)))
       ? routeOf(top, pin) : null;
+    // Дедуп трека: один измеренный луч на пару городов, остальные пины без луча.
+    if (route && route.isTrack && trackSigOf(top)) {
+      if (trackSeen.has(trackSigOf(top))) route = null;
+      else trackSeen.add(trackSigOf(top));
+    }
     // Направление полёта: разворачиваем силуэт носом по курсу (0° = север).
+    // Для измеренного трека — курс из БД (course_deg), иначе — по геометрии луча.
     const angle = route
-      ? Math.round(Math.atan2(route.to[1] - route.from[1], route.to[0] - route.from[0]) * 180 / Math.PI)
-      : 0;
+      ? (route.isTrack && Number.isFinite(route.track.course_deg)
+          ? Math.round(route.track.course_deg)
+          : Math.round(Math.atan2(route.to[1] - route.from[1], route.to[0] - route.from[0]) * 180 / Math.PI))
+      : (top.track && Number.isFinite(top.track.course_deg) ? Math.round(top.track.course_deg) : 0);
 
     // Пин: силуэт типа оружия (шахед-дельтакрыло / ракета / самолёт / вспышка)
     // с цветным свечением. Белая обводка = подтверждено несколькими источниками.
@@ -1123,18 +1148,21 @@ function renderAll() {
         const len = Math.hypot(dx, dy) || 1;
         const ux = dx / len, uy = dy / len;
         const end = [route.from[0] + dx * 0.6, route.from[1] + dy * 0.6];
-        const eta = etaMinutes(route.from, route.to, top.type);
+        // Фактическая скорость измеренного трека: её используют и ETA, и анимация.
+        const trkKmh = route.isTrack && Number.isFinite(route.track.speed_kmh)
+          ? route.track.speed_kmh : null;
+        const eta = etaMinutes(route.from, route.to, top.type, trkKmh);
         L.polyline([route.from, end], {
           color: color, weight: wMain, opacity: oMain, dashArray: '2 7', lineCap: 'round',
         }).addTo(vectorLayer)
-          .bindTooltip(`➤ ${route.fromName} → ${route.toName} · ≈${eta} хв (орієнтовно)`, { direction: 'top' });
+          .bindTooltip(`➤ ${route.fromName} → ${route.toName} · ≈${eta} хв (орієнтовно${trkKmh ? ` · ~${Math.round(trkKmh)} км/год` : ''})`, { direction: 'top' });
         // наконечник стрелки
         const w = 0.05, d = 0.09;
         const left = [end[0] - ux * d - uy * w, end[1] - uy * d + ux * w];
         const right = [end[0] - ux * d + uy * w, end[1] - uy * d - ux * w];
         L.polyline([left, end, right], { color: color, weight: wMain, opacity: oTip }).addTo(vectorLayer);
         // анимированная точка со шлейфом вдоль луча
-        spawnAnimDots(route.from, end, color, top.type);
+        spawnAnimDots(route.from, end, color, top.type, trkKmh);
     }
   });
 
@@ -1263,6 +1291,9 @@ function regionTooltip(pin, items) {
     const fresh = Math.min(...items.map(t => Number(t.age_min) || 0));
     label += ` · ${fresh} хв тому`;
   }
+  // Измеренный трек региона: курс и фактическая скорость в тултипе пина.
+  const trk = (items || []).find(t => t.track && Number.isFinite(t.track.speed_kmh));
+  if (trk) label += ` · ➤ ${Math.round(trk.track.course_deg)}° · ${Math.round(trk.track.speed_kmh)} км/год (орієнтовно)`;
   const fc = forecastCache && forecastCache[pin.region];
   if (fc && fc.standdown_live) {
     const sd = parseInt(fc.standdown_min, 10);
@@ -1298,7 +1329,11 @@ function openThreatSheet(pin, items) {
   const eta = pin.isCity ? null : routeOf(top, pin);
   let etaLine = '';
   if (['uav', 'rockets'].includes(layerOf(top)) && eta) {
-    etaLine = ` · ≈${etaMinutes(eta.from, eta.to, top.type)} хв до ${eta.toName} (орієнтовно)`;
+    // С измеренным треком показываем фактическую скорость и ETA по ней.
+    const trkKmh = eta.isTrack && Number.isFinite(eta.track.speed_kmh)
+      ? eta.track.speed_kmh : null;
+    const kmhPart = trkKmh ? ` · ~${Math.round(trkKmh)} км/год` : '';
+    etaLine = ` · ≈${etaMinutes(eta.from, eta.to, top.type, trkKmh)} хв до ${eta.toName} (орієнтовно${kmhPart})`;
   }
   // Одиночный источник не помечаем: «одне джерело» в каждой карточке — шум.
   // Подтверждение несколькими источниками по-прежнему показываем.

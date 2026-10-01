@@ -368,8 +368,12 @@ def weapon_label(slug: str) -> str:
     return slug
 
 
-def weapon_eta(slug: str) -> str:
-    """Типовое время подлёта по классу оружия."""
+def weapon_eta(slug: str, profile: str = "") -> str:
+    """Типовое время подлёта по классу оружия (с учётом профиля подтипа)."""
+    if profile == "reactive":
+        eta = REACTIVE_ETA.get(slug)
+        if eta:
+            return eta
     cls = _BY_SLUG.get(slug)
     return cls["typical_eta"] if cls else "—"
 
@@ -396,9 +400,55 @@ WEAPON_KMH: dict[str, float] = {
 }
 
 
-def weapon_speed_kmh(slug: str) -> float:
-    """Скорость класса для расчёта ETA по вектору; 0 = не считаем."""
+def weapon_speed_kmh(slug: str, profile: str = "") -> float:
+    """Скорость класса для расчёта ETA по вектору; 0 = не считаем.
+
+    profile='reactive' — скорость реактивного подтипа, если для класса задана.
+    """
+    if profile == "reactive":
+        speed = REACTIVE_KMH.get(slug)
+        if speed:
+            return speed
     return WEAPON_KMH.get(slug, 0.0)
+
+
+# === Профили скорости (подтипы внутри класса, без нового slug) =============
+# «Реактивний БпЛА» летит ~500–700 км/ч — втрое быстрее поршневого шахеда,
+# но мониторные каналы называют его тем же словом «бпла». Новый slug
+# reactive_uav порвал бы цепочки треков (фильтр по weapon_class), группировку
+# агрегатора (region, weapon_class) и статистику ETA, поэтому подтип — это
+# профиль скорости ПОВЕРХ класса: вычисляется из текста на лету, в БД не
+# пишется и миграции не требует (история остаётся в базовом slug).
+
+# Классы-носители подтипа. Guard по классу отсекает ложные срабатывания
+# слова «реактивн» вне БПЛА-контекста: «реактивні системи залпового огня»
+# — это mlrs/artillery, профиль туда не попадает.
+SPEED_PROFILE_CLASSES: tuple[str, ...] = ("uav", "shahed")
+
+# Маркер подтипа. Подстрока без якоря конца — покрывает склонения
+# UA/RU: реактивний, реактивні, реактивний, реактивных.
+SPEED_PROFILE_REACTIVE_KEYWORDS: tuple[str, ...] = ("реактивн",)
+
+# Скорость подтипа для ETA по вектору (км/ч). Консервативная оценка
+# открытых источников для реактивных модификаций Герань/Шахед.
+REACTIVE_KMH: dict[str, float] = {"uav": 550.0, "shahed": 550.0}
+
+# Типовой подлёт подтипа: 80–250 км по земле при 550 км/ч → ~10–30 хв.
+REACTIVE_ETA: dict[str, str] = {"uav": "~10–30 хв", "shahed": "~10–30 хв"}
+
+
+def detect_speed_profile(text: str, weapon_class: str) -> str:
+    """Профиль скорости подтипа по тексту: '' | 'reactive'.
+
+    Включается только для классов SPEED_PROFILE_CLASSES — слово «реактивн»
+    в тексте про РСЗО/артиллерию профиль не включает.
+    """
+    if not text or weapon_class not in SPEED_PROFILE_CLASSES:
+        return ""
+    lowered = text.lower()
+    if any(kw in lowered for kw in SPEED_PROFILE_REACTIVE_KEYWORDS):
+        return "reactive"
+    return ""
 
 
 def all_weapon_slugs() -> list[str]:

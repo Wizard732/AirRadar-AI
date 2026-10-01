@@ -89,7 +89,7 @@ def _region_title(fact: IncidentFact) -> str:
 
 def render_evidence_alert(
     *, text: str, source: str, event_ts: int, fact: IncidentFact, confirmation: dict,
-    sources: list[str] | None = None,
+    sources: list[str] | None = None, track: dict | None = None,
 ) -> str:
     """Render only explicit source facts and clearly marked unknowns.
 
@@ -109,6 +109,10 @@ def render_evidence_alert(
         return "\n\n".join([head, SOURCE_BRAND_LINE])[:4000]
 
     weapon = WEAPON_SHORT.get(fact.weapon_class, fact.weapon_class)
+    # Реактивный подтип: пометка в шапке объясняет, почему ETA короче
+    # типового для класса (каскад ниже считает по профилю скорости).
+    if getattr(fact, "speed_profile", "") == "reactive":
+        weapon = f"{weapon} (реактивний)"
     emoji = _SEVERITY_EMOJI.get(weapon_severity(fact.weapon_class), "⚪")
     place = _region_title(fact)
     head = f"{emoji} {place.upper()} | {weapon}" if place else f"{emoji} {weapon}"
@@ -119,15 +123,21 @@ def render_evidence_alert(
             f"📍 Рух: цілі прямують з {region_name(fact.origin_region)} "
             f"на {region_name(fact.destination_region)}"
         )
-    # ETA: приоритет — расчёт по вектору «з X на Y» (конкретное число минут),
-    # иначе — типовой диапазон по классу оружия. Правило проекта: ETA можно
-    # публиковать только с пометкой «орієнтовно». «—» (нет данных) не показываем.
+    # ETA-каскад шапки: 1) трек по фактическим засечкам (track_speed),
+    # 2) расчёт по вектору «з X на Y» (конкретное число минут),
+    # 3) типовой диапазон по классу оружия. Правило проекта: ETA можно
+    # публиковать только с пометкой «орієнтовно». «—» (нет данных) не
+    # показываем.
     from eta import vector_eta_text
+    from track_speed import track_eta_text
+    trk = track_eta_text(track)
     vec = vector_eta_text(fact)
-    if vec:
+    if trk:
+        lines.append(trk)
+    elif vec:
         lines.append(vec)
     else:
-        eta = weapon_eta(fact.weapon_class)
+        eta = weapon_eta(fact.weapon_class, getattr(fact, "speed_profile", ""))
         if eta and eta != "—":
             lines.append(f"⏱ Типовий підліт: {eta} (орієнтовно)")
     lines.append("")

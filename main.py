@@ -42,6 +42,7 @@ from regions import detect_kyiv_zone, detect_region, region_name
 from incident_fusion import extract_incident_fact
 from source_policy import normalize_source, source_group
 from sticker import get_sticker_header
+from track_speed import build_track
 
 logger = logging.getLogger("airradar")
 
@@ -587,8 +588,17 @@ async def _process_message(
             )
         else:
             # Fallback без агрегатора (прямые вызовы в тестах): прежнее поведение.
+            try:
+                track = build_track(
+                    db, fact.destination_region, weapon, event_ts,
+                    speed_profile=getattr(fact, "speed_profile", ""),
+                )
+            except Exception:  # noqa: BLE001 — трек не должен ронять публикацию
+                logger.debug("build_track (fallback) не удался", exc_info=True)
+                track = None
             final_text = render_evidence_alert(
-                text=text, source=source, event_ts=event_ts, fact=fact, confirmation=confirmation
+                text=text, source=source, event_ts=event_ts, fact=fact,
+                confirmation=confirmation, track=track
             )
             publication = db.incident_publication(confirmation.get("key", ""))
             if publication and confirmation.get("material_update"):
@@ -619,9 +629,18 @@ async def _process_message(
             event_stage, outcome = "alert", "unknown"
         else:
             event_stage, outcome = ("launch" if "пуск" in text.lower() else "movement"), "unknown"
+        # Направление «origin>destination» (slug'и) — сырьё для треков и
+        # аналитики. Пишем только когда оба конца достоверно известны:
+        # unknown/multi не дают вектора и только шумят выборку.
+        direction = ""
+        if (fact.origin_region and fact.destination_region
+                and fact.origin_region not in ("unknown", "multi")
+                and fact.destination_region not in ("unknown", "multi")):
+            direction = f"{fact.origin_region}>{fact.destination_region}"
         for slug in regions_to_log:
             db.add_event(event_ts=event_ts, weapon_class=weapon, stage=event_stage, region=slug,
-                         text=text, source=source, outcome=outcome, confidence=0.8)
+                         text=text, source=source, direction=direction,
+                         outcome=outcome, confidence=0.8)
             db.add_threat(
                 threat_type=threat_type,
                 region=slug,
@@ -683,9 +702,18 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
     for item in items:
         if item.source not in sources:
             sources.append(item.source)
+    try:
+        track = build_track(
+            db, last.fact.destination_region, last.fact.weapon_class, last.event_ts,
+            speed_profile=getattr(last.fact, "speed_profile", ""),
+        )
+    except Exception:  # noqa: BLE001 — трек не должен ронять публикацию
+        logger.debug("build_track не удался", exc_info=True)
+        track = None
     final_text = render_evidence_alert(
         text=last.text, source=last.source, sources=sources,
         event_ts=last.event_ts, fact=last.fact, confirmation=last.confirmation,
+        track=track,
     )
     # Уже публиковали один из инцидентов набора? Перебираем ключи с конца.
     publication = None

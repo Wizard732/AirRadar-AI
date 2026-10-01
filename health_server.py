@@ -72,9 +72,21 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
         # Добавим возраст в минутах. Текст — публичный (правило №6):
         # без ссылок/имён каналов и служебных префиксов, одна строка.
         from fast_filter import public_text
+        # Вектор скорости по засечкам (track_speed): курс/скорость/ETA для
+        # карты. Ошибки трека не роняют API — просто отдаём track: null.
+        from track_speed import build_track, track_payload
+        from weapon_classes import detect_speed_profile
         now = int(time.time())
         result = []
         for t in threats:
+            try:
+                track = track_payload(build_track(
+                    _app_db, t["region"], t["type"], t["ts"],
+                    speed_profile=detect_speed_profile(t.get("text") or "", t["type"]),
+                ))
+            except Exception as exc:  # noqa: BLE001 — карта важнее трека
+                logger.debug("track build failed for %s: %s", t["region"], exc)
+                track = None
             result.append({
                 "ts": t["ts"],
                 "type": t["type"],
@@ -84,6 +96,7 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
                 "sources": t.get("source_count", 2),
                 "origin": t.get("origin", ""),
                 "destination": t.get("destination", ""),
+                "track": track,
                 "age_min": max(0, (now - t["ts"]) // 60),
             })
         return web.json_response({

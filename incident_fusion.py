@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass
 
 from regions import detect_region
+from weapon_classes import detect_speed_profile
 
 _NUMBER_WORDS = {
     "один": 1, "одна": 1, "одну": 1, "одна": 1, "два": 2, "две": 2, "дві": 2,
@@ -25,6 +26,10 @@ class IncidentFact:
     count_value: int | None
     is_delta: bool
     raw_designation: str
+    # Профиль скорости подтипа ("" | "reactive"): класс остаётся uav/shahed,
+    # но реактивный летит втрое быстрее — ETA/трек считаются по профилю.
+    # Дефолт сохраняет совместимость с прямыми конструкторами в тестах.
+    speed_profile: str = ""
 
 
 def _number(text: str) -> int | None:
@@ -143,4 +148,7 @@ def extract_incident_fact(text: str, weapon_class: str, stage: str) -> IncidentF
     if weapon_class == "unknown":
         match = re.search(r"[«\"]([^»\"]{2,40})[»\"]", text)
         raw = match.group(1).strip() if match else ""
-    return IncidentFact(weapon_class, stage, origin, destination, kind, value, is_delta, raw)
+    return IncidentFact(
+        weapon_class, stage, origin, destination, kind, value, is_delta, raw,
+        speed_profile=detect_speed_profile(text, weapon_class),
+    )

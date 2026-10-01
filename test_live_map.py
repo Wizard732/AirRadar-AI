@@ -43,6 +43,21 @@ class LiveMapApiTests(unittest.TestCase):
         self.assertIn(("sumska", "reported", 1), types)
         # Подтверждённое киевское событие из setUp тоже на месте.
         self.assertEqual(data["count"], 2)
+    def test_map_payload_threats_have_track_key(self):
+        """Каждая угроза /api/threats несёт ключ track; без засечек — null.
+
+        track_speed читает threat_events: пустая БД → track_payload(None) →
+        null для всех. API при этом не падает (ошибки трека гасятся).
+        """
+        response = asyncio.run(_api_threats(None))
+        data = __import__("json").loads(response.text)
+        self.assertGreaterEqual(data["count"], 1)
+        for threat in data["threats"]:
+            self.assertIn("track", threat)
+        self.assertTrue(
+            all(t["track"] is None for t in data["threats"]),
+            "в БД нет засечек — треков быть не должно",
+        )
 
 
 if __name__ == "__main__":

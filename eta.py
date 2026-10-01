@@ -296,7 +296,8 @@ def vector_eta_text(fact, now_ts: int | None = None) -> str:
         return ""
     src = REGION_CENTROIDS.get(origin)
     dst = REGION_CENTROIDS.get(destination)
-    speed = weapon_speed_kmh(weapon)
+    # Профиль подтипа (реактивний БпЛА) важнее класса: 550 км/ч вместо 180.
+    speed = weapon_speed_kmh(weapon, getattr(fact, "speed_profile", ""))
     if not src or not dst or speed <= 0:
         return ""
     # Пуск из региона цели — вектора нет, «ETA по вектору» не имеет смысла.
