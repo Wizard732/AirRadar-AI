@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Чернігівщина 1 реактивний БпЛА на Мену 2 реактивні БпЛА на Олишівку Київщина 1 реактивний БпЛА на Наливайківку 1 реактивний БпЛА на Красятичі 1 реактивний БпЛА на Макарів 1 реактивний БпЛА на Борову…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 1}, {"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Мену 2х Реактивні БпЛА курсом на Олишівку Київщина: Реактивний БпЛА курсом на Наливайківку Реактивний БпЛА курсом на Красятичі Реактивний БпЛА курсом на…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 2}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Чернігівщина 1 реактивний БпЛА на Олишівку Київщина 1 реактивний БпЛА на Наливайківку 2 реактивні БпЛА на Чорнобиль Рівненщина 1 реактивний БпЛА на Сарни Дніпропетровщина 1 реактивний БпЛА на…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 4}, {"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Олишівку Київщина: Реактивний БпЛА курсом на Наливайківку 2х Реактивні БпЛА курсом на Чорнобиль Рівненщина: Реактивний БпЛА курсом на Сарни Дніпропетровщина…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 5}, {"type": "uav", "region": "kyivska", "text": "• Наливайківка (Київщина), 2 дрони до вас", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 7}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 2, "standdown_live": true, "next_wave_min": 34, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
