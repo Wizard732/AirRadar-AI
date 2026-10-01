@@ -653,9 +653,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Реактивний БпЛА через Київське водосховище курсом на Вишгород/Київ.", "sources": 1, "origin": "", "destination": "kyivska", "age_min": 2}];
-const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 3, "standdown_live": true, "next_wave_min": 32, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "• , тривога оголошена через 1 БпЛА повз Гостомель", "sources": 2, "origin": "", "destination": "kyivska", "age_min": 8}, {"type": "uav", "region": "multi", "text": "Київщина: Реактивний БпЛА курсом на Київ Чернігівщина: Реактивний БпЛА курсом на Чернігів", "sources": 1, "origin": "", "destination": "multi", "age_min": 8}, {"type": "uav", "region": "kyivska", "text": "Реактивний БпЛА через Київське водосховище курсом на Вишгород/Київ.", "sources": 1, "origin": "", "destination": "kyivska", "age_min": 12}];
+const EMBEDDED_REPORTS = [{"lat": 50.416, "lon": 30.651, "region": "", "text": "", "age_min": 7}];
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 32, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
