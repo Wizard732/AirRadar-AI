@@ -76,6 +76,7 @@ class FakeCallbackEvent:
         self.edits = []
         self.answers = []
         self.responses = []
+        self.respond_buttons = []  # buttons каждого respond-а (в порядке вызова)
 
     async def edit(self, text, parse_mode=None, buttons=None):
         self.edits.append({"text": text, "buttons": buttons})
@@ -85,6 +86,7 @@ class FakeCallbackEvent:
 
     async def respond(self, text, parse_mode=None, buttons=None):
         self.responses.append(text)
+        self.respond_buttons.append(buttons)
 
 
 class FakeMessageEvent:
@@ -100,10 +102,20 @@ class FakeMessageEvent:
         self.buttons.append(buttons)
 
 
+def _button_rows(buttons):
+    """Нормализация клавиатуры: каждая строка — список кнопок.
+
+    Telethon принимает и плоские списки (элемент = одно-кнопочная строка),
+    и списки списков; TL-типы и Button-обёртки сосуществуют в 1.45+.
+    """
+    for row in buttons or []:
+        yield row if isinstance(row, (list, tuple)) else [row]
+
+
 def _button_datas(buttons) -> list[str]:
     """callback_data кнопок для старой (btn.data) и новой (btn.type.data) схем TL."""
     datas = []
-    for row in buttons or []:
+    for row in _button_rows(buttons):
         for btn in row:
             data = getattr(btn, "data", None)
             if data is None:
@@ -117,7 +129,15 @@ def _button_datas(buttons) -> list[str]:
 
 
 def _button_texts(buttons) -> list[str]:
-    return [btn.text for row in buttons or [] for btn in row]
+    texts = []
+    for row in _button_rows(buttons):
+        for btn in row:
+            t = getattr(btn, "text", None)
+            if not isinstance(t, str):
+                # Button-обёртка новых telethon: .text — метод.
+                t = t() if callable(t) else ""
+            texts.append(t)
+    return texts
 
 
 class BotUiTests(unittest.TestCase):
@@ -162,6 +182,32 @@ class BotUiTests(unittest.TestCase):
         self.assertIn("rs:kyivska", datas)
         event2 = self._callback("rp:1")
         self.assertIn("Выбери область", event2.edits[0]["text"])
+
+    # --- «Моя зона»: inline и reply-клавиатуры нельзя смешивать ---
+    def test_myzone_no_mixed_keyboards(self):
+        """Регрессия «You cannot mix inline with normal buttons»: «Моя зона»
+        шлёт ДВА сообщения — inline-меню отдельно, reply-кнопка геолокации
+        отдельно. Прод-лог 19:41: смешение роняло кнопку локации."""
+        event = self._callback("myzone")
+        self.assertGreaterEqual(len(event.respond_buttons), 2)
+        kb0, kb1 = event.respond_buttons[0], event.respond_buttons[1]
+        texts0, datas0 = _button_texts(kb0), _button_datas(kb0)
+        texts1, datas1 = _button_texts(kb1), _button_datas(kb1)
+        # Сообщение 1: inline-меню (кнопки с callback_data), без гео-кнопки.
+        self.assertIn("main", datas0)
+        self.assertNotIn("Надіслати локацію", " ".join(texts0))
+        # Сообщение 2: только reply-кнопка геолокации, без inline.
+        self.assertEqual(datas1, [])
+        self.assertIn("Надіслати локацію", " ".join(texts1))
+
+    def test_zone_kb_has_no_inline_buttons(self):
+        """_zone_kb() — только reply-кнопки (геолокация), без inline."""
+        from bot_ui import _zone_kb
+
+        kb = _zone_kb()
+        self.assertTrue(kb)
+        self.assertEqual(_button_datas(kb), [])
+        self.assertIn("Надіслати локацію", " ".join(_button_texts(kb)))
 
     # --- меню Киева с кнопками-берегами ---
     def test_kyiv_region_menu_has_zone_buttons(self):

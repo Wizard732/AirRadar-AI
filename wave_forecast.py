@@ -391,28 +391,46 @@ def live_standdown(db: Database, region: str, *, now: int | None = None) -> dict
 # полёта, когда расчётный остаток до отбоя опускается до этого порога.
 STANDDOWN_NOTICE_LEAD_MIN = 25
 
+# Один countdown на эпизод тревоги. Повтор внутри того же эпизода — только
+# если оценка остатка изменилась на ≥10 минут (новая группа целей заметно
+# перезапустила таймер). Дедуп по точному flight_ts остаётся: пока новых
+# постов нет (тихий хвост перед отбоем), повторов не бывает вовсе — именно
+# так лечился спам «⏳ відбій орієнтовно» из логов 2026-09-30.
+STANDDOWN_NOTICE_RESEND_DELTA_MIN = 10
+
+# Кулдаун на регион — страховка последней линии: даже при законном повторе
+# (Δ≥10 мин) новый countdown выходит не чаще раза в 20 минут.
+STANDDOWN_NOTICE_COOLDOWN_S = 20 * 60
+
 
 def standdown_notice(db: Database, region: str, *, now: int | None = None) -> dict[str, Any]:
     """Нужно ли прямо сейчас написать в чат «відбій орієнтовно за ~N хв».
 
-    Логика (KISS, честно): в регионе активная тревога + live-статистика
-    доступна (≥ MIN_SAMPLES эпизодов) + цель в воздухе (полётный пост в
-    пределах STANDDOWN_MAX_GAP_S) + остаток до отбоя по медиане опустился
-    до STANDDOWN_NOTICE_LEAD_MIN + на этот эпизод (ключ — ts последнего
-    полётного поста) уведомление ещё не отправлялось. Новый полётный
-    пост = новый эпизод = сообщение можно отправить снова.
+    Логика: в регионе активная тревога (её started_ts — ключ эпизода) +
+    live-статистика доступна (≥ MIN_SAMPLES эпизодов) + цель в воздухе
+    (полётный пост в пределах STANDDOWN_MAX_GAP_S) + остаток до отбоя по
+    медиане опустился до STANDDOWN_NOTICE_LEAD_MIN. Дедуп по слоям:
+
+    1. точный полётный пост уже отработал → already_sent (тихий хвост:
+       постов нет — countdown не повторяется);
+    2. в этом эпизоде тревоги уже отправляли, и оценка изменилась меньше
+       чем на STANDDOWN_NOTICE_RESEND_DELTA_MIN → already_sent;
+    3. по региону отправляли в последние STANDDOWN_NOTICE_COOLDOWN_S →
+       cooldown (страховка от осцилляций оценки).
     """
     now = int(now if now is not None else time.time())
     try:
         conn = db._conn  # type: ignore[attr-defined]
         if conn is None:
             return {"notify": False, "reason": "no_db"}
-        active = conn.execute(
-            "SELECT 1 FROM alerts WHERE region=? AND ended_ts IS NULL LIMIT 1",
+        row = conn.execute(
+            "SELECT started_ts FROM alerts WHERE region=? AND ended_ts IS NULL "
+            "ORDER BY started_ts DESC LIMIT 1",
             (region,),
         ).fetchone()
-        if not active:
+        if row is None:
             return {"notify": False, "reason": "no_alert"}
+        alert_started_ts = int(row["started_ts"])
         live = live_standdown(db, region, now=now)
         # no_active_flight приходит с available=False — проверяем его ДО
         # общей ветки no_stats, иначе «нет полёта» навсегда маскируется под
@@ -424,12 +442,23 @@ def standdown_notice(db: Database, region: str, *, now: int | None = None) -> di
         last = _last_flight_ts(conn, region, now - STANDDOWN_MAX_GAP_S, now)
         if last is None:
             return {"notify": False, "reason": "no_flight"}
-        if db.standdown_notice_sent(region, last):
-            return {"notify": False, "reason": "already_sent"}
         if live["remaining_min"] > STANDDOWN_NOTICE_LEAD_MIN:
             return {"notify": False, "reason": "too_early"}
+        # Слой 1: этот полётный пост уже отработал. Пока новых постов нет,
+        # никаких повторов — даже если оценка «тает» со временем.
+        if db.standdown_notice_sent(region, last):
+            return {"notify": False, "reason": "already_sent"}
+        # Слой 2: один countdown на эпизод тревоги; повтор — только при
+        # изменении оценки на ≥10 минут.
+        prev = db.standdown_episode_notice(region, alert_started_ts)
+        if prev is not None and abs(int(live["remaining_min"]) - prev["remaining_min"]) < STANDDOWN_NOTICE_RESEND_DELTA_MIN:
+            return {"notify": False, "reason": "already_sent"}
+        # Слой 3: кулдаун-страховка.
+        if db.standdown_notice_sent_recent(region, STANDDOWN_NOTICE_COOLDOWN_S):
+            return {"notify": False, "reason": "cooldown"}
         return {
             "notify": True,
+            "alert_started_ts": alert_started_ts,
             "flight_ts": int(last),
             "remaining_min": int(live["remaining_min"]),
             "any_minute_now": bool(live["any_minute_now"]),

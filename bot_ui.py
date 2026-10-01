@@ -120,6 +120,32 @@ WEAPON_FILTERS = [
 CB_INTERESTS = "interests"  # переход в Interests-модуль
 
 
+# Подписи постоянных reply-кнопок (бабушка-режим): всегда под клавиатурой.
+# Хендлер _any_text_menu распознаёт эти строки и выполняет действие сразу.
+RB_REGIONS = "🗺 Области"
+RB_ACTIVE = "🚨 Текущие угрозы"
+RB_STATS = "📊 Статистика"
+RB_ZONE = "🎯 Моя зона"
+RB_SHELTER = "🛡 Укриття"
+RB_SUBS = "🔔 Мои подписки"
+RB_HELP = "❓ Как пользоваться"
+
+
+def _persistent_kb() -> list:
+    """Постоянная reply-клавиатура: большие кнопки, всегда на экране.
+
+    Text-кнопки не требуют «ввода текста» — нажатие просто отправляет
+    подпись как сообщение, хендлер ловит и выполняет действие.
+    resize_keyboard=True — компактные кнопки, как в обычных приложениях.
+    """
+    return [
+        [Button.text(RB_ACTIVE, resize=True), Button.text(RB_REGIONS, resize=True)],
+        [Button.text(RB_ZONE, resize=True), Button.text(RB_SHELTER, resize=True)],
+        [Button.text(RB_SUBS, resize=True), Button.text(RB_STATS, resize=True)],
+        [Button.text(RB_HELP, resize=True)],
+    ]
+
+
 def _main_menu_kb():
     return [
         [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
@@ -352,15 +378,43 @@ def _zone_text(db: Database, user_id: int) -> str:
     )
 
 
-def _zone_kb() -> list:
-    """Кнопка запроса геопозиции (reply-кнопка «Локація») + назад в меню."""
-    rows = []
+def _geo_button(text: str):
+    """Reply-кнопка запроса геолокации, совместимая с версиями telethon.
+
+    В новых сборках (unified TL, напр. 1.45+) Button.request_location
+    возвращает Button-обёртку, а TL-тип конструируется как
+    KeyboardButton(text, ButtonTypeRequestGeoLocation()); в старых —
+    KeyboardButtonRequestLocation(text). Возвращаем готовый TL-объект,
+    иначе клиент может не сериализовать клавиатуру (кнопка молча пропадёт).
+    """
+    from telethon import types as tl_types
+
     try:
-        rows.append([Button.request_location("📎 Надіслати локацію")])
-    except AttributeError:  # старые версии telethon без request_location
+        return tl_types.KeyboardButton(text, tl_types.ButtonTypeRequestGeoLocation())
+    except (AttributeError, TypeError):
         pass
-    rows.append([Button.inline("🏠 Главное меню", data=CB_MAIN)])
-    return rows
+    try:
+        return tl_types.KeyboardButtonRequestLocation(text)
+    except (AttributeError, TypeError):
+        pass
+    try:
+        btn = Button.request_location(text)
+        # Старый/новый helper мог вернуть класс-обёртку вместо инстанса.
+        return btn if not isinstance(btn, type) else Button.text(text)
+    except AttributeError:
+        return Button.text(text)
+
+
+def _zone_kb() -> list:
+    """Кнопка запроса геопозиции (reply-кнопка «Локація»).
+
+    ВАЖНО: reply-кнопки нельзя смешивать с inline в одном сообщении
+    (Telegram API: «You cannot mix inline with normal buttons»). Раньше
+    сюда добавлялась inline-кнопка «Главное меню» → кнопка «Моя зона»
+    падала с ошибкой каждый раз. Inline-меню рисуется отдельным
+    сообщением из обработчика.
+    """
+    return [[_geo_button("📎 Надіслати локацію")]]
 
 
 def _shelter_text(db: Database, user_id: int) -> str:
@@ -426,21 +480,13 @@ def _week_text(db: Database, slug: str) -> str:
 
 
 def _stats_all_text(db: Database) -> str:
-    """Сводка по всем регионам за разные периоды."""
+    """Компактная сводка: сейчас + подтверждённые инциденты + метрики."""
     now = int(time.time())
     day = now - 86400
     week = now - 7 * 86400
 
-    def render(since: float, label: str) -> str:
-        counts = db.confirmed_incident_counts(region=None, since=int(since))
-        total = sum(counts.values())
-        parts = [f"<b>{label}</b> (всего {total})"]
-        for t, c in sorted(counts.items(), key=lambda x: -x[1]):
-            parts.append(f"  {TYPE_LABELS.get(t, t)}: {c}")
-        return "\n".join(parts) if total else f"<b>{label}</b>: підтверджених інцидентів не зафіксовано"
-
     active = db.active_threats(within_seconds=1800)
-    active_regions = ", ".join(region_name(r["region"]) for r in active[:10]) or "нет"
+    active_regions = ", ".join(region_name(r["region"]) for r in active[:10]) or "немає"
 
     # Открытая метрика точности: опережение официальной сирены за неделю.
     lead = db.siren_lead_stats(days=7)
@@ -448,9 +494,8 @@ def _stats_all_text(db: Database) -> str:
     if lead["episodes"]:
         lead_min = lead["avg_lead_sec"] / 60
         lead_line = (
-            f"\n\n⚡ <b>Випередження сирени</b> (7 днів): "
-            f"{lead['before_count']} з {lead['episodes']} епізодів раніше офіційної тривоги"
-            + (f", у середньому на {lead_min:.0f} хв" if lead_min > 0 else "")
+            f"\n⚡ Випередження сирени (7 днів): <b>{lead['before_count']}/{lead['episodes']}</b>"
+            + (f", у середньому на <b>{lead_min:.0f} хв</b> раніше" if lead_min > 0 else "")
         )
 
     # Публичная точность прогнозов (публикуем открыто, раз в неделю
@@ -462,18 +507,29 @@ def _stats_all_text(db: Database) -> str:
         if acc.get("available"):
             pct = round(100 * acc["hits"] / acc["total"])
             lead_line += (
-                f"\n🎯 <b>Точність прогнозів</b>: {pct}% відбоїв у межах медіани "
-                f"({acc['hits']}/{acc['total']} епізодів)"
+                f"\n🎯 Точність відбоїв: <b>{pct}%</b> у межах медіани ({acc['hits']}/{acc['total']})"
             )
     except Exception:  # noqa: BLE001 — метрика не роняет статистику
         pass
 
+    def inline_counts(since: float) -> str:
+        counts = db.confirmed_incident_counts(region=None, since=int(since))
+        total = sum(counts.values())
+        if not total:
+            return "нічого не зафіксовано"
+        body = " · ".join(
+            f"{TYPE_LABELS.get(t, t).split(' ')[0]} {c}"
+            for t, c in sorted(counts.items(), key=lambda x: -x[1])
+        )
+        return f"{body} — <b>разом {total}</b>"
+
     return (
-        "📊 <b>Подтверждённые инциденты</b>\n\n"
-        f"{render(day, 'За 24 часа')}\n\n"
-        f"{render(week, 'За неделю')}\n\n"
-        f"🔴 <b>Активные угрозы (30 мин):</b> {len(active)}\n"
-        f"Регионы: {active_regions}"
+        "📊 <b>Статистика AirRadar</b>\n\n"
+        f"🔴 Зараз (30 хв): <b>{len(active)}</b>"
+        + (f"\n{active_regions}" if active else "")
+        + "\n\n🚀 <b>Підтверджені інциденти</b>\n"
+        f"• 24 год: {inline_counts(day)}\n"
+        f"• 7 днів: {inline_counts(week)}"
         f"{lead_line}"
     )
 
@@ -658,8 +714,16 @@ def register_handlers(
             return
         # Меню доступно всем пользователям (подписки, статистика, алерты).
         await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb(event.sender_id))
+        # Бабушка-режим: постоянная reply-клавиатура с большими кнопками —
+        # всегда на экране, вводить текст не нужно вообще. Отдельным
+        # сообщением: reply-кнопки нельзя смешивать с inline.
+        try:
+            await event.respond("⬇️ Кнопки всегда под клавиатурой:", buttons=_persistent_kb())
+        except Exception:  # noqa: BLE001 — reply-клавиатура не критична
+            pass
 
-    # Фулл управление кнопками (0 ввода текста): любой обычный текст в ЛС
+    # Фулл управление кнопками (0 ввода текста): текстовые reply-кнопки
+    # (бабушка-режим) выполняют действие сразу; любой другой обычный текст
     # открывает главное меню. Команды (/…), JSON из Mini App и сообщения
     # без текста (геопозиция) обрабатывают свои хендлеры — сюда не попадают.
     @bot.on(events.NewMessage(incoming=True, func=lambda e: e.is_private))
@@ -667,6 +731,44 @@ def register_handlers(
         raw = (getattr(event.message, "text", "") or "").strip()
         if not raw or raw.startswith("/") or raw.startswith('{"action"'):
             return
+        # Текстовые reply-кнопки: действие сразу, без меню и без вопросов.
+        if raw == RB_ACTIVE:
+            await event.respond(_active_text(db), parse_mode="html", buttons=_menu_kb(event.sender_id))
+            return
+        if raw == RB_REGIONS:
+            await event.respond(
+                "🏙 <b>Выбери область</b>\n\nЛистай кнопками ◀️ ▶️.",
+                parse_mode="html",
+                buttons=_regions_kb(0),
+            )
+            return
+        if raw == RB_STATS:
+            await event.respond(_stats_all_text(db), parse_mode="html", buttons=_menu_kb(event.sender_id))
+            return
+        if raw == RB_ZONE:
+            pending = getattr(bot, "_airradar_zone_pending", None)
+            if pending is None:
+                pending = bot._airradar_zone_pending = {}
+            pending[event.sender_id] = time.time() + ZONE_PROMPT_TTL
+            await event.respond(_zone_text(db, event.sender_id), parse_mode="html")
+            try:
+                await event.respond("📎 Нажми кнопку и отправь локацию:", buttons=_zone_kb())
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        if raw == RB_SHELTER:
+            state = db.get_shelter_mode(event.sender_id)
+            db.set_shelter_mode(event.sender_id, not state)
+            await event.respond(_shelter_text(db, event.sender_id), parse_mode="html")
+            return
+        if raw == RB_SUBS:
+            subs = db.user_subscriptions(event.sender_id)
+            await event.respond(_my_subs_text(subs), parse_mode="html", buttons=_my_subs_kb(subs))
+            return
+        if raw == RB_HELP:
+            await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb(event.sender_id))
+            return
+        # Любой другой текст → главное меню (и подсказка повторно).
         await event.respond(
             "Керуйте кнопками нижче — текстові команди не потрібні.",
             parse_mode=None,
@@ -801,6 +903,9 @@ def register_handlers(
 
             elif data == CB_MY_ZONE:
                 # «Моя зона»: ждём геопозицию TTL секунд, потом сбрасываем.
+                # Два сообщения: текст+inline-меню (HTML) и reply-кнопка
+                # «Локація» — нельзя смешивать inline с reply в одном
+                # сообщении (Telegram API), из-за этого кнопка не работала.
                 pending = getattr(bot, "_airradar_zone_pending", None)
                 if pending is None:
                     pending = bot._airradar_zone_pending = {}
@@ -809,8 +914,12 @@ def register_handlers(
                 await event.respond(
                     _zone_text(db, event.sender_id),
                     parse_mode="html",
-                    buttons=_zone_kb(),
+                    buttons=[Button.inline("🏠 Главное меню", data=CB_MAIN)],
                 )
+                try:
+                    await event.respond("📎 Нажми кнопку и отправь локацию:", buttons=_zone_kb())
+                except Exception:  # noqa: BLE001 — reply-кнопка не критична
+                    pass
 
             elif data == CB_SHELTER:
                 # Экран «Укриття»: состояние + toggle.

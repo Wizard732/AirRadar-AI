@@ -886,6 +886,7 @@ function guessTargetRegion(text, sourceSlug) {
 let threatsCache = [];
 let reportsCache = [];
 let forecastCache = {};   // регион → {standdown_min, next_wave_min} (статистика волн)
+let pinGroupsCache = [];  // [{pin, items}] последнего рендера — для «что рядом»
 let lastFlashKeys = '';
 
 async function fetchData() {
@@ -1010,6 +1011,9 @@ function renderAll() {
       groups.get(pin.key).items.push(t);
     }
   });
+  // Кэш групп для тостов «что рядом со мной»: рендер — единственный
+  // источник правды, requestGeo/toasts читают кэш, а не DOM.
+  pinGroupsCache = Array.from(groups.values());
 
   // Слой 4: зелёные зоны отбоев (последние 40 минут)
   greenLayer.clearLayers();
@@ -1148,15 +1152,36 @@ function renderAll() {
 }
 
 // === Тикер событий (бегущая строка + раскрытие) ===
-// Текст события приходит уже публичным (правило №6: API срезает ссылки/
-// имена каналов и служебные «multi:»); здесь только обрезка по слову.
-function truncateWords(s, max = 60) {
-  const text = (s || '').trim();
-  if (text.length <= max) return text;
-  const cut = text.slice(0, max);
+// Текст события приходит уже публичным от /api/threats (правило №6), но
+// автономная карта и старые данные могут содержать сырой markdown и
+// служебные слова. JS-зеркало fast_filter.public_text: страховка на
+// клиенте — ссылки/имена каналов/префиксы в тикер не попадают никогда.
+const _SERVICE_PREFIX_JS = /^\s*(?:multi|unknown)\s*:\s*/i;
+const _MD_LINK_JS = /\[([^\]\n]{0,120})\]\([^)\n]{0,300}\)/g;
+const _URL_JS = /\b(?:https?:)?\/\/[^\s]{2,120}|\bwww\.[^\s]{2,120}/g;
+const _SIG_DECOR_JS = '✙✠✞✜❖◆◇◈★☆✦✧†✝';
+const _DECORATED_SIG_JS = new RegExp(`\\s*[${_SIG_DECOR_JS}]\\s*[^\\n]{0,60}?\\s*[${_SIG_DECOR_JS}]\\s*`, 'g');
+const _TME_MD_JS = /\s*\[[^\]\n]{0,80}\]\(\s*(?:https?:)?\/\/t\.me\/[^\)\s]+\s*\)/g;
+const _TME_URL_JS = /\s*(?:https?:)?\/\/t\.me\/\S+/g;
+
+function publicTextJS(text, max = 60) {
+  let s = String(text || '');
+  // Подписи каналов: t.me-ссылки (markdown и голые) и декоративные вставки.
+  s = s.replace(_TME_MD_JS, ' ').replace(_TME_URL_JS, ' ');
+  for (let i = 0; i < 2; i++) s = s.replace(_DECORATED_SIG_JS, ' ');
+  // Markdown-ссылки: имя оставляем, URL вырезаем; голые URL — прочь.
+  s = s.replace(_MD_LINK_JS, '$1').replace(_URL_JS, ' ');
+  // Служебные префиксы агрегатора и markdown жирного.
+  s = s.replace(_SERVICE_PREFIX_JS, '').replaceAll('**', '');
+  // Одна строка: переносы/двойные пробелы после вырезанных блоков,
+  // ведущие «: » после срезанной атрибуции.
+  s = s.replace(/\s+/g, ' ').replace(/^[\s:;,.\-–—]+/, '').trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
   const trimmed = cut.lastIndexOf(' ') > max * 0.5 ? cut.slice(0, cut.lastIndexOf(' ')) : cut;
   return trimmed.trimEnd().replace(/[ ,;:.!«»()[\]-]+$/, '') + '…';
 }
+
 function renderTicker() {
   const el = document.getElementById('tickerInner');
   const ticker = document.getElementById('ticker');
@@ -1166,7 +1191,7 @@ function renderTicker() {
     return;
   }
   const line = t =>
-    `<b>${fmtClock(t.age_min)}</b> — ${escapeHtml(TYPE_LABELS[t.type] || '🚨')} · ${escapeHtml(REGION_NAMES[t.region] || t.region)}: ${escapeHtml(truncateWords(t.text, 60))}`;
+    `<b>${fmtClock(t.age_min)}</b> — ${escapeHtml(TYPE_LABELS[t.type] || '🚨')} · ${escapeHtml(REGION_NAMES[t.region] || t.region)}: ${escapeHtml(publicTextJS(t.text, 60))}`;
   if (ticker.classList.contains('expanded')) {
     el.innerHTML = events.map(t => `<div class="tick-line">${line(t)}</div>`).join('');
   } else {
@@ -1336,7 +1361,31 @@ function requestGeo(forShelters) {
     map.setView([lat, lon], 9);
     drawGeoCircle();
     if (forShelters) loadShelters();
+    toastNearestThreats();
   }, () => useMapCenter(forShelters), { enableHighAccuracy: false, timeout: 8000 });
+}
+
+// «Що поруч зі мною»: топ-3 активні загрози з відстанню до геопозиції.
+// Источник данных — pinGroupsCache, заполненный последним renderAll().
+// При плейбэке (minutesAgo > 0) группы не рендерятся для тостов — берём
+// кэш последнего «живого» рендера.
+function toastNearestThreats() {
+  if (!userPos) return;
+  const near = [];
+  pinGroupsCache.forEach(({ pin }) => {
+    const d = distanceKm(userPos, pin.coord);
+    if (d <= 120) near.push({ label: pin.label, d });
+  });
+  reportsCache.forEach(r => {
+    const d = distanceKm(userPos, [r.lat, r.lon]);
+    if (d <= 120) near.push({ label: '👤 репорт', d });
+  });
+  if (!near.length) { toast('✅ У радіусі 120 км активних загроз не видно'); return; }
+  near.sort((a, b) => a.d - b.d);
+  const top = near.slice(0, 3)
+    .map(n => `${n.label} — ${n.d.toFixed(0)} км`)
+    .join(' · ');
+  toast(`📍 Найближчі: ${top}`);
 }
 
 // Геолокация часто недоступна внутри Telegram WebApp — fallback: центр карты.

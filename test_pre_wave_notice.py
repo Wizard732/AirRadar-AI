@@ -204,23 +204,109 @@ class StanddownNoticeTests(unittest.TestCase):
         flight = self._fresh_flight(self.db, "sumska", 5 * 60, now)
         info = wave_forecast.standdown_notice(self.db, "sumska", now=now)
         self.assertTrue(info["notify"])
-        self.db.record_standdown_notice("sumska", flight)
+        # Как в main._check_standdown: записываем с эпизодом и оценкой.
+        self.db.record_standdown_notice(
+            "sumska", flight,
+            alert_started_ts=int(info["alert_started_ts"]),
+            remaining_min=int(info["remaining_min"]),
+        )
         again = wave_forecast.standdown_notice(self.db, "sumska", now=now)
         self.assertFalse(again["notify"])
         self.assertEqual(again["reason"], "already_sent")
 
-    def test_new_flight_starts_new_episode(self):
-        """Новый полётный пост = новый эпизод: сообщение можно прислать снова."""
+    def test_silent_quiet_tail_no_new_posts(self):
+        """Тихий хвост: постов больше нет, оценка «тает» — повторов НЕ бывает.
+
+        Регрессия на прод-спам: countdown повторялся, когда поток сообщений
+        просто затихал. Дедуп по точному flight_ts глушит повтор, даже если
+        оценка изменилась больше чем на дельту.
+        """
         self._seed_history(self.db, "sumska")
         now = int(time.time())
-        flight1 = self._fresh_flight(self.db, "sumska", 5 * 60, now)
-        self.db.record_standdown_notice("sumska", flight1)
-        # Свежий полётный пост через несколько минут (числится позже).
+        flight = self._fresh_flight(self.db, "sumska", 5 * 60, now)  # остаток 15
+        info = wave_forecast.standdown_notice(self.db, "sumska", now=now)
+        self.assertTrue(info["notify"])
+        self.db.record_standdown_notice(
+            "sumska", flight,
+            alert_started_ts=int(info["alert_started_ts"]),
+            remaining_min=int(info["remaining_min"]),
+        )
+        # 11 минут спустя новых постов нет: остаток 4 мин (Δ=11 ≥ дельты),
+        # но полётный пост тот же → молчание.
+        now2 = now + 11 * 60
+        info2 = wave_forecast.standdown_notice(self.db, "sumska", now=now2)
+        self.assertFalse(info2["notify"])
+        self.assertEqual(info2["reason"], "already_sent")
+
+    def test_new_flight_same_episode_small_change_silent(self):
+        """Новый полётный пост в той же тревоге: оценка сдвинулась <10 мин —
+        повторный countdown не нужен (это и был канал спама)."""
+        self._seed_history(self.db, "sumska")
+        now = int(time.time())
+        flight1 = self._fresh_flight(self.db, "sumska", 5 * 60, now)  # остаток 15
+        info1 = wave_forecast.standdown_notice(self.db, "sumska", now=now)
+        self.assertTrue(info1["notify"])
+        self.db.record_standdown_notice(
+            "sumska", flight1,
+            alert_started_ts=int(info1["alert_started_ts"]),
+            remaining_min=int(info1["remaining_min"]),
+            sent_ts=now,
+        )
+        # Новая группа через 4 мин: остаток снова ~19-20, сдвиг < 10 мин.
         flight2 = flight1 + 240
         self.db.add_event(event_ts=flight2, weapon_class="uav", stage="movement",
                           region="sumska", text="Ще група БпЛА", source="t")
-        info = wave_forecast.standdown_notice(self.db, "sumska", now=flight2 + 60)
-        self.assertTrue(info["notify"])
+        info2 = wave_forecast.standdown_notice(self.db, "sumska", now=flight2 + 60)
+        self.assertFalse(info2["notify"])
+        self.assertEqual(info2["reason"], "already_sent")
+
+    def test_renotify_when_estimate_shifts_10min(self):
+        """Оценка изменилась на ≥10 мин (новая группа перезапустила таймер) —
+        в том же эпизоде можно написать повторный countdown."""
+        self._seed_history(self.db, "sumska")
+        now = int(time.time())
+        flight1 = self._fresh_flight(self.db, "sumska", 15 * 60, now)  # остаток 5
+        info1 = wave_forecast.standdown_notice(self.db, "sumska", now=now)
+        self.assertTrue(info1["notify"])
+        self.assertEqual(info1["remaining_min"], 5)
+        # Отправка «25 минут назад» — кулдаун не помеха повтору.
+        self.db.record_standdown_notice(
+            "sumska", flight1,
+            alert_started_ts=int(info1["alert_started_ts"]),
+            remaining_min=int(info1["remaining_min"]),
+            sent_ts=now - 25 * 60,
+        )
+        # Новая группа: остаток перескочил с 5 до ~19 → сдвиг ≥ 10 мин.
+        flight2 = now + 60
+        self.db.add_event(event_ts=flight2, weapon_class="uav", stage="movement",
+                          region="sumska", text="Нова група БпЛА", source="t")
+        info2 = wave_forecast.standdown_notice(self.db, "sumska", now=flight2 + 60)
+        self.assertTrue(info2["notify"])
+        self.assertGreaterEqual(
+            abs(info2["remaining_min"] - info1["remaining_min"]),
+            wave_forecast.STANDDOWN_NOTICE_RESEND_DELTA_MIN,
+        )
+
+    def test_renotify_blocked_by_cooldown(self):
+        """Кулдаун — страховка: даже при сдвиге оценки ≥10 мин повтор
+        глушится, если countdown был меньше 20 минут назад."""
+        self._seed_history(self.db, "sumska")
+        now = int(time.time())
+        flight1 = self._fresh_flight(self.db, "sumska", 15 * 60, now)  # остаток 5
+        info1 = wave_forecast.standdown_notice(self.db, "sumska", now=now)
+        self.assertTrue(info1["notify"])
+        self.db.record_standdown_notice(
+            "sumska", flight1,
+            alert_started_ts=int(info1["alert_started_ts"]),
+            remaining_min=int(info1["remaining_min"]),
+            sent_ts=now,  # только что — кулдаун активен
+        )
+        flight2 = now + 60
+        self.db.add_event(event_ts=flight2, weapon_class="uav", stage="movement",
+                          region="sumska", text="Нова група БпЛА", source="t")
+        info2 = wave_forecast.standdown_notice(self.db, "sumska", now=flight2 + 60)
+        self.assertFalse(info2["notify"])
+        self.assertEqual(info2["reason"], "cooldown")
 
     def test_silent_when_no_active_alert(self):
         """Тревога закрыта (отбой) — countdown не нужен."""

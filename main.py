@@ -993,7 +993,12 @@ async def _check_standdown(bot_client, db: Database, publisher=None) -> int:
             await _notify_subscribers(bot_client, db, [slug], text, weapon_class="")
             sent += 1
         await _publish_notice(publisher, text)
-        db.record_standdown_notice(slug, int(info["flight_ts"]))
+        db.record_standdown_notice(
+            slug,
+            int(info["flight_ts"]),
+            alert_started_ts=int(info["alert_started_ts"]),
+            remaining_min=int(info["remaining_min"]),
+        )
         logger.info(
             "Countdown отбоя: %s — орієнтовно ~%s хв (медіана ~%d хв)",
             slug, info.get("remaining_min", 0), info.get("median_minutes", 0),

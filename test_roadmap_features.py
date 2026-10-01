@@ -166,7 +166,11 @@ class BotUiRoadmapTests(unittest.TestCase):
         event = self._callback("myzone")
         deadline = self.bot._airradar_zone_pending.get(111, 0)
         self.assertGreater(deadline, time.time() + 500)
-        self.assertIn("Моя зона", event.responses[-1])
+        # Два отдельных сообщения (inline и reply нельзя смешивать):
+        # сначала экран «Моя зона», затем prompt с reply-кнопкой локации.
+        self.assertGreaterEqual(len(event.responses), 2)
+        self.assertIn("Моя зона", event.responses[0])
+        self.assertIn("отправь локацию", event.responses[-1])
 
     def test_zone_geo_saves_home_region_and_stops(self):
         from city_coords import region_for_point

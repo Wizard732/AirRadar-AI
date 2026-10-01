@@ -107,6 +107,20 @@ class Database:
                 )
                 """
             )
+            # Привязка countdown к эпизоду тревоги: один countdown на эпизод,
+            # повтор только если оценка изменилась на ≥10 мин. Мягкая миграция.
+            try:
+                cur.execute(
+                    "ALTER TABLE standdown_notices ADD COLUMN alert_started_ts INTEGER NOT NULL DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass  # колонка уже существует
+            try:
+                cur.execute(
+                    "ALTER TABLE standdown_notices ADD COLUMN remaining_min INTEGER"
+                )
+            except sqlite3.OperationalError:
+                pass  # колонка уже существует
             cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_end ON alerts(region, ended_ts)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_region ON threats(region)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_threats_ts ON threats(ts)")
@@ -893,14 +907,34 @@ class Database:
         except sqlite3.Error:
             return False
 
-    def record_standdown_notice(self, region: str, flight_ts: int, *, sent_ts: int | None = None) -> None:
-        """Запомнить, что «відбій орієнтовно за ~N хв» по этому полёту отправлено."""
+    def record_standdown_notice(
+        self,
+        region: str,
+        flight_ts: int,
+        *,
+        sent_ts: int | None = None,
+        alert_started_ts: int = 0,
+        remaining_min: int | None = None,
+    ) -> None:
+        """Запомнить, что «відбій орієнтовно за ~N хв» по этому полёту отправлено.
+
+        alert_started_ts — эпизод тревоги, remaining_min — оценка на момент
+        отправки (для правила «повтор только при изменении оценки ≥10 мин»).
+        """
         try:
             with self._lock:
                 assert self._conn is not None
                 self._conn.execute(
-                    "INSERT OR IGNORE INTO standdown_notices (region, flight_ts, sent_ts) VALUES (?, ?, ?)",
-                    (region, int(flight_ts), int(sent_ts if sent_ts is not None else time.time())),
+                    "INSERT OR IGNORE INTO standdown_notices "
+                    "(region, flight_ts, sent_ts, alert_started_ts, remaining_min) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        region,
+                        int(flight_ts),
+                        int(sent_ts if sent_ts is not None else time.time()),
+                        int(alert_started_ts),
+                        int(remaining_min) if remaining_min is not None else None,
+                    ),
                 )
                 self._conn.commit()
         except sqlite3.Error as exc:
@@ -918,6 +952,51 @@ class Database:
                 return row is not None
         except sqlite3.Error:
             return False
+
+    def standdown_notice_sent_recent(self, region: str, cooldown_sec: int) -> bool:
+        """True, если по региону countdown отправляли в последние cooldown_sec.
+
+        Дедуп-кулдаун: посты «цель в воздухе» прилетают каждые 1–3 минуты,
+        и старый дедуп по точному flight_ts считал каждый новый пост новым
+        эпизодом → countdown спамился 5–10 раз за тревогу. Кулдаун на регион
+        делает «одно уведомление на период», независимо от числа полётных
+        постов.
+        """
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT 1 FROM standdown_notices "
+                    "WHERE region = ? AND sent_ts >= ? LIMIT 1",
+                    (region, int(time.time()) - int(cooldown_sec)),
+                ).fetchone()
+                return row is not None
+        except sqlite3.Error:
+            return False
+
+    def standdown_episode_notice(self, region: str, alert_started_ts: int) -> dict | None:
+        """Последний countdown этого эпизода тревоги.
+
+        Возвращает {"remaining_min": int, "sent_ts": int} или None, если на
+        этом эпизоде (alerts.started_ts) ещё не отправляли. remaining_min —
+        оценка «за сколько хв» на момент отправки: правило повтора —
+        «оценка изменилась на ≥10 минут».
+        """
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT remaining_min, sent_ts FROM standdown_notices "
+                    "WHERE region = ? AND alert_started_ts = ? "
+                    "AND remaining_min IS NOT NULL "
+                    "ORDER BY sent_ts DESC LIMIT 1",
+                    (region, int(alert_started_ts)),
+                ).fetchone()
+                if row is None:
+                    return None
+                return {"remaining_min": int(row["remaining_min"]), "sent_ts": int(row["sent_ts"])}
+        except sqlite3.Error:
+            return None
 
     def active_alert_regions(self) -> list[str]:
         """Регионы с активной (незакрытой) тревогой — база countdown-цикла."""
