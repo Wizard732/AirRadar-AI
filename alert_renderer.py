@@ -18,6 +18,7 @@ from __future__ import annotations
 import time
 
 from incident_fusion import IncidentFact
+from kyiv_time import fmt as kyiv_fmt
 from regions import region_name
 from weapon_classes import weapon_eta, weapon_severity
 
@@ -100,7 +101,7 @@ def render_evidence_alert(
     маршрут / статус / текст источника / бренд) — пост читается с одного
     взгляда в ленте. Заголовок капсом — визуальный якорь.
     """
-    when = time.strftime("%H:%M", time.localtime(event_ts))
+    when = kyiv_fmt(event_ts)  # киевское время, не UTC сервера
 
     if fact.weapon_class == "stand_down":
         # Отбой — отдельная короткая ветка, публикуется всегда и мгновенно.

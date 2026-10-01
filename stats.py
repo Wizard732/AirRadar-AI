@@ -15,6 +15,7 @@ from __future__ import annotations
 import time
 
 from database import Database
+from kyiv_time import fmt as kyiv_fmt
 
 # Локализованные подписи для типов угроз.
 THREAT_LABELS = {
@@ -99,5 +100,5 @@ def format_detailed_stats(db: Database, days: int = 7, region: str | None = None
         lines.append(f"  Медіана тривалості: ~{h} год {m} хв" if h > 0 else f"  Медіана тривалості: ~{mins} хв")
         lines.append("")
 
-    lines.append(f"🔄 Станом на {time.strftime('%H:%M:%S')}")
+    lines.append(f"🔄 Станом на {kyiv_fmt(pattern='%H:%M:%S')}")
     return "\n".join(lines)[:3900]

@@ -16,6 +16,7 @@ import statistics
 import time
 
 from database import Database
+from kyiv_time import kyiv_hour
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def hourly_risk(db: Database, region: str, threat_type: str | None = None) -> st
     total = sum(pattern)
     if total < 10:
         return ""
-    cur_hour = time.localtime().tm_hour
+    cur_hour = kyiv_hour()
     cur_count = pattern[cur_hour]
     pct = int(cur_count * 100 / total)
     if pct >= 8:

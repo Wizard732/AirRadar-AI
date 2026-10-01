@@ -24,6 +24,8 @@ import time
 from telethon import Button, TelegramClient, events
 from telethon.errors import MessageNotModifiedError
 
+from kyiv_time import fmt as kyiv_fmt
+
 from database import Database
 from city_coords import region_for_point
 from eta import build_eta_text
@@ -589,7 +591,7 @@ def _region_hist_text(db: Database, slug: str) -> str:
         return f"🗂 <b>{name}</b> — последние сообщения\n\nЗаписей пока нет."
     lines = [f"🗂 <b>{name}</b> — последние сообщения\n"]
     for it in items:
-        when = time.strftime("%d.%m %H:%M", time.localtime(it["ts"]))
+        when = kyiv_fmt(it["ts"], "%d.%m %H:%M")
         lines.append(f"{TYPE_LABELS.get(it['type'], '🚨')} {when}\n   <i>{html.escape(public_text(it.get('text') or '', 70))}</i>")
     return "\n".join(lines)
 
@@ -605,7 +607,7 @@ def _region_cons_text(db: Database, slug: str) -> str:
         )
     lines = [f"🔥 <b>{name}</b> — підтверджені наслідки (24 год)\n"]
     for it in items:
-        when = time.strftime("%d.%m %H:%M", time.localtime(it["ts"]))
+        when = kyiv_fmt(it["ts"], "%d.%m %H:%M")
         lines.append(
             f"💥 {when} · {it['source_count']} незалежних джерел\n"
             f"   <i>{html.escape(public_text(it.get('text') or '', 160))}</i>"

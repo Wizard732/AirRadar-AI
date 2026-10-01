@@ -16,6 +16,7 @@ import time
 
 from database import Database
 from interests_config import topic_label
+from kyiv_time import kyiv_date
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,7 @@ async def digest_scheduler(bot_client, db: Database, morning_hour: int, evening_
             now = time.gmtime()
             cur_hour = now.tm_hour
             cur_min = now.tm_min
-            today = time.strftime("%Y-%m-%d")
+            today = kyiv_date()  # ключ дня по Киеву
 
             # Чистим старые записи раз в сутки.
             if cur_hour == 0 and cur_min < 10:
@@ -205,9 +206,9 @@ async def _send_evening_forecasts(bot_client, db: Database, publisher=None) -> i
 async def _build_channel_summary(db: Database, regions: list[str]) -> str:
     """Общая сводка за день для канала — кратко по всем активным регионам."""
     from forecast import daily_forecast
-    import time
+    from kyiv_time import kyiv_date
 
-    now_str = time.strftime("%d.%m.%Y")
+    now_str = kyiv_date(pattern="%d.%m.%Y")
     lines = [f"🌙 Підсумок дня — {now_str}\n"]
 
     # Общая статистика за день (все регионы).

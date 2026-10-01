@@ -812,22 +812,9 @@ def _notify_regions(fact, regions: list[str]) -> list[str]:
 
 
 def _kyiv_datetime():
-    """Текущее время в Киеве как naive datetime (без tzdata на Windows).
-
-    Переходы часов считаются вручную — последнее воскресенье марта/октября,
-    момент 01:00 UTC в обоих случаях.
-    """
-    from datetime import datetime, timedelta, timezone as tz
-    now = datetime.now(tz.utc)
-
-    def _dst_transition(month: int) -> datetime:
-        day = datetime(now.year, month, 31, 1, 0, tzinfo=tz.utc)  # 31 есть у обоих месяцев
-        while day.weekday() != 6:  # воскресенье
-            day -= timedelta(days=1)
-        return day
-
-    eest = _dst_transition(3) <= now < _dst_transition(10)
-    return now + timedelta(hours=(3 if eest else 2))
+    """Текущее время в Киеве как naive datetime (общий хелпер kyiv_time)."""
+    from kyiv_time import kyiv_datetime
+    return kyiv_datetime()
 
 
 def _kyiv_hour() -> int:

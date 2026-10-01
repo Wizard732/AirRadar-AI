@@ -18,6 +18,7 @@ import time
 from telethon import TelegramClient, events
 
 from city_coords import nearest_place
+from kyiv_time import fmt as kyiv_fmt
 from database import Database
 
 logger = logging.getLogger(__name__)
@@ -55,7 +56,7 @@ def register_geo_report_handlers(bot: TelegramClient, db: Database) -> None:
         where = nearest_place(lat, lon)
         ok = db.add_geo_report(event.sender_id, lat, lon, text=text, region="")
         if ok:
-            when = time.strftime("%H:%M", time.localtime())
+            when = kyiv_fmt()
             logger.info("Geo-репорт от %s: %s (%.3f, %.3f)", event.sender_id, where, lat, lon)
             await event.respond(
                 f"✅ Дякуємо! Повідомлення зафіксовано: <b>{where}</b>, {when}.\n"

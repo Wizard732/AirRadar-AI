@@ -19,6 +19,8 @@ import time
 from collections import Counter
 from typing import Any
 
+from kyiv_time import fmt as kyiv_fmt, kyiv_hour, kyiv_midnight_ts
+
 logger = logging.getLogger(__name__)
 
 # Исторические события нужны для ETA/вероятностей; не удаляем их по времени.
@@ -854,14 +856,13 @@ class Database:
             return []
 
     def alert_counts_by_day(self, region: str, days: int = 7, *, now: int | None = None) -> list[tuple[str, int]]:
-        """Число эпизодов тревог по дням (по started_ts, локальное время).
+        """Число эпизодов тревог по дням (по started_ts, киевское время).
 
         Возвращает [(«дд.мм», count)] для графика «📈 Тиждень»: days точек,
         старшая — первой. Эпизоды считаются по дню старта тревоги.
         """
-        now = int(now if now is not None else time.time())        # Локальная полночь сегодня (mktime с isdst=-1 корректно учитывает DST).
-        lt = time.localtime(now)
-        day_start = int(time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, 0, 0, -1)))
+        now = int(now if now is not None else time.time())
+        day_start = kyiv_midnight_ts(now)  # полночь по Киеву, не по UTC
         out: list[tuple[str, int]] = []
         try:
             with self._lock:
@@ -874,7 +875,7 @@ class Database:
                         "WHERE region = ? AND started_ts >= ? AND started_ts < ?",
                         (region, start, end),
                     ).fetchone()
-                    label = time.strftime("%d.%m", time.localtime(start))
+                    label = kyiv_fmt(start, "%d.%m")
                     out.append((label, int(row["c"]) if row else 0))
         except sqlite3.Error as exc:
             logger.warning("Не удалось собрать статистику тревог по дням: %s", exc)
@@ -1993,7 +1994,7 @@ class Database:
                     )
                 hours = [0] * 24
                 for row in cur:
-                    h = time.localtime(row["ts"]).tm_hour
+                    h = kyiv_hour(row["ts"])  # час по Киеву (пост «хвилі ~X:00»)
                     hours[h] += 1
                 return hours
         except sqlite3.Error as exc:

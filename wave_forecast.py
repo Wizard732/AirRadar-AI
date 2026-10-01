@@ -71,24 +71,9 @@ def _quantile(values: list[float], fraction: float) -> float:
 
 
 def _kyiv_hour_of(ts: int) -> int:
-    """Час суток в Киеве для unix-ts (без tzdata: ручные переходы DST).
-
-    Логика та же, что в main._kyiv_hour, но для произвольного момента:
-    последнее воскресенье марта/октября, 01:00 UTC в обоих случаях.
-    """
-    from datetime import datetime, timedelta, timezone as tz
-
-    dt = datetime.fromtimestamp(int(ts), tz=tz.utc)
-    year = dt.year
-
-    def _dst(month: int) -> datetime:
-        day = datetime(year, month, 31, 1, 0, tzinfo=tz.utc)
-        while day.weekday() != 6:  # воскресенье
-            day -= timedelta(days=1)
-        return day
-
-    eest = _dst(3) <= dt < _dst(10)
-    return (dt.hour + (3 if eest else 2)) % 24
+    """Час суток в Киеве для unix-ts (общий хелпер kyiv_time)."""
+    from kyiv_time import kyiv_hour
+    return kyiv_hour(ts)
 
 
 def _fmt_duration(minutes: int) -> str:
