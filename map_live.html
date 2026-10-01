@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "unknown", "text": "❌ Відбій. Припинили існування. Проте летить наступний — буде пізніше.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 4}, {"type": "uav", "region": "dnipropetrovska", "text": "Рух 3 ворожих БпЛА на Дніпропетровщині – Самар + Юріївка + Синельникове (реактивні)", "sources": 2, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 6}, {"type": "uav", "region": "sumska", "text": "Сумщина: 2 реактивні БпЛА на Шостку", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 27}, {"type": "uav", "region": "sumska", "text": "Сумщина: 2х Реактивні БпЛА курсом на Шостку", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 27}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "zaporizka", "text": "Запорізька область: 1 реактивний БпЛА на Запоріжжя", "sources": 1, "origin": "", "destination": "zaporizka", "track": null, "age_min": 4}, {"type": "uav", "region": "zaporizka", "text": "Запорізька область: Реактивний БпЛА курсом на Запоріжжя", "sources": 1, "origin": "", "destination": "zaporizka", "track": null, "age_min": 4}, {"type": "stand_down", "region": "unknown", "text": "❌ Відбій. Припинили існування. Проте летить наступний — буде пізніше.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 14}, {"type": "uav", "region": "dnipropetrovska", "text": "Рух 3 ворожих БпЛА на Дніпропетровщині – Самар + Юріївка + Синельникове (реактивні)", "sources": 2, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 16}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 78, "standdown_hits": 5, "standdown_total": 10}, "dnipropetrovska": {"wave_hours": {"from": 8, "to": 14}}};
+const EMBEDDED_FORECAST = {"dnipropetrovska": {"wave_hours": {"from": 8, "to": 14}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
