@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "kab", "region": "sumska", "text": "Загроза КАБ для Сумщини", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 18}, {"type": "uav", "region": "unknown", "text": "За понад годину мінуснули 5 дронів, які тримали курс до нас 🫶", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 20}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "unknown", "text": "Дорозвідка по БпЛА", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 5}, {"type": "uav", "region": "kyivska", "text": "Київщина: Реактивний БпЛА курсом на Борову", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 6}, {"type": "kab", "region": "sumska", "text": "Загроза КАБ для Сумщини", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 28}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 80, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 80, "standdown_hits": 5, "standdown_total": 10}, "kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 22, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
