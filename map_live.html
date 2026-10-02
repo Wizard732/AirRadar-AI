@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "dnipropetrovska", "text": "Дніпропетровщина: Реактивний БпЛА курсом на Юріївку Чернігівщина: Реактивний БпЛА курсом на Сосницю Черкащина: Реактивний БпЛА курсом на Драбів", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 1}, {"type": "uav", "region": "multi", "text": "Дніпропетровщина 1 реактивний БпЛА на Синельникове 1 реактивний БпЛА на Шахтарське Чернігівщина 1 реактивний БпЛА на Понорницю Черкащина 1 реактивний БпЛА на Драбів Київщина 1 реактивний БпЛА на…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 4}, {"type": "uav", "region": "multi", "text": "Дніпропетровщина: Реактивний БпЛА курсом на Синельникове Реактивний БпЛА курсом на Шахтарське Чернігівщина: Реактивний БпЛА курсом на Понорницю Черкащина: Реактивний БпЛА курсом на Драбів Київщина…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 4}, {"type": "uav", "region": "unknown", "text": "🛵 1 БпЛА в області поблизу Яготина.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 6}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"dnipropetrovska": {"wave_hours": {"from": 8, "to": 14}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
