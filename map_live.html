@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "• 2 БпЛА на Київщині курсом на Димер (від Лебедівки та Обухів (від Борисполя).", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 6}, {"type": "uav", "region": "unknown", "text": "Другий БпЛА в області крутитися біля Лебедівки.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 8}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 26, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
