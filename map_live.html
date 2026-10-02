@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "sumska", "text": "• Суми, один БпЛа до вас", "sources": 2, "origin": "", "destination": "sumska", "track": {"from": [50.907, 34.798], "to": [51.518, 30.755], "from_name": "Суми", "to_name": "Славутич", "speed_kmh": 520.3, "course_deg": 285, "minutes": 42, "points": 4}, "age_min": 21}, {"type": "uav", "region": "sumska", "text": "Сумщина: БпЛА курсом на Суми", "sources": 1, "origin": "", "destination": "sumska", "track": {"from": [50.907, 34.798], "to": [51.518, 30.755], "from_name": "Суми", "to_name": "Славутич", "speed_kmh": 520.3, "course_deg": 285, "minutes": 42, "points": 4}, "age_min": 23}, {"type": "uav", "region": "dnipropetrovska", "text": "Дніпропетровщина: Реактивний БпЛА курсом на Дніпро", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 24}, {"type": "stand_down", "region": "unknown", "text": "💚Відбій. Насолоджуйтесь тихим часом, поки він є!", "sources": 2, "origin": "", "destination": "unknown", "track": null, "age_min": 24}, {"type": "stand_down", "region": "unknown", "text": "Буде відбій. Наразі до нас нічого не летить.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 25}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "• 3 БпЛА повз Славутич у бік Київщини", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [48.508, 32.262], "to": [50.463, 30.516], "from_name": "Кропивницький", "to_name": "Київ — Поділ", "speed_kmh": 188.3, "course_deg": 331, "minutes": null, "points": 7}, "age_min": 6}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"dnipropetrovska": {"wave_hours": {"from": 8, "to": 14}}, "sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 78, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 117, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
