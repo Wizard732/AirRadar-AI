@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Чернігівщина 1 реактивний БпЛА на Славутич Полтавщина 1 реактивний БпЛА на Кобеляки 1 реактивний БпЛА на Семенівку Дніпропетровщина 1 реактивний БпЛА на Магдалинівку 1 реактивний БпЛА на Губиниху", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 4}, {"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Славутич Полтавщина: Реактивний БпЛА курсом на Кобеляки Реактивний БпЛА курсом на Семенівку Дніпропетровщина: Реактивний БпЛА курсом на Магдалинівку Реактивний…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 4}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Чернігівщина 3 реактивні БпЛА на Славутич Полтавщина 1 реактивний БпЛА на Кобеляки 1 реактивний БпЛА на Семенівку Черкащина 2 реактивні БпЛА на Драбів", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 3}, {"type": "uav", "region": "multi", "text": "Чернігівщина: 3х Реактивні БпЛА курсом на Славутич Полтавщина: Реактивний БпЛА курсом на Кобеляки Реактивний БпЛА курсом на Семенівку Черкащина: 2х Реактивні БпЛА курсом на Драбів", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 3}, {"type": "uav", "region": "kyivska", "text": "Всього летить 5 БпЛА з інтервалом у часі: 2 повз Славутич та 3 повз Черкащину.", "sources": 1, "origin": "kyivska", "destination": "kyivska", "track": null, "age_min": 8}, {"type": "mlrs", "region": "kyivska", "text": "♦️З Бажана перед м. Осокорки перекрито, до розвʼязки що будується і ЖК Зарічний та ЖК Славутич проїзду немає і на ліву сторону Бажана (ЖК Південна брама, ЖК Статус град). Всі 4 смуги направо на…", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 9}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 2, "standdown_live": true, "next_wave_min": 22, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
