@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "odeska", "text": "Одещина: 5 БПЛА на Татарбунари", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 1}, {"type": "uav", "region": "multi", "text": "БПЛА на Суми БПЛА на Харків", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 12}];
+const EMBEDDED_THREATS = [{"type": "explosion", "region": "unknown", "text": "Щас як позову Олеха, прилетит бить им кабинеты", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 1}, {"type": "uav", "region": "kyivska", "text": "Реактивний БПЛА на Бровари", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 8}, {"type": "uav", "region": "odeska", "text": "Одещина: 5 БПЛА на Татарбунари", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 11}, {"type": "uav", "region": "multi", "text": "БПЛА на Суми БПЛА на Харків", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 22}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 223, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
