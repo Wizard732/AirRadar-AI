@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Київщина: БПЛА на Фастів", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [50.511, 30.79], "to": [50.077, 29.917], "from_name": "Бровари", "to_name": "Фастів", "speed_kmh": 48.5, "course_deg": 232, "minutes": null, "points": 5}, "age_min": 1}, {"type": "uav", "region": "multi", "text": "БпЛА на Київщині, курс на Житомирщину на Брусилів", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 16}, {"type": "uav", "region": "kyivska", "text": "• 1 БпЛА на півночі Київщини у бік Наливайківки/Макарова. • 1 БпЛА на півдні Київщини у бік Трипілля/Обухова. __Не реактивні.__", "sources": 2, "origin": "", "destination": "kyivska", "track": null, "age_min": 29}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "chernigivska", "text": "Чернігівщина: БпЛА курсом на Ніжин", "sources": 1, "origin": "", "destination": "chernigivska", "track": {"from": [51.498, 31.289], "to": [51.518, 30.755], "from_name": "Чернігів", "to_name": "Славутич", "speed_kmh": 166.6, "course_deg": 274, "minutes": 17, "points": 2}, "age_min": 2}, {"type": "uav", "region": "kyivska", "text": "Київщина: БПЛА на Фастів", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [50.511, 30.79], "to": [50.077, 29.917], "from_name": "Бровари", "to_name": "Фастів", "speed_kmh": 48.5, "course_deg": 232, "minutes": null, "points": 5}, "age_min": 11}, {"type": "uav", "region": "multi", "text": "БпЛА на Київщині, курс на Житомирщину на Брусилів", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 26}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 3, "standdown_live": true, "next_wave_min": 223, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 223, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
