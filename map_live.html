@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "unknown", "text": "Черкащина: БпЛА на Смілу", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 21}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "• Козятин - Липовець - Вінниця, один БпЛА до вас! + 1 реактивний повз Ніжин у бік Київщини!", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 3}, {"type": "uav", "region": "chernigivska", "text": "Вінниччина: БпЛА на Козятин Чернігівщина: БпЛА на Ніжин", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 4}, {"type": "uav", "region": "khersonska", "text": "Херсонщина: БпЛА на Українку", "sources": 1, "origin": "", "destination": "khersonska", "track": null, "age_min": 6}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 125, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
