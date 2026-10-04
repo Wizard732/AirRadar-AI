@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "unknown", "text": "💚 Відбій небезпеки! Бігом пісяти й спати", "sources": 2, "origin": "", "destination": "unknown", "track": null, "age_min": 22}, {"type": "uav", "region": "multi", "text": "Дніпропетровщина: БпЛА курсом на Софіївку Харківщина: БпЛА курсом на Старий Салтів 2х БпЛА курсом на Ізюм Запорізька область: БпЛА курсом на Новомиколаївку", "sources": 3, "origin": "", "destination": "multi", "track": null, "age_min": 22}, {"type": "uav", "region": "kyivska", "text": "Київщина: Реактивний БпЛА курсом на Вишгород", "sources": 2, "origin": "", "destination": "kyivska", "track": null, "age_min": 26}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "dnipropetrovska", "text": "Дніпропетровщина: БпЛА в районі Просяної БпЛА курсом на Гранітне", "sources": 2, "origin": "", "destination": "dnipropetrovska", "track": {"from": [51.498, 31.289], "to": [48.465, 35.046], "from_name": "Чернігів", "to_name": "Дніпро", "speed_kmh": 218.9, "course_deg": 140, "minutes": null, "points": 3}, "age_min": 3}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 78, "standdown_hits": 3, "standdown_total": 7}};
+const EMBEDDED_FORECAST = {};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
