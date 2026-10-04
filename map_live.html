@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "poltavska", "text": "Полтавщина: БПЛА на Опішня/Котельва", "sources": 1, "origin": "", "destination": "poltavska", "track": {"from": [51.518, 30.755], "to": [49.589, 34.551], "from_name": "Славутич", "to_name": "Полтава", "speed_kmh": 304.7, "course_deg": 127, "minutes": null, "points": 2}, "age_min": 6}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "unknown", "text": "🛵 1 БпЛА в області від Яготина на Переяслав.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 5}, {"type": "uav", "region": "kyivska", "text": "БпЛА на Київщині, курс на Яготин", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [51.518, 30.755], "to": [51.498, 31.289], "from_name": "Славутич", "to_name": "Чернігів", "speed_kmh": 81.8, "course_deg": 93, "minutes": null, "points": 3}, "age_min": 8}, {"type": "uav", "region": "poltavska", "text": "Полтавщина: БПЛА на Опішня/Котельва", "sources": 1, "origin": "", "destination": "poltavska", "track": {"from": [51.518, 30.755], "to": [49.589, 34.551], "from_name": "Славутич", "to_name": "Полтава", "speed_kmh": 304.7, "course_deg": 127, "minutes": null, "points": 2}, "age_min": 16}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 223, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
