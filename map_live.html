@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Київщина: БпЛА на Яготин", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 11}, {"type": "uav", "region": "kyivska", "text": "Київщина: Реактивний БпЛА курсом на Яготин", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 11}, {"type": "stand_down", "region": "unknown", "text": "✅ Отбой тревожной воздухи", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 12}, {"type": "uav", "region": "odeska", "text": "Одещина: БпЛА на Маяки", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 24}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "dnipropetrovska", "text": "БпЛА на Дніпро", "sources": 2, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 1}, {"type": "uav", "region": "kyivska", "text": "Київщина: БпЛА на Згурівку", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 10}, {"type": "uav", "region": "kyivska", "text": "Київщина: Реактивний БпЛА курсом на Яготин", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 21}, {"type": "stand_down", "region": "unknown", "text": "✅ Отбой тревожной воздухи", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 22}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 114, "standdown_hits": 4, "standdown_total": 7}};
+const EMBEDDED_FORECAST = {"dnipropetrovska": {"wave_hours": {"from": 8, "to": 14}}, "kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 114, "standdown_hits": 4, "standdown_total": 7}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
