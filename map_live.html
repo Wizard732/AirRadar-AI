@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Сумщина: 12х БпЛА курсом на Вороніж Чернігівщина: БпЛА курсом на Олишівку Реактивний БпЛА курсом на Бахмач Київщина: Реактивний БпЛА курсом на Наливайківку Реактивний БпЛА курсом на Чорнобиль з…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 9}, {"type": "uav", "region": "unknown", "text": "🛵 1 БпЛА в області курсом через Димер у бік Бородянки.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 22}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "chernigivska", "text": "Чернігівщина 1 реактивний БПЛА Козелець 9 БПЛА на Короп", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 6}, {"type": "uav", "region": "odeska", "text": "• 1 реактивний БпЛА на __Одесу__!", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 10}, {"type": "uav", "region": "multi", "text": "Сумщина: 12х БпЛА курсом на Вороніж Чернігівщина: БпЛА курсом на Олишівку Реактивний БпЛА курсом на Бахмач Київщина: Реактивний БпЛА курсом на Наливайківку Реактивний БпЛА курсом на Чорнобиль з…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 19}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"chernigivska": {"standdown_min": 19, "standdown_live": true, "wave_hours": {"from": 22, "to": 4}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
