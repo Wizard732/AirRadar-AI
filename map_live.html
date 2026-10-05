@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Рух ворожих БпЛА: • 2 на Кіровоградщину — Кропивницький • 1 на Київщину — Обухів • 1 на Вінниччину — Липовець", "sources": 3, "origin": "", "destination": "multi", "track": null, "age_min": 7}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Київщина: Реактивний БпЛА курсом на Білу Церкву БпЛА курсом на Березань БпЛА курсом на Яготин", "sources": 2, "origin": "", "destination": "kyivska", "track": null, "age_min": 4}, {"type": "uav", "region": "multi", "text": "Рух ворожих БпЛА: • 2 на Кіровоградщину — Кропивницький • 1 на Київщину — Обухів • 1 на Вінниччину — Липовець", "sources": 3, "origin": "", "destination": "multi", "track": null, "age_min": 17}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 38, "standdown_hits": 4, "standdown_total": 7}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
