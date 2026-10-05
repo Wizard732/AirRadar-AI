@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "odeska", "text": "отбой одесский район", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 3}, {"type": "uav", "region": "multi", "text": "Чернігівщина 1 реактивний БпЛА на Славутич Київщина 1 реактивний БпЛА в район Чорнобиля Кіровоградщина 1 реактивний БпЛА на Олександрію Полтавщина 1 реактивний БпЛА кружляє біля Кременчука Сумщина 1…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 26}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "❗️Повітряні Сили показали ШІ-турелі, які використовують для захисту Києва від ворожих дронів Системи вже знищили перші цілі. ️", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 9}, {"type": "stand_down", "region": "odeska", "text": "отбой одесский район", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 13}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 38, "standdown_hits": 4, "standdown_total": 7}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
