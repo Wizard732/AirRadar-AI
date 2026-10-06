@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "shahed", "region": "dnipropetrovska", "text": "🚀 Дніпро, одна бандероль до вас!", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 4}, {"type": "stand_down", "region": "unknown", "text": "✅ Отбой тревожной воздухи", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 17}, {"type": "uav", "region": "multi", "text": "• Два БпЛА на Чернігівщині у напрямку Київщини/Житомирщини", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 20}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "chernigivska", "text": "Чернігівщина 1 реактивний БпЛА на Городню", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 8}, {"type": "shahed", "region": "dnipropetrovska", "text": "🚀 Дніпро, одна бандероль до вас!", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 14}, {"type": "stand_down", "region": "unknown", "text": "✅ Отбой тревожной воздухи", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 27}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"chernigivska": {"standdown_min": 17, "standdown_live": true, "wave_hours": {"from": 22, "to": 4}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
