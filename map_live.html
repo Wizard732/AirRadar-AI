@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Чернігівщина: БПЛА на а Ічню, Славутич та Гончарівське", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [48.508, 32.262], "to": [51.518, 30.755], "from_name": "Кропивницький", "to_name": "Славутич", "speed_kmh": 209.8, "course_deg": 343, "minutes": 43, "points": 2}, "age_min": 11}, {"type": "stand_down", "region": "unknown", "text": "В р-н Вознесенска уже, хз че отбой не дают", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 11}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "• Другий БпЛА на Київ заходить через ДВРЗ.", "sources": 3, "origin": "", "destination": "kyivska", "track": {"from": [48.508, 32.262], "to": [50.478, 30.657], "from_name": "Кропивницький", "to_name": "Київ — ДВРЗ", "speed_kmh": 126.5, "course_deg": 333, "minutes": 6, "points": 4}, "age_min": 0}, {"type": "stand_down", "region": "unknown", "text": "В р-н Вознесенска уже, хз че отбой не дают", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 21}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 38, "standdown_hits": 4, "standdown_total": 8}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 3, "standdown_live": true, "next_wave_min": 38, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
