@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "cruise_missile", "region": "unknown", "text": "❗️ Зафіксовано зліт 3 бортів Ту-160 з аеродрому «Бєлая» У разі здійснення пусків крилатих ракет, входження їх у повітряний простір України очікується орієнтовно після 03:00. Не ігноруйте сигнали…", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 22}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "mykolaivska", "text": "️Орієнтовний рух РБпЛА на Миколаївщині", "sources": 1, "origin": "", "destination": "mykolaivska", "track": {"from": [51.518, 30.755], "to": [46.975, 31.996], "from_name": "Славутич", "to_name": "Миколаїв", "speed_kmh": 257.1, "course_deg": 169, "minutes": null, "points": 3}, "age_min": 0}, {"type": "uav", "region": "chernigivska", "text": "Чернігівщина 2 реактивні БпЛА на Славутич Київщина 1 реактивний БпЛА на Красятичі", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 9}, {"type": "uav", "region": "chernigivska", "text": "Чернігівщина: 2х Реактивні БпЛА курсом на Славутич Київщина: Реактивний БпЛА курсом на Красятичі", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 9}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"chernigivska": {"standdown_min": 15, "standdown_live": true, "wave_hours": {"from": 22, "to": 4}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
