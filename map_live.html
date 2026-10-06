@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "odeska", "text": "Одещина: БПЛА на Південне", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 29}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "odeska", "text": "Одещина: БПЛА на Усатово", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 1}, {"type": "uav", "region": "sumska", "text": "БпЛА на Глухів на Сумщині з північного сходу", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 9}, {"type": "uav", "region": "mykolaivska", "text": "БпЛА на півдні Миколаївщини", "sources": 1, "origin": "", "destination": "mykolaivska", "track": {"from": [51.498, 31.289], "to": [48.508, 32.262], "from_name": "Чернігів", "to_name": "Кропивницький", "speed_kmh": 349.3, "course_deg": 168, "minutes": 37, "points": 3}, "age_min": 10}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 1, "standdown_live": true, "next_wave_min": 130, "standdown_hits": 5, "standdown_total": 9}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
