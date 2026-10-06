@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "dnipropetrovska", "text": "Житомирщина 1 реактивний БпЛА на Овруч Дніпропетровщина 2 реактивні БпЛА на Камʼянське", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 2}, {"type": "uav", "region": "dnipropetrovska", "text": "Житомирщина: Реактивний БпЛА курсом на Овруч Дніпропетровщина: 2х Реактивні БпЛА курсом на Камʼянське", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 3}, {"type": "uav", "region": "unknown", "text": "🛵рф збільшить швидкість реактивних дронів до 800-900 км/год, __— __заступник командувача Повітряних сил. \"Наразі близько 40% усіх безпілотних літальних апаратів, якими рф атакує Україну, є…", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 4}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "❗️Північний міст у Києві почали захищати антидроновими сітками,ЗМІ ️", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 5}, {"type": "uav", "region": "dnipropetrovska", "text": "Житомирщина 1 реактивний БпЛА на Овруч Дніпропетровщина 2 реактивні БпЛА на Камʼянське", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 12}, {"type": "uav", "region": "dnipropetrovska", "text": "Житомирщина: Реактивний БпЛА курсом на Овруч Дніпропетровщина: 2х Реактивні БпЛА курсом на Камʼянське", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 13}, {"type": "uav", "region": "unknown", "text": "🛵рф збільшить швидкість реактивних дронів до 800-900 км/год, __— __заступник командувача Повітряних сил. \"Наразі близько 40% усіх безпілотних літальних апаратів, якими рф атакує Україну, є…", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 14}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 78, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
