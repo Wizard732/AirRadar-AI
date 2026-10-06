@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "unknown", "text": "Дорозвідка по БПЛА", "sources": 2, "origin": "", "destination": "unknown", "track": null, "age_min": 12}, {"type": "cruise_missile", "region": "unknown", "text": "✙[ Напрямок ракет ](", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 16}, {"type": "uav", "region": "vinnytska", "text": "Вінниччина: Реактивний БпЛА курсом на Жмеринку", "sources": 2, "origin": "", "destination": "vinnytska", "track": null, "age_min": 22}, {"type": "uav", "region": "vinnytska", "text": "• Ладижин (Вінниччина), один БпЛА до вас!", "sources": 1, "origin": "", "destination": "vinnytska", "track": null, "age_min": 28}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Чернігівщина: РБпЛА на півночі області курсом на Славутич", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [51.518, 30.755], "to": [47.57, 31.222], "from_name": "Славутич", "to_name": "Вознесенськ", "speed_kmh": 589.4, "course_deg": 175, "minutes": 41, "points": 2}, "age_min": 3}, {"type": "uav", "region": "chernigivska", "text": "Чернігівщина: Реактивний БпЛА курсом на Добрянку", "sources": 2, "origin": "", "destination": "chernigivska", "track": null, "age_min": 9}, {"type": "uav", "region": "unknown", "text": "Дорозвідка по БПЛА", "sources": 2, "origin": "", "destination": "unknown", "track": null, "age_min": 22}, {"type": "cruise_missile", "region": "unknown", "text": "✙[ Напрямок ракет ](", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 26}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 1, "standdown_live": true, "next_wave_min": 92, "standdown_hits": 4, "standdown_total": 9}, "chernigivska": {"standdown_min": 21, "standdown_live": true, "wave_hours": {"from": 22, "to": 4}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
