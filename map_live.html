@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "mykolaivska", "text": "Миколаївщина: БпЛА на Нечаяне", "sources": 1, "origin": "", "destination": "mykolaivska", "track": {"from": [46.975, 31.996], "to": [47.57, 31.222], "from_name": "Миколаїв", "to_name": "Вознесенськ", "speed_kmh": 1236.1, "course_deg": 319, "minutes": 5, "points": 2}, "age_min": 29}, {"type": "uav", "region": "kirovohradska", "text": "БпЛА на Кропивницький слкир", "sources": 1, "origin": "", "destination": "kirovohradska", "track": {"from": [47.57, 31.222], "to": [48.508, 32.262], "from_name": "Вознесенськ", "to_name": "Кропивницький", "speed_kmh": 733.7, "course_deg": 36, "minutes": null, "points": 2}, "age_min": 29}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "zaporizka", "text": "БпЛА на Запоріжжя", "sources": 1, "origin": "", "destination": "zaporizka", "track": null, "age_min": 3}, {"type": "uav", "region": "sumska", "text": "БпЛА на Суми", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 6}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 4, "standdown_live": true, "next_wave_min": 130, "standdown_hits": 5, "standdown_total": 9}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
