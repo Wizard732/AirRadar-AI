@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [];
+const EMBEDDED_THREATS = [{"type": "kab", "region": "sumska", "text": "Загроза КАБ для Сумщини", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 7}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 4, "standdown_live": true, "next_wave_min": 130, "standdown_hits": 5, "standdown_total": 9}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
