@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "mykolaivska", "text": "Миколаївщина: БпЛА на Очаків", "sources": 1, "origin": "", "destination": "mykolaivska", "track": null, "age_min": 9}, {"type": "uav", "region": "kirovohradska", "text": "Кіровоградщина: БпЛА на Олександрію", "sources": 1, "origin": "", "destination": "kirovohradska", "track": null, "age_min": 15}, {"type": "stand_down", "region": "unknown", "text": "По этому отбой будет", "sources": 3, "origin": "", "destination": "unknown", "track": null, "age_min": 17}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Київщина: БпЛА на Київ 2 БпЛА на Димер Житомирщина: БпЛА на Любар", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 5}, {"type": "uav", "region": "multi", "text": "Київщина: Реактивний БпЛА курсом на Київ 2х Реактивні БпЛА курсом на Димер Житомирщина: Реактивний БпЛА курсом на Любар", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 6}, {"type": "uav", "region": "kyivska", "text": "На Бровари БпЛА", "sources": 2, "origin": "", "destination": "kyivska", "track": {"from": [49.798, 30.115], "to": [50.511, 30.79], "from_name": "Біла Церква", "to_name": "Бровари", "speed_kmh": 64.1, "course_deg": 31, "minutes": 24, "points": 7}, "age_min": 7}, {"type": "uav", "region": "mykolaivska", "text": "Миколаївщина: БпЛА на Очаків", "sources": 1, "origin": "", "destination": "mykolaivska", "track": null, "age_min": 19}, {"type": "uav", "region": "kirovohradska", "text": "Кіровоградщина: БпЛА на Олександрію", "sources": 1, "origin": "", "destination": "kirovohradska", "track": null, "age_min": 25}, {"type": "stand_down", "region": "unknown", "text": "По этому отбой будет", "sources": 3, "origin": "", "destination": "unknown", "track": null, "age_min": 27}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 62, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
