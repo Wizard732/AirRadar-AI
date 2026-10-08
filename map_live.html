@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Київщина: БпЛА на Димер", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 5}, {"type": "uav", "region": "kharkivska", "text": "БпЛА на Харків", "sources": 1, "origin": "", "destination": "kharkivska", "track": null, "age_min": 20}, {"type": "shahed", "region": "poltavska", "text": "Полтавщина: Бандероль на Кременчук", "sources": 1, "origin": "", "destination": "poltavska", "track": null, "age_min": 21}, {"type": "uav", "region": "kirovohradska", "text": "Кіровоградщина: БпЛА на Новоархангельськ", "sources": 1, "origin": "", "destination": "kirovohradska", "track": null, "age_min": 23}, {"type": "shahed", "region": "dnipropetrovska", "text": "Дніпропетровщина: Бандероль на Кривий Ріг", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 26}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "poltavska", "text": "Полтавщина: БпЛА на Кобеляки", "sources": 1, "origin": "", "destination": "poltavska", "track": {"from": [49.068, 33.422], "to": [49.589, 34.551], "from_name": "Кременчук", "to_name": "Полтава", "speed_kmh": 57.3, "course_deg": 54, "minutes": null, "points": 2}, "age_min": 2}, {"type": "uav", "region": "kyivska", "text": "Київщина: БпЛА на Димер", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 15}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 29, "standdown_hits": 4, "standdown_total": 7}, "kharkivska": {"wave_hours": {"from": 19, "to": 1}}, "poltavska": {"wave_hours": {"from": 13, "to": 19}}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 29, "standdown_hits": 4, "standdown_total": 7}, "poltavska": {"wave_hours": {"from": 13, "to": 19}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
