@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Сумщина 1 реактивний БпЛА на Липову Долину Чернігівщина 1 реактивний БпЛА на Березну 1 реактивний БпЛА на Сновськ 1 реактивний БпЛА на Остер Київщина 1 реактивний БпЛА на Димер Рівненщина 1…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 0}, {"type": "uav", "region": "multi", "text": "Сумщина: Реактивний БпЛА курсом на Липову Долину Чернігівщина: Реактивний БпЛА курсом на Березну Реактивний БпЛА курсом на Сновськ Реактивний БпЛА курсом на Остер Київщина: Реактивний БпЛА курсом на…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 1}, {"type": "stand_down", "region": "unknown", "text": "✅ Отбой тревожной воздухи", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 24}];
+const EMBEDDED_THREATS = [{"type": "kab", "region": "zaporizka", "text": "Загроза КАБ для Запорізької області", "sources": 1, "origin": "", "destination": "zaporizka", "track": null, "age_min": 3}, {"type": "uav", "region": "multi", "text": "Чернігівщина 1 реактивний БпЛА на Варву 2 реактивні БпЛА на Ніжин Київщина 1 реактивний БпЛА на Димер 1 реактивний БпЛА на Іванків Рівненщина 1 реактивний БпЛА на Сарни", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 4}, {"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Варву 2х Реактивні БпЛА курсом на Ніжин Київщина: Реактивний БпЛА курсом на Димер Реактивний БпЛА курсом на Іванків Рівненщина: Реактивний БпЛА курсом на Сарни", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 4}, {"type": "kab", "region": "kharkivska", "text": "Загроза КАБ для Харківщини", "sources": 1, "origin": "", "destination": "kharkivska", "track": null, "age_min": 10}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kharkivska": {"wave_hours": {"from": 19, "to": 1}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
