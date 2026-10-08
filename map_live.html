@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "explosion", "region": "unknown", "text": "❗️Дим після вибуху на Щербаківського ️", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 6}, {"type": "stand_down", "region": "kyivska", "text": "Над столицею та областю наразі чисто! Буде відбій💚", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 12}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "zaporizka", "text": "БпЛА на Запоріжжя слзп", "sources": 1, "origin": "", "destination": "zaporizka", "track": null, "age_min": 3}, {"type": "uav", "region": "unknown", "text": "Черкащина: БпЛА на Тальне", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 6}, {"type": "uav", "region": "kharkivska", "text": "БпЛА на Харків", "sources": 1, "origin": "", "destination": "kharkivska", "track": null, "age_min": 9}, {"type": "explosion", "region": "unknown", "text": "❗️Дим після вибуху на Щербаківського ️", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 17}, {"type": "stand_down", "region": "kyivska", "text": "Над столицею та областю наразі чисто! Буде відбій💚", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 23}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 29, "standdown_hits": 4, "standdown_total": 7}};
+const EMBEDDED_FORECAST = {"kharkivska": {"wave_hours": {"from": 19, "to": 1}}, "kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 29, "standdown_hits": 4, "standdown_total": 7}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
