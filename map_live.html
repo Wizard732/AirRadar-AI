@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "vinnytska", "text": "БпЛА на Вінницю слви", "sources": 2, "origin": "", "destination": "vinnytska", "track": {"from": [50.255, 28.658], "to": [49.233, 28.468], "from_name": "Житомир", "to_name": "Вінниця", "speed_kmh": 495.3, "course_deg": 187, "minutes": null, "points": 2}, "age_min": 15}];
+const EMBEDDED_THREATS = [{"type": "stand_down", "region": "kyivska", "text": "Над столицею та областю наразі чисто! Буде відбій💚", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 2}, {"type": "uav", "region": "vinnytska", "text": "БпЛА на Вінницю слви", "sources": 2, "origin": "", "destination": "vinnytska", "track": {"from": [50.255, 28.658], "to": [49.233, 28.468], "from_name": "Житомир", "to_name": "Вінниця", "speed_kmh": 495.3, "course_deg": 187, "minutes": null, "points": 2}, "age_min": 26}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 29, "standdown_hits": 4, "standdown_total": 7}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
