@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "zaporizka", "text": "БпЛА на Запоріжжя слзп", "sources": 1, "origin": "", "destination": "zaporizka", "track": null, "age_min": 24}, {"type": "uav", "region": "unknown", "text": "Черкащина: БпЛА на Тальне", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 27}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "sumska", "text": "БпЛА на Суми", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 1}, {"type": "uav", "region": "poltavska", "text": "Полтавщина: БпЛА на Кременчук", "sources": 1, "origin": "", "destination": "poltavska", "track": null, "age_min": 2}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 13, "standdown_live": true, "next_wave_min": 146, "standdown_hits": 4, "standdown_total": 8}, "poltavska": {"wave_hours": {"from": 13, "to": 19}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
