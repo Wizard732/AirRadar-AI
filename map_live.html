@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Чернігівщина 1 реактивний БпЛА на Городню Київщина 1 реактивний БпЛА на Київ 1 реактивний БпЛА на Димер 1 реактивний БпЛА на Гостомель", "sources": 2, "origin": "", "destination": "kyivska", "track": null, "age_min": 15}, {"type": "uav", "region": "kyivska", "text": "Чернігівщина: Реактивний БпЛА курсом на Городню Київщина: Реактивний БпЛА курсом на Київ Реактивний БпЛА курсом на Димер Реактивний БпЛА курсом на Гостомель", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 16}, {"type": "uav", "region": "chernigivska", "text": "Чернігівщина 1 реактивний БпЛА на Остер 1 реактивний БпЛА на Городню Київщина 1 реактивний БпЛА на Київ 1 реактивний БпЛА на Жукин", "sources": 1, "origin": "", "destination": "chernigivska", "track": {"from": [51.498, 31.289], "to": [48.508, 32.262], "from_name": "Чернігів", "to_name": "Кропивницький", "speed_kmh": 990.1, "course_deg": 168, "minutes": 26, "points": 2}, "age_min": 20}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Київщина: БпЛА на Чабани", "sources": 2, "origin": "", "destination": "kyivska", "track": {"from": [51.498, 31.289], "to": [50.53, 30.262], "from_name": "Чернігів", "to_name": "Гостомель", "speed_kmh": 108.1, "course_deg": 214, "minutes": 14, "points": 4}, "age_min": 9}, {"type": "uav", "region": "kyivska", "text": "Чернігівщина: Реактивний БпЛА курсом на Городню Київщина: Реактивний БпЛА курсом на Київ Реактивний БпЛА курсом на Димер Реактивний БпЛА курсом на Гостомель", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 26}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"chernigivska": {"standdown_min": 0, "standdown_live": true, "standdown_hits": 2, "standdown_total": 4}, "kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 38, "standdown_hits": 3, "standdown_total": 6}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 38, "standdown_hits": 3, "standdown_total": 6}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
