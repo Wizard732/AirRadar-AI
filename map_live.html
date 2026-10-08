@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Рух ворожих реактивних БпЛА: • 1 на Житомирщині — Любар • 2 на Київщині — Святошин + Кагарлик • 1 на Черкащині — Тальне • 2 на Дніпропетровщині — Магдалинівка + Солоне • 1 на Миколаївщині — Очаків", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 19}, {"type": "uav", "region": "kyivska", "text": "БпЛА на Борщагу, Жуляни, Відрадний", "sources": 3, "origin": "", "destination": "kyivska", "track": {"from": [47.57, 31.222], "to": [50.427, 30.408], "from_name": "Вознесенськ", "to_name": "Київ — Відрадний", "speed_kmh": 162.3, "course_deg": 350, "minutes": 4, "points": 11}, "age_min": 19}, {"type": "uav", "region": "kharkivska", "text": "• , тривога оголошена через 1 БпЛА на/повз Харківський масив", "sources": 1, "origin": "", "destination": "kharkivska", "track": null, "age_min": 23}, {"type": "uav", "region": "unknown", "text": "БпЛА на Вишеньки, Нижні сади", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 23}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Вишгород та Ірпінь/Ворзель, уважно! По одному БпЛА до вас", "sources": 3, "origin": "", "destination": "kyivska", "track": {"from": [51.518, 30.755], "to": [50.588, 30.489], "from_name": "Славутич", "to_name": "Вишгород", "speed_kmh": 54.2, "course_deg": 190, "minutes": 21, "points": 10}, "age_min": 1}, {"type": "uav", "region": "rivnenska", "text": "БпЛА на Рівне слро", "sources": 1, "origin": "", "destination": "rivnenska", "track": null, "age_min": 1}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 17, "standdown_hits": 4, "standdown_total": 7}, "kharkivska": {"standdown_min": 24, "standdown_live": true, "wave_hours": {"from": 19, "to": 1}}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 2, "standdown_live": true, "next_wave_min": 17, "standdown_hits": 4, "standdown_total": 7}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
