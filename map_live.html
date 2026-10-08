@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "shahed", "region": "unknown", "text": "😱Момент падіння підбитоі «Герані» біля ЖК «Нова Англія»", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 19}, {"type": "shahed", "region": "kyivska", "text": "Бандероль на Київ слки", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 20}, {"type": "uav", "region": "multi", "text": "Чернігівщина: БпЛА на Носівку БпЛА на Ніжин 2 БпЛА на Олишівку Хмельниччина: БпЛА на Ізяслав БпЛА на Білогірʼя Рівненщина: БпЛА на Смигу Житомирщина: БпЛА на Овруч Вінниччина: БпЛА на Оратів…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 22}, {"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Носівку Реактивний БпЛА курсом на Ніжин 2х Реактивні БпЛА курсом на Олишівку Хмельниччина: Реактивний БпЛА курсом на Ізяслав Реактивний БпЛА курсом на…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 23}];
+const EMBEDDED_THREATS = [{"type": "recon_drone", "region": "kyivska", "text": "🗣У Голосіївському районі уламки БпЛА впали на відкритій території. Кадри з місця показала Муніципальна охорона. На місці працюють усі екстрені служби.", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 2}, {"type": "uav", "region": "volynska", "text": "БпЛА на Луцьк слво", "sources": 1, "origin": "", "destination": "volynska", "track": null, "age_min": 4}, {"type": "shahed", "region": "unknown", "text": "😱Момент падіння підбитоі «Герані» біля ЖК «Нова Англія»", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 29}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 35, "standdown_hits": 4, "standdown_total": 7}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 1, "standdown_live": true, "next_wave_min": 35, "standdown_hits": 4, "standdown_total": 7}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
