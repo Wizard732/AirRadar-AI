@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Київщина: Реактивний БпЛА курсом на Васильків Реактивний БпЛА курсом на Калиту Житомирщина: Реактивний БпЛА курсом на Довбиш Рівненщина: Реактивний БпЛА курсом на Костопіль Вінниччина: Реактивний…", "sources": 3, "origin": "", "destination": "multi", "track": null, "age_min": 22}, {"type": "uav", "region": "sumska", "text": "Сумщина: БпЛА курсом на Суми", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 24}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "kyivska", "text": "Київщина: Реактивний БпЛА курсом на Козин", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [51.518, 30.755], "to": [48.025, 30.839], "from_name": "Славутич", "to_name": "Первомайськ", "speed_kmh": 283.9, "course_deg": 179, "minutes": 72, "points": 14}, "age_min": 0}, {"type": "uav", "region": "multi", "text": "Одещина: Реактивний БпЛА курсом на Теплодар Київщина: Реактивний БпЛА курсом на Гнідин Дніпропетровщина: Реактивний БпЛА курсом на Васильківку Миколаївщина: Реактивний БпЛА курсом на Первомайськ БпЛА…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 0}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 48, "standdown_hits": 4, "standdown_total": 9}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 4, "standdown_live": true, "next_wave_min": 31, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
