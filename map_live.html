@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "unknown", "text": "✅ Отбой тревожной воздухи", "sources": 3, "origin": "", "destination": "unknown", "track": null, "age_min": 21}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "unknown", "text": "• , тривога оголошена через 1 БпЛА на/повз Вишенки-Козин", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 0}, {"type": "uav", "region": "dnipropetrovska", "text": "Дніпропетровщина: 3 реактивних БпЛА на Дніпро", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 4}, {"type": "uav", "region": "kyivska", "text": "• Кривий Ріг та Павлоград, уважно на БпЛА! • Київщина, перші починають наближатися довас", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [50.523, 30.241], "to": [47.91, 33.392], "from_name": "Ірпінь", "to_name": "Кривий Ріг", "speed_kmh": 265.7, "course_deg": 141, "minutes": null, "points": 2}, "age_min": 9}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 4, "standdown_live": true, "next_wave_min": 31, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
