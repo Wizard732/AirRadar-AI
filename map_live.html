@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Чернігів Реактивний БпЛА курсом на Городню Реактивний БпЛА курсом на Ріпки Реактивний БпЛА курсом на Куликівку Миколаївщина: Реактивний БпЛА курсом на…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 2}, {"type": "uav", "region": "chernigivska", "text": "Реактивний БпЛА на Чернігів з південного сходу", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 5}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"chernigivska": {"standdown_min": 9, "standdown_live": true, "standdown_hits": 2, "standdown_total": 4}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
