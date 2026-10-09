@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Рух реактивних БпЛА: • 1 на Черкащині — Драбів • 2 на Чернігівщині — Мена + повз Ріпки. Нові з Брянщини • 2 на Київщині — Бузова + Бориспіль • 2 на Вінниччині — повз Теплик + повз Оратів", "sources": 3, "origin": "", "destination": "multi", "track": null, "age_min": 5}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "zhytomyrska", "text": "БПЛА на Житомир", "sources": 1, "origin": "", "destination": "zhytomyrska", "track": {"from": [51.317, 28.648], "to": [50.255, 28.658], "from_name": "Коростень", "to_name": "Житомир", "speed_kmh": 63.2, "course_deg": 180, "minutes": null, "points": 6}, "age_min": 6}, {"type": "uav", "region": "kyivska", "text": "Київ: Реактивний БпЛА в районі Козина", "sources": 2, "origin": "", "destination": "kyivska", "track": {"from": [50.353, 30.955], "to": [46.975, 31.996], "from_name": "Бориспіль", "to_name": "Миколаїв", "speed_kmh": 564.4, "course_deg": 168, "minutes": 53, "points": 5}, "age_min": 8}, {"type": "uav", "region": "multi", "text": "Рух реактивних БпЛА: • 1 на Черкащині — Драбів • 2 на Чернігівщині — Мена + повз Ріпки. Нові з Брянщини • 2 на Київщині — Бузова + Бориспіль • 2 на Вінниччині — повз Теплик + повз Оратів", "sources": 3, "origin": "", "destination": "multi", "track": null, "age_min": 16}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 71, "standdown_hits": 4, "standdown_total": 9}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
