@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Городню Реактивний БпЛА курсом на Кіпті Київщина: 2х Реактивні БпЛА курсом на Чорнобиль Миколаївщина: Реактивний БпЛА курсом на Очаків Кіровоградщина…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 0}, {"type": "uav", "region": "chernigivska", "text": "Реактивний БпЛА на Чернігів з південного сходу", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 16}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Чернігів Київщина: 2х Реактивні БпЛА курсом на Димер Реактивний БпЛА курсом на Красятичі Миколаївщина: Реактивний БпЛА курсом на Нечаяне Черкащина: Реактивний…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 1}, {"type": "uav", "region": "kyivska", "text": "Київщина: 2 БПЛА на Димер", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [51.518, 30.755], "to": [51.498, 31.289], "from_name": "Славутич", "to_name": "Чернігів", "speed_kmh": 130.5, "course_deg": 93, "minutes": 74, "points": 4}, "age_min": 1}, {"type": "uav", "region": "chernigivska", "text": "Реактивний БпЛА на Чернігів з південного сходу", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 26}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"chernigivska": {"standdown_min": 11, "standdown_live": true, "standdown_hits": 2, "standdown_total": 4}};
+const EMBEDDED_FORECAST = {"chernigivska": {"standdown_min": 10, "standdown_live": true, "standdown_hits": 2, "standdown_total": 4}, "kyivska": {"standdown_min": 4, "standdown_live": true, "next_wave_min": 31, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
