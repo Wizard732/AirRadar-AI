@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "unknown", "text": "🟢Не спостерігається. Буде відбій!", "sources": 2, "origin": "", "destination": "unknown", "track": null, "age_min": 3}, {"type": "uav", "region": "kyivska", "text": "Вишневе, Чайки - БпЛА", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [47.91, 33.392], "to": [50.389, 30.363], "from_name": "Кривий Ріг", "to_name": "Вишневе", "speed_kmh": 186.8, "course_deg": 323, "minutes": 5, "points": 3}, "age_min": 20}, {"type": "uav", "region": "unknown", "text": "БпЛА на Вишеньки, Гнідин", "sources": 3, "origin": "", "destination": "unknown", "track": null, "age_min": 24}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "dnipropetrovska", "text": "• Дніпро, уважно на 2 БпЛА!", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": {"from": [47.91, 33.392], "to": [48.465, 35.046], "from_name": "Кривий Ріг", "to_name": "Дніпро", "speed_kmh": 77.2, "course_deg": 63, "minutes": null, "points": 2}, "age_min": 10}, {"type": "stand_down", "region": "unknown", "text": "🟢Не спостерігається. Буде відбій!", "sources": 2, "origin": "", "destination": "unknown", "track": null, "age_min": 13}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 93, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_FORECAST = {};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
