@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Чернігівщина: 3х Реактивні БпЛА курсом на Славутич Дніпропетровщина: 2х БпЛА курсом на Шахтарське 3х БпЛА курсом на Петропавлівку Київщина: Реактивний БпЛА курсом на Українку Реактивний БпЛА курсом…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 29}];
+const EMBEDDED_THREATS = [{"type": "stand_down", "region": "unknown", "text": "березовский р-н отбой", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 1}, {"type": "uav", "region": "multi", "text": "Чернігівщина: 3х Реактивні БпЛА курсом на Ріпки Реактивний БпЛА курсом на Козелець Київщина: Реактивний БпЛА курсом на Київ Реактивний БпЛА курсом на Бровари Вінниччина: Реактивний БпЛА курсом на…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 4}, {"type": "uav", "region": "kyivska", "text": "Київ: Реактивний БпЛА курсом на Жуляни Реактивний БпЛА курсом на Велику Димерку", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 6}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 2, "standdown_live": true, "next_wave_min": 28, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
