@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0b0e14">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <title>AirRadar — Радар загроз</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -87,6 +91,7 @@
 <div id="hud">
   <div id="status" class="panel"><b id="st-main">Радар загроз</b><div class="sub" id="st-sub">завантаження…</div></div>
   <button class="btn on" id="btn-list" title="Обстановка">☰</button>
+  <button class="btn" id="btn-share" title="Скопіювати посилання на цей вид карти">🔗</button>
   <button class="btn" id="btn-me" title="Стежити за моєю точкою">🛡</button>
   <button class="btn" id="btn-snd" title="Звук">🔔</button>
 </div>
@@ -520,7 +525,9 @@ function renderList(ts, force) {
     items.push({ kind: 't', t, ts: last.ts, cat: catOf(t.weapon), ll: m.pos.ll });
   }
   for (const e of visibleEvents(ts)) items.push({ kind: 'e', e, ts: e.ts, cat: catOf(e.weapon), ll: [e.lat, e.lon] });
-  items.sort((a, b) => b.ts - a.ts);
+  const risks = me ? new Map(riskFor(me, nowTs()).map(r => [r.t.id, r])) : null;
+  for (const it of items) if (me) it.km = dist(me, it.ll);
+  items.sort(me ? (a, b) => a.km - b.km : (a, b) => b.ts - a.ts);
   // Счётчики по всем видам (без учёта фильтра), чтобы чипы показывали, что скрыто.
   const counts = {};
   for (const t of tracks) { const m = markers.get(t.id); const c = catOf(t.weapon); if (!hiddenCats.has(c) && m && m.pos && !m.pos.stale) counts[c] = (counts[c] || 0) + 1; }
@@ -529,7 +536,7 @@ function renderList(ts, force) {
   for (const t of tracks) { const c = catOf(t.weapon); const last = t.points[t.points.length - 1]; if (ts - last.ts <= KEEP_AFTER_S && ts >= t.points[0].ts) allCounts[c] = (allCounts[c] || 0) + 1; }
   for (const e of events) if (e.ts <= ts && ts - e.ts <= EVENT_KEEP_S) { const c = catOf(e.weapon); allCounts[c] = (allCounts[c] || 0) + 1; }
   const minute = Math.floor(ts / 20);
-  const sig = items.map(i => (i.t ? i.t.id : i.e.ts + i.e.weapon + i.e.lat)).join(',') + [...hiddenCats].join() + (force ? 'F' : '') + (ts - listAt > 20 ? minute : '');
+  const sig = (me ? 'm' + me[0].toFixed(2) + me[1].toFixed(2) : '') + items.map(i => (i.t ? i.t.id : i.e.ts + i.e.weapon + i.e.lat)).join(',') + [...hiddenCats].join() + (force ? 'F' : '') + (ts - listAt > 20 ? minute : '');
   if (sig === listSig) return;
   listSig = sig; listAt = ts;
   const cats = Object.keys(CATS).filter(k => allCounts[k] || hiddenCats.has(k));
@@ -539,10 +546,11 @@ function renderList(ts, force) {
     const age = ts - it.ts, c = CATS[it.cat];
     if (it.kind === 't') {
       const t = it.t, where = t.dest ? 'у напрямку ' + t.dest.name : (t.heading !== null ? compass(t.heading) + (t.speed_kmh ? ' · ~' + Math.round(t.speed_kmh) + ' км/год' : '') : (t.points[t.points.length - 1].place || '—'));
-      return `<div class="row-it ${age < 300 ? 'fresh' : ''}" data-i="${n}"><div class="ic" style="background:${trackColor(t)}">${c.i}</div><div class="tx"><div class="tt">${trackName(t)}</div><div class="st">${where}</div></div><div class="ag">${ago(age)}</div></div>`;
+      const rk = risks && risks.get(t.id), mine = rk ? (rk.level === 'over' ? ' · 🔴 над вами' : (rk.eta !== null ? ` · ⚠️ до вас ~${rk.eta} хв` : '')) : '';
+      return `<div class="row-it ${age < 300 ? 'fresh' : ''}" data-i="${n}"><div class="ic" style="background:${trackColor(t)}">${c.i}</div><div class="tx"><div class="tt">${trackName(t)}</div><div class="st">${where}${me ? ' · ' + Math.round(it.km) + ' км від вас' : ''}${mine}</div></div><div class="ag">${ago(age)}</div></div>`;
     }
     const e = it.e;
-    return `<div class="row-it ${age < 300 ? 'fresh' : ''}" data-i="${n}"><div class="ic" style="background:${c.c}">${c.i}</div><div class="tx"><div class="tt">${WNAME[e.weapon] || e.weapon}${e.count > 1 ? ' ×' + e.count : ''}</div><div class="st">${e.toward ? 'у напрямку ' : ''}${e.place || 'область'}</div></div><div class="ag">${ago(age)}</div></div>`;
+    return `<div class="row-it ${age < 300 ? 'fresh' : ''}" data-i="${n}"><div class="ic" style="background:${c.c}">${c.i}</div><div class="tx"><div class="tt">${WNAME[e.weapon] || e.weapon}${e.count > 1 ? ' ×' + e.count : ''}</div><div class="st">${e.toward ? 'у напрямку ' : ''}${e.place || 'область'}${me ? ' · ' + Math.round(it.km) + ' км від вас' : ''}</div></div><div class="ag">${ago(age)}</div></div>`;
   }).join('') : '<div class="empty">Зараз активних цілей немає.</div>';
   listBody.onclick = ev => {
     const row = ev.target.closest('.row-it'); if (!row) return;
@@ -574,10 +582,19 @@ function frame(nowMs) {
 }
 load().then(() => {
   const live = tracks.map(t => t.points[t.points.length - 1]).concat(events.map(e => ({ lat: e.lat, lon: e.lon })));
-  if (live.length) map.fitBounds(L.latLngBounds(live.map(p => [p.lat, p.lon])).pad(0.6), { maxZoom: 9, animate: false });
+  if (params.has('lat') && params.has('lon')) map.setView([+params.get('lat'), +params.get('lon')], +params.get('z') || 9, { animate: false });
+  else if (live.length) map.fitBounds(L.latLngBounds(live.map(p => [p.lat, p.lon])).pad(0.6), { maxZoom: 9, animate: false });
   requestAnimationFrame(frame);
 });
 setInterval(load, 10000);
+// Посилання на поточний вид: ?lat=&lon=&z= (відкривається саме на цьому місці).
+document.getElementById('btn-share').onclick = async () => {
+  const c = map.getCenter(), u = new URL(location.href);
+  u.search = ''; u.searchParams.set('lat', c.lat.toFixed(3)); u.searchParams.set('lon', c.lng.toFixed(3)); u.searchParams.set('z', map.getZoom());
+  try { if (navigator.share) { await navigator.share({ title: 'AirRadar', url: u.href }); return; } await navigator.clipboard.writeText(u.href); alert('Посилання скопійовано'); }
+  catch (e) { prompt('Скопіюй посилання:', u.href); }
+};
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !DEMO) navigator.serviceWorker.register('sw.js').catch(() => {});
 setInterval(evalMe, 5000);
 </script>
 </body>
