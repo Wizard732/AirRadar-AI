@@ -82,6 +82,7 @@ async function renderStats() {
       <div class="grid"><div class="card"><div class="big">${p.total}</div><div class="lab">сигналів загалом</div></div>
         <div class="card"><div class="big">${d.active_regions.length}</div><div class="lab">областей активні зараз</div></div></div>
       <div class="card"><div class="lab">За видами</div><div class="chips">${chips(p) || '<span class="empty">нічого не зафіксовано</span>'}</div></div>
+      <div class="card"><div class="lab">📡 Джерела даних</div>${d.sources && d.sources.total ? `<div class="big" style="font-size:22px">${d.sources.active} <span style="font-size:14px;color:var(--dim)">із ${d.sources.total} каналів активні (30 хв)</span></div><div class="lab">Остання відмітка: ${d.sources.last_ts ? Math.max(0, Math.round((Date.now() / 1000 - d.sources.last_ts) / 60)) + ' хв тому' : '—'}</div>` : '<div class="empty">Дані про джерела ще збираються.</div>'}</div>
       <div class="card"><div class="lab">🎯 Точність прогнозів радара (7 днів)</div>${d.accuracy && d.accuracy.pct != null ? `<div class="big">${d.accuracy.pct}%</div><div class="lab">${d.accuracy.hits} з ${d.accuracy.resolved} прогнозів «можливо до міста» справдились</div>` : '<div class="empty" style="margin-top:6px">Накопичуємо статистику: прогнози перевіряються за подальшими відмітками тієї ж цілі.</div>'}</div>
       <h3>Коли літає (за 7 днів, київський час)</h3>
       <div class="card"><div class="bars">${d.hours.map(h => `<div style="height:${Math.round(h / max * 100)}%" title="${h}"></div>`).join('')}</div>
