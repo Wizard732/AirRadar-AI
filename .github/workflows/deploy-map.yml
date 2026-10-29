@@ -1,13 +1,14 @@
-name: Deploy threat map (GitHub Pages)
+name: Deploy radar and map (GitHub Pages)
 
-# Публикует автономную карту (map_live.html с вшитыми данными) на GitHub
-# Pages: https://<owner>.github.io/<repo>/ — доступна любому человеку
-# в мире без нашего сервера. Снапшот данных обновляется пушем
-# map_live.html (на сервере это делает airradar-map-sync.timer).
+# Публикует на GitHub Pages: https://<owner>.github.io/<repo>/
+#   /            — радар шахедов (miniapp/radar.html), данные tracks.json
+#   /snapshot.html — автономная карта угроз (map_live.html)
+# tracks.json лежит в ветке radar-data: сервер сам пушит её раз в ~2 минуты
+# (airradar-radar-publish.timer), входящих портов на сервере не нужно.
 on:
   push:
-    branches: [main]
-    paths: ["map_live.html"]
+    branches: [main, radar-data]
+    paths: ["map_live.html", "miniapp/radar.html", ".github/workflows/deploy-map.yml", "tracks.json"]
   workflow_dispatch: {}
 
 permissions:
@@ -15,7 +16,6 @@ permissions:
   pages: write
   id-token: write
 
-# Одновременные деплои не нужны: последний пуш выигрывает.
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -28,12 +28,21 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
 
-      # Pages отдаёт index.html как корень — копируем карту под этим именем.
-      - name: Prepare site
+      - name: Fetch radar data
         run: |
-          mkdir -p site
-          cp map_live.html site/index.html
+          mkdir -p site/radar
+          cp miniapp/radar.html site/index.html
+          cp map_live.html site/snapshot.html
+          # /radar -> корень (ссылки вида <url>/radar из уведомлений)
+          echo '<!doctype html><meta charset=utf-8><meta http-equiv=refresh content="0;url=../"><a href="../">radar</a>' > site/radar/index.html
+          if git fetch --depth=1 origin radar-data 2>/dev/null; then
+            git show FETCH_HEAD:tracks.json > site/tracks.json
+          else
+            echo '{"now":0,"tracks":[]}' > site/tracks.json
+          fi
 
       - uses: actions/configure-pages@v5
 

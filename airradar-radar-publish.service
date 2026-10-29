@@ -1,0 +1,10 @@
+[Unit]
+Description=AirRadar publish tracks.json to GitHub Pages branch
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/airradar
+Environment=HOME=/root
+ExecStart=/opt/airradar/radar_publish.sh

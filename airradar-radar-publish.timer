@@ -1,0 +1,10 @@
+[Unit]
+Description=Publish AirRadar tracks every 2 minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=2min
+Unit=airradar-radar-publish.service
+
+[Install]
+WantedBy=timers.target
