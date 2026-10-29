@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0e14">
+<link rel="manifest" href="manifest.webmanifest">
+<title>AirRadar — Mini App</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { --bg:#0b0e14; --card:#141a26; --line:rgba(255,255,255,.09); --txt:#eef1f6; --dim:#8b95a8; --red:#ff3b30; --acc:#5ac8fa; --ok:#30d158; }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; background:var(--bg); color:var(--txt); font:15px -apple-system,'Segoe UI',sans-serif; overflow:hidden; }
+  #app { position:fixed; inset:0; display:flex; flex-direction:column; }
+  main { flex:1; min-height:0; position:relative; }
+  .tab { position:absolute; inset:0; overflow:auto; padding:14px 14px 22px; display:none; -webkit-overflow-scrolling:touch; }
+  .tab.on { display:block; }
+  #t-map { padding:0; overflow:hidden; } #t-map iframe { width:100%; height:100%; border:0; display:block; }
+  nav { display:flex; border-top:1px solid var(--line); background:#0f1420; padding-bottom:env(safe-area-inset-bottom); }
+  nav button { flex:1; background:none; border:0; color:var(--dim); padding:9px 2px 8px; font:inherit; font-size:11px; display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; }
+  nav button i { font-style:normal; font-size:20px; } nav button.on { color:var(--txt); }
+  nav button.on i { filter:drop-shadow(0 0 6px var(--acc)); }
+  h2 { font-size:18px; margin:2px 0 10px; } h3 { font-size:13px; color:var(--dim); font-weight:600; text-transform:uppercase; letter-spacing:.04em; margin:18px 0 8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-bottom:10px; }
+  .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+  .big { font-size:30px; font-weight:700; line-height:1.1; } .lab { color:var(--dim); font-size:12px; margin-top:2px; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .chip { padding:3px 9px; border-radius:999px; background:rgba(255,255,255,.07); font-size:12px; }
+  .seg { display:flex; gap:6px; margin-bottom:10px; } .seg button { flex:1; padding:8px; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--dim); font:inherit; font-size:13px; }
+  .seg button.on { color:var(--txt); border-color:var(--acc); }
+  .bars { display:flex; align-items:flex-end; gap:3px; height:90px; } .bars div { flex:1; background:var(--red); border-radius:3px 3px 0 0; min-height:2px; opacity:.85; }
+  .axis { display:flex; justify-content:space-between; color:var(--dim); font-size:10px; margin-top:4px; }
+  .rank { display:flex; align-items:center; gap:8px; margin:7px 0; font-size:13px; } .rank .nm { width:120px; flex:none; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .rank .bar { flex:1; height:8px; background:rgba(255,255,255,.07); border-radius:4px; overflow:hidden; } .rank .bar div { height:100%; background:var(--acc); } .rank .n { width:34px; text-align:right; color:var(--dim); }
+  .day { display:flex; justify-content:space-between; gap:10px; } .day .d { font-weight:600; } .day .sub { color:var(--dim); font-size:12px; margin-top:3px; }
+  .imp .t { font-weight:600; } .imp .k { color:var(--red); font-weight:600; } .imp .meta { color:var(--dim); font-size:12px; margin-top:3px; }
+  .empty { color:var(--dim); font-size:13px; line-height:1.45; } .note { color:var(--dim); font-size:11px; margin-top:10px; line-height:1.4; }
+  .btn { display:block; width:100%; padding:13px; border-radius:12px; border:1px solid var(--line); background:var(--card); color:var(--txt); font:inherit; text-align:left; margin-bottom:8px; cursor:pointer; }
+  .btn small { display:block; color:var(--dim); margin-top:2px; font-size:12px; }
+  .upd { color:var(--dim); font-size:11px; margin-bottom:8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <main>
+    <section class="tab on" id="t-map"><iframe id="map-frame" title="Карта" loading="eager"></iframe></section>
+    <section class="tab" id="t-stats"></section>
+    <section class="tab" id="t-hist"></section>
+    <section class="tab" id="t-imp"></section>
+    <section class="tab" id="t-more"></section>
+  </main>
+  <nav id="nav">
+    <button data-t="map" class="on"><i>🗺</i>Карта</button>
+    <button data-t="stats"><i>📊</i>Статистика</button>
+    <button data-t="hist"><i>💥</i>Історія</button>
+    <button data-t="imp"><i>🔥</i>Наслідки</button>
+    <button data-t="more"><i>⚙️</i>Ще</button>
+  </nav>
+</div>
+<script>
+'use strict';
+const tg = window.Telegram && Telegram.WebApp;
+if (tg) { try { tg.ready(); tg.expand(); tg.setHeaderColor('#0b0e14'); tg.setBackgroundColor('#0b0e14'); } catch (e) {} }
+const params = new URLSearchParams(location.search);
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const CATS = { drone: ['БпЛА', '🛸'], missile: ['Ракети', '🚀'], kab: ['КАБ', '💣'], air: ['Авіація', '✈️'], fpv: ['FPV', '✦'], arty: ['РСЗО/арт.', '💥'] };
+const dataURL = n => new URL(n, document.baseURI).href + '?t=' + Math.floor(Date.now() / 60000);
+const fetchJSON = async n => { const r = await fetch(dataURL(n), { cache: 'no-store' }); if (!r.ok) throw new Error(n + ' ' + r.status); return r.json(); };
+const fmtUpd = ts => ts ? 'Оновлено ' + new Date(ts * 1000).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : '';
+const chips = c => Object.keys(CATS).filter(k => c[k]).map(k => `<span class="chip">${CATS[k][1]} ${CATS[k][0]} ${c[k]}</span>`).join('');
+const fail = (el, e) => { el.innerHTML = `<div class="card empty">Дані тимчасово недоступні. Спробуйте за хвилину.<div class="note">${esc(e.message)}</div></div>`; };
+
+let period = 'today';
+const PERIODS = [['today', 'Сьогодні'], ['yesterday', 'Вчора'], ['7d', '7 днів'], ['30d', '30 днів']];
+async function renderStats() {
+  const el = $('t-stats');
+  try {
+    const d = await fetchJSON('stats.json'), p = d.periods[period], max = Math.max(1, ...d.hours), rmax = Math.max(1, ...d.regions.map(r => r.n));
+    el.innerHTML = `<h2>Статистика загроз</h2><div class="upd">${fmtUpd(d.now)}</div>
+      <div class="seg">${PERIODS.map(([k, n]) => `<button data-p="${k}" class="${k === period ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <div class="grid"><div class="card"><div class="big">${p.total}</div><div class="lab">сигналів загалом</div></div>
+        <div class="card"><div class="big">${d.active_regions.length}</div><div class="lab">областей активні зараз</div></div></div>
+      <div class="card"><div class="lab">За видами</div><div class="chips">${chips(p) || '<span class="empty">нічого не зафіксовано</span>'}</div></div>
+      <h3>Коли літає (за 7 днів, київський час)</h3>
+      <div class="card"><div class="bars">${d.hours.map(h => `<div style="height:${Math.round(h / max * 100)}%" title="${h}"></div>`).join('')}</div>
+        <div class="axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div></div>
+      <h3>Найбільше сигналів (7 днів)</h3>
+      <div class="card">${d.regions.length ? d.regions.map(r => `<div class="rank"><div class="nm">${esc(r.name)}</div><div class="bar"><div style="width:${Math.round(r.n / rmax * 100)}%"></div></div><div class="n">${r.n}</div></div>`).join('') : '<span class="empty">даних ще немає</span>'}</div>
+      <div class="note">${esc(d.note)}</div>`;
+    el.querySelector('.seg').onclick = e => { const b = e.target.closest('button'); if (b) { period = b.dataset.p; renderStats(); } };
+  } catch (e) { fail(el, e); }
+}
+async function renderHist() {
+  const el = $('t-hist');
+  try {
+    const d = await fetchJSON('stats.json');
+    el.innerHTML = `<h2>Історія атак</h2><div class="upd">${fmtUpd(d.now)}</div>` + d.days.map(x => `<div class="card"><div class="day"><div><div class="d">${esc(x.date.split('-').reverse().slice(0, 2).join('.'))}</div>
+      <div class="sub">${x.total ? (x.first + '–' + x.last + ' · ' + esc(x.regions.join(', '))) : 'без сигналів'}</div></div><div class="big" style="font-size:22px">${x.total}</div></div>
+      ${x.total ? `<div class="chips">${chips(x.cats)}</div>` : ''}</div>`).join('') + `<div class="note">${esc(d.note)}</div>`;
+  } catch (e) { fail(el, e); }
+}
+async function renderImp() {
+  const el = $('t-imp');
+  try {
+    const d = await fetchJSON('impacts.json');
+    const head = `<h2>Наслідки</h2><div class="upd">${fmtUpd(d.now)} · публікація із затримкою ${d.delay_min} хв</div>`;
+    const body = d.items.length ? `<div class="grid"><div class="card"><div class="big">${d.totals.killed}</div><div class="lab">загиблих (за 14 днів)</div></div><div class="card"><div class="big">${d.totals.injured}</div><div class="lab">поранених</div></div></div>` +
+      d.items.map(i => `<div class="card imp"><div class="t">${esc(i.place || i.oblast)}${i.place && i.oblast ? ' · ' + esc(i.oblast) : ''}</div>
+        <div class="meta">${esc(i.when)}</div>
+        ${(i.killed || i.injured) ? `<div style="margin-top:6px">${i.killed ? `<span class="k">Загинули: ${i.killed}</span>` : ''}${i.killed && i.injured ? ' · ' : ''}${i.injured ? `Поранені: ${i.injured}` : ''}</div>` : ''}
+        ${i.damage.length ? `<div class="chips">${i.damage.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>` : ''}</div>`).join('')
+      : `<div class="card empty">Підтверджених повідомлень про наслідки поки немає.<br><br>Тут з’являються лише повідомлення офіційних джерел — із затримкою, без адрес і назв об’єктів: точки влучань у реальному часі допомагають ворогу коригувати вогонь.</div>`;
+    el.innerHTML = head + body + `<div class="note">${esc(d.note)}</div>`;
+  } catch (e) { fail(el, e); }
+}
+function renderMore() {
+  const base = location.href.replace(/[^/]*$/, '');
+  $('t-more').innerHTML = `<h2>Ще</h2>
+    <button class="btn" id="b-ch">📣 Канал @AirRadarAI<small>Тривоги в стрічці Telegram</small></button>
+    <button class="btn" id="b-open">🌐 Карта окремою сторінкою<small>Повний екран, можна додати на головний екран</small></button>
+    <button class="btn" id="b-share">🔗 Поділитися<small>Надіслати посилання на Mini App</small></button>
+    <div class="card"><b>🔔 Гучна тривога</b><div class="note" style="margin-top:6px">У чаті з ботом: ім’я бота → Сповіщення → гучний звук і «Високий пріоритет»; дозволь Telegram у режимі «Не турбувати». Бот шле тривоги без «тихого» режиму. Налаштування сторожа — кнопка «🛡 Гео-сторож» у меню бота.</div></div>
+    <div class="card"><b>ℹ️ Про дані</b><div class="note" style="margin-top:6px">Позиції виводяться зі зведень моніторингових каналів, а не з радара. Мітка «→ місто» — напрямок, а не точне положення. Висоту джерела не публікують.</div></div>`;
+  $('b-ch').onclick = () => tg && tg.openTelegramLink ? tg.openTelegramLink('https://t.me/AirRadarAI') : window.open('https://t.me/AirRadarAI', '_blank');
+  $('b-open').onclick = () => tg && tg.openLink ? tg.openLink(base) : window.open(base, '_blank');
+  $('b-share').onclick = () => { const u = base + 'app.html'; tg && tg.openTelegramLink ? tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(u)) : (navigator.share ? navigator.share({ url: u }) : prompt('Посилання:', u)); };
+}
+const renderers = { stats: renderStats, hist: renderHist, imp: renderImp, more: renderMore };
+let current = 'map', mapLoaded = false;
+function show(t) {
+  current = t;
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  document.querySelectorAll('.tab').forEach(s => s.classList.toggle('on', s.id === 't-' + t));
+  if (t === 'map' && !mapLoaded) { mapLoaded = true; $('map-frame').src = new URL(params.get('map') || './', document.baseURI).href; }
+  else if (renderers[t]) renderers[t]();
+  try { localStorage.setItem('app_tab', t); } catch (e) {}
+}
+$('nav').onclick = e => { const b = e.target.closest('button'); if (b) show(b.dataset.t); };
+setInterval(() => { if (renderers[current] && current !== 'more') renderers[current](); }, 60000);
+let start = params.get('tab') || ''; try { start = start || localStorage.getItem('app_tab') || 'map'; } catch (e) {}
+show(['map', 'stats', 'hist', 'imp', 'more'].includes(start) ? start : 'map');
+</script>
+</body>
+</html>
