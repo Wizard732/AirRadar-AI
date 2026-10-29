@@ -89,6 +89,11 @@ def stats_payload(db, now: int | None = None) -> dict[str, Any]:
             regions[r] = regions.get(r, 0) + 1
     top = [{"slug": s, "name": region_name(s), "n": n} for s, n in sorted(regions.items(), key=lambda x: -x[1])[:10]]
     active = sorted({r for _, r, b in sigs if b * BUCKET_S >= now - 1800})
-    return {"now": now, "periods": periods, "days": days, "hours": hours, "regions": top,
+    try:
+        import forecast_eval
+        acc = forecast_eval.accuracy(db, now)
+    except Exception:  # noqa: BLE001 — метрика не ламає статистику
+        acc = {"pct": None, "resolved": 0}
+    return {"now": now, "accuracy": acc, "periods": periods, "days": days, "hours": hours, "regions": top,
             "active_regions": active, "cats": {k: {"name": v[0], "icon": v[1]} for k, v in CATS.items()},
             "note": "Сигнали = унікальні (вид, область, 30 хв) зі зведень каналів, а не реєстр пусків."}

@@ -209,6 +209,24 @@ function useTiles(i) {
   tileLayer.on('tileload', () => { tileErrs = 0; });
 }
 useTiles(0);
+// Контури областей (OSM-межі з jsDelivr; без них карта працює як раніше). Активні області підсвічуються.
+map.createPane('oblasts').style.zIndex = 250;
+const ISO2SLUG = { 'UA-05': 'vinnytska', 'UA-07': 'volynska', 'UA-09': 'luhanska', 'UA-12': 'dnipropetrovska', 'UA-14': 'donetska', 'UA-18': 'zhytomyrska',
+  'UA-21': 'zakarpatska', 'UA-23': 'zaporizka', 'UA-26': 'ivano_frankivska', 'UA-30': 'kyivska', 'UA-32': 'kyivska', 'UA-35': 'kirovohradska', 'UA-40': 'crimea',
+  'UA-43': 'crimea', 'UA-46': 'lvivska', 'UA-48': 'mykolaivska', 'UA-51': 'odeska', 'UA-53': 'poltavska', 'UA-56': 'rivnenska', 'UA-59': 'sumska',
+  'UA-61': 'ternopilska', 'UA-63': 'kharkivska', 'UA-65': 'khersonska', 'UA-68': 'khmelnytska', 'UA-71': 'cherkaska', 'UA-74': 'chernigivska', 'UA-77': 'chernivetska' };
+let oblastLayer = null, oblastActive = new Set();
+const OB_ON = { color: '#ff3b30', weight: 1.6, opacity: .9, fillColor: '#ff3b30', fillOpacity: .17 }, OB_OFF = { color: '#8b95a8', weight: .7, opacity: .4, fillOpacity: 0 };
+function restyleOblasts() { if (oblastLayer) oblastLayer.eachLayer(l => l.setStyle(oblastActive.has(l._slug) ? OB_ON : OB_OFF)); }
+async function loadOblasts() {
+  try {
+    const g = await (await fetch('https://cdn.jsdelivr.net/gh/EugeneBorshch/ukraine_geojson@master/UA_FULL_Ukraine.geojson')).json();
+    oblastLayer = L.geoJSON(g, { pane: 'oblasts', interactive: false, style: () => OB_OFF }).addTo(map);
+    oblastLayer.eachLayer(l => { l._slug = ISO2SLUG[l.feature.properties['iso3166-2']]; });
+    restyleOblasts();
+  } catch (e) { /* без контурів */ }
+}
+loadOblasts();
 const trailLayer = L.layerGroup().addTo(map), fcLayer = L.layerGroup().addTo(map), meLayer = L.layerGroup().addTo(map);
 const markers = new Map();   // id -> { marker, el, svg }
 
@@ -315,6 +333,7 @@ function renderSheet() {
     <span>Остання відмітка</span><span>${fmtTime(last.ts)} · ${last.place || '—'}</span>
     <span>Маршрут</span><span>${route || '—'}</span></div>
     ${fc ? `<div class="chips">${fc}</div>` : ''}
+    ${(() => { const age = nowTs() - last.ts; return age > 15 * 60 ? `<div class="note" style="color:var(--orange)">⚪ Нових відміток немає ${Math.round(age / 60)} хв — ціль зникла зі зведень (відбій, ціль долетіла/збита або просто немає повідомлень). Це не офіційний відбій.</div>` : ''; })()}
     <div class="note">Орієнтовно: позиція виводиться зі зведень моніторингових каналів, не з радара. Мітка «→ місто» — це напрямок, а не точне положення. Висота у джерелах не вказується.</div>`;
 }
 
@@ -476,6 +495,9 @@ async function load() {
     tracks = (data.tracks || []).filter(t => t.points && t.points.length);
     dataTs = data.now || 0;
     events = data.events || []; evSig = ''; listSig = '';
+    if (useStatic && !DEMO) {
+      try { const st = await (await fetch(new URL('stats.json', document.baseURI).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' })).json(); oblastActive = new Set(st.active_regions || []); restyleOblasts(); } catch (e) {}
+    } else if (DEMO) { oblastActive = new Set(['kharkivska', 'sumska', 'kyivska', 'odeska']); restyleOblasts(); }
     // Статика старше реального времени: часы берём у клиента, экстраполяция добирает отставание.
     serverNow = (useStatic && !DEMO) ? Math.floor(Date.now() / 1000) : (data.now || Math.floor(Date.now() / 1000));
     fetchedAt = Date.now();
