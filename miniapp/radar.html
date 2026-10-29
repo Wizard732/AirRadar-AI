@@ -496,7 +496,7 @@ async function load() {
     tracks = (data.tracks || []).filter(t => t.points && t.points.length);
     dataTs = data.now || 0;
     events = (data.events || []).concat((data.impacts || []).map(i => ({ weapon: i.kind === 'hit' ? 'impact' : 'heard', lat: i.lat, lon: i.lon, ts: i.ts, count: 1,
-      place: i.place || i.oblast, precision: i.precision, toward: false, killed: i.killed, injured: i.injured, damage: i.damage })));
+      place: i.place || i.oblast, precision: i.precision, toward: false, killed: i.killed, injured: i.injured, children: i.children, flags: i.flags || '', damage: i.damage })));
     evSig = ''; listSig = '';
     if (useStatic && !DEMO) {
       try { const st = await (await fetch(new URL('stats.json', document.baseURI).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' })).json(); oblastActive = new Set(st.active_regions || []); restyleOblasts(); } catch (e) {}
@@ -534,7 +534,7 @@ function openEvent(e) {
   sheetBody.innerHTML = `<h3>${WNAME[e.weapon] || e.weapon}${e.count > 1 ? ' ×' + e.count : ''}</h3><div class="kv">
     <span>${e.toward ? 'Напрямок' : 'Місце'}</span><span>${e.place || 'область (точніше не вказано)'}</span>
     <span>Час</span><span>${fmtTime(e.ts)} · ${ago(nowTs() - e.ts)}</span>
-    ${e.killed ? `<span>Загинули</span><span><b>${e.killed}</b></span>` : ''}${e.injured ? `<span>Поранені</span><span>${e.injured}</span>` : ''}${(e.damage || []).length ? `<span>Наслідки</span><span>${e.damage.join(', ')}</span>` : ''}
+    ${e.killed ? `<span>Загинули</span><span><b>${e.killed}</b></span>` : ((e.flags || '').includes('k') ? '<span>Загиблі</span><span>є (кількість уточнюється)</span>' : '')}${e.injured ? `<span>Поранені</span><span>${e.injured}</span>` : ((e.flags || '').includes('i') ? '<span>Постраждалі</span><span>є (кількість уточнюється)</span>' : '')}${e.children ? `<span>Дітей</span><span>${e.children}</span>` : ''}${(e.damage || []).length ? `<span>Наслідки</span><span>${e.damage.join(', ')}</span>` : ''}
     <span>Точність</span><span>${e.precision === 'place' ? 'за назвою населеного пункту' : 'лише область (коло ≈30 км)'}</span></div>
     <div class="note">Одиночне повідомлення з каналів, а не траєкторія. Дані неофіційні, можуть уточнюватись.</div>`;
   sheet.style.display = 'block';
