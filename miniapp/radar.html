@@ -143,16 +143,18 @@ function positionAt(t, ts) {
 // ---------- карта ----------
 const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView([49.0, 32.0], 6);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
-// Тайлы без ключей и регистрации: CARTO dark -> OSM -> Esri. При ошибке плитки слой переключается на следующий.
+// Тайлы без ключей и регистрации (CARTO теперь требует API-ключ). OSM затемняется CSS-фильтром;
+// при ошибке плиток слой переключается на следующий источник.
 const TILE_SOURCES = [
-  { url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', o: { subdomains: 'abcd', attribution: '© OpenStreetMap, © CARTO | AirRadar AI', maxZoom: 18 } },
-  { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', o: { attribution: '© OpenStreetMap | AirRadar AI', maxZoom: 18 } },
-  { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', o: { attribution: 'Esri | AirRadar AI', maxZoom: 16 } },
+  { url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', dark: true, o: { attribution: '© OpenStreetMap | AirRadar AI', maxZoom: 18 } },
+  { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}', dark: false, o: { attribution: 'Esri | AirRadar AI', maxZoom: 16 } },
+  { url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png', dark: true, o: { attribution: '© OpenTopoMap | AirRadar AI', maxZoom: 17 } },
 ];
 let tileIdx = 0, tileErrs = 0, tileLayer = null;
 function useTiles(i) {
   if (tileLayer) map.removeLayer(tileLayer);
   tileIdx = i; tileErrs = 0;
+  map.getPane('tilePane').style.filter = TILE_SOURCES[i].dark ? 'invert(1) hue-rotate(180deg) brightness(.82) contrast(.9) saturate(.6)' : '';
   tileLayer = L.tileLayer(TILE_SOURCES[i].url, TILE_SOURCES[i].o).addTo(map);
   tileLayer.on('tileerror', () => { if (++tileErrs >= 4 && tileIdx + 1 < TILE_SOURCES.length) useTiles(tileIdx + 1); });
   tileLayer.on('tileload', () => { tileErrs = 0; });
