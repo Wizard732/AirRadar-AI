@@ -105,13 +105,16 @@ async function renderImp() {
   const el = $('t-imp');
   try {
     const d = await fetchJSON('impacts.json');
-    const head = `<h2>Наслідки</h2><div class="upd">${fmtUpd(d.now)} · публікація із затримкою ${d.delay_min} хв</div>`;
-    const body = d.items.length ? `<div class="grid"><div class="card"><div class="big">${d.totals.killed}</div><div class="lab">загиблих (за 14 днів)</div></div><div class="card"><div class="big">${d.totals.injured}</div><div class="lab">поранених</div></div></div>` +
-      d.items.map(i => `<div class="card imp"><div class="t">${esc(i.place || i.oblast)}${i.place && i.oblast ? ' · ' + esc(i.oblast) : ''}</div>
-        <div class="meta">${esc(i.when)}</div>
+    const hits = d.items.filter(i => i.kind === 'hit'), blasts = d.items.filter(i => i.kind !== 'hit');
+    const head = `<h2>Наслідки</h2><div class="upd">${fmtUpd(d.now)} · за 14 днів</div>`;
+    const card = i => `<div class="card imp"><div class="t">${i.kind === 'hit' ? '💥' : '◉'} ${esc(i.place || i.oblast)}${i.place && i.oblast ? ' · ' + esc(i.oblast) : ''}</div>
+        <div class="meta">${esc(i.when)}${i.kind === 'hit' ? '' : ' · вибухи (чутно)'}</div>
         ${(i.killed || i.injured) ? `<div style="margin-top:6px">${i.killed ? `<span class="k">Загинули: ${i.killed}</span>` : ''}${i.killed && i.injured ? ' · ' : ''}${i.injured ? `Поранені: ${i.injured}` : ''}</div>` : ''}
-        ${i.damage.length ? `<div class="chips">${i.damage.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>` : ''}</div>`).join('')
-      : `<div class="card empty">Підтверджених повідомлень про наслідки поки немає.<br><br>Тут з’являються лише повідомлення офіційних джерел — із затримкою, без адрес і назв об’єктів: точки влучань у реальному часі допомагають ворогу коригувати вогонь.</div>`;
+        ${i.damage.length ? `<div class="chips">${i.damage.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>` : ''}</div>`;
+    const body = d.items.length ? `<div class="grid"><div class="card"><div class="big">${d.totals.hits}</div><div class="lab">влучань</div></div>
+        <div class="card"><div class="big">${d.totals.killed}<span style="font-size:15px;color:var(--dim)"> / ${d.totals.injured}</span></div><div class="lab">загиблих / поранених</div></div></div>` +
+      hits.map(card).join('') + (blasts.length ? `<h3>Вибухи (чутно)</h3>` + blasts.slice(0, 15).map(card).join('') : '')
+      : `<div class="card empty">Повідомлень про влучання поки немає. Вони з’являються тут одразу, як тільки канали про них напишуть, а також на карті (💥).</div>`;
     el.innerHTML = head + body + `<div class="note">${esc(d.note)}</div>`;
   } catch (e) { fail(el, e); }
 }
