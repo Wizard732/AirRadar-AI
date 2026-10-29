@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "sumska", "text": "🟢 Сумський район — відбій повітряної тривоги", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 27}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "chernigivska", "text": "Чернігівщина: БПЛА на Ніжин", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 6}, {"type": "aviation", "region": "unknown", "text": "Тепер загроза авіації", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 10}, {"type": "cruise_missile", "region": "sumska", "text": "🔴 Сумський район — повітряна тривога, червоний рівень: Ракетна загроза (червоний рівень)", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 10}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 15, "standdown_live": false, "next_wave_min": 304, "standdown_hits": 4, "standdown_total": 8}};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 11, "standdown_live": true, "next_wave_min": 304, "standdown_hits": 4, "standdown_total": 8}, "chernigivska": {"standdown_min": 2, "standdown_live": true, "standdown_hits": 3, "standdown_total": 6}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
