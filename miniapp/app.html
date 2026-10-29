@@ -125,7 +125,6 @@ function renderMore() {
     <button class="btn" id="b-ch">📣 Канал @AirRadarAI<small>Тривоги в стрічці Telegram</small></button>
     <button class="btn" id="b-open">🌐 Карта окремою сторінкою<small>Повний екран, можна додати на головний екран</small></button>
     <button class="btn" id="b-share">🔗 Поділитися<small>Надіслати посилання на Mini App</small></button>
-    <div class="card"><b>🔔 Гучна тривога</b><div class="note" style="margin-top:6px">У чаті з ботом: ім’я бота → Сповіщення → гучний звук і «Високий пріоритет»; дозволь Telegram у режимі «Не турбувати». Бот шле тривоги без «тихого» режиму. Налаштування сторожа — кнопка «🛡 Гео-сторож» у меню бота.</div></div>
     <div class="card"><b>ℹ️ Про дані</b><div class="note" style="margin-top:6px">Позиції виводяться зі зведень моніторингових каналів, а не з радара. Мітка «→ місто» — напрямок, а не точне положення. Висоту джерела не публікують.</div></div>`;
   $('b-ch').onclick = () => tg && tg.openTelegramLink ? tg.openTelegramLink('https://t.me/AirRadarAI') : window.open('https://t.me/AirRadarAI', '_blank');
   $('b-open').onclick = () => tg && tg.openLink ? tg.openLink(base) : window.open(base, '_blank');
