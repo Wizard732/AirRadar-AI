@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "fpv", "region": "kyivska", "text": "Зірка «Гри престолів» Ніколай Костер-Вальдау відвідав Київ та спустився в укриття під час повітряної тривоги. Через загрозу російських ударів йому довелося спускатися в укриття.", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 10}, {"type": "fpv", "region": "sumska", "text": "В.Піщане - Суми фпв", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 18}, {"type": "explosion", "region": "unknown", "text": "Вибух чути", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 21}];
+const EMBEDDED_THREATS = [{"type": "fpv", "region": "kyivska", "text": "Зірка «Гри престолів» Ніколай Костер-Вальдау відвідав Київ та спустився в укриття під час повітряної тривоги. Через загрозу російських ударів йому довелося спускатися в укриття.", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 21}, {"type": "fpv", "region": "sumska", "text": "В.Піщане - Суми фпв", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 29}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 304, "standdown_hits": 4, "standdown_total": 8}, "kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 121, "standdown_hits": 4, "standdown_total": 8}};
+const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 121, "standdown_hits": 4, "standdown_total": 8}, "sumska": {"standdown_min": 5, "standdown_live": true, "next_wave_min": 304, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
