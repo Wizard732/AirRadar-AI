@@ -85,6 +85,7 @@
   .me { width:18px; height:18px; border-radius:50%; background:var(--cyan); border:3px solid #fff; box-shadow:0 0 0 6px rgba(90,200,250,.3); }
   .leaflet-control-attribution { font-size:9px; opacity:.6; }
 </style>
+<script src="native.js"></script>
 </head>
 <body>
 <div id="map"></div>
@@ -393,6 +394,8 @@ function riskLine(r) {
   if (r.level === 'imminent') return `🟠 ${name}: ${r.d.toFixed(1)} км, ${r.side}, ${r.t.heading !== null ? 'курс на вас' : 'курс невідомий'}${r.eta !== null ? ', орієнтовно ' + r.eta + ' хв' : ''} (${v})`;
   return `🟡 ${name}: ${r.d.toFixed(1)} км, ${r.side}, може пройти за ~${r.cpa.toFixed(0)} км від вас, ~${r.eta} хв (${v})`;
 }
+// Пуш у відкритому додатку: банер + сирена (у фоні це робить сама ОС за звуком каналу).
+window.arOnPush = n => { try { const b = document.getElementById('banner'); b.className = 'panel imminent'; b.textContent = ((n && n.title) || 'AirRadar') + ': ' + ((n && n.body) || ''); b.style.display = 'block'; alarm('imminent'); setTimeout(() => { if (!me) b.style.display = 'none'; }, 20000); } catch (e) {} };
 let audio = null, soundOn = localStorage.getItem('rd_snd') !== '0';
 function alarm(level) {
   if (navigator.vibrate) try { navigator.vibrate(level === 'watch' ? [120] : [400, 150, 400, 150, 700]); } catch (e) {}
@@ -477,7 +480,8 @@ function demoData() {
   return { now, events: demoEvents, tracks: [d5, mk(1, [48.9, 30.0], 20, 180, '', 3), mk(2, [50.9, 33.9], 255, 175, '', 1), mk(3, [49.3, 34.6], 300, 560, 'reactive', 2), mk(4, [47.6, 31.0], 5, 185, '', 4), { ...mk(5, [51.4, 31.0], 190, 0, '', 1), heading: null, speed_kmh: 180, speed_source: 'typical', points: [{ ts: now - 120, lat: 51.4, lon: 31.0, count: 1, place: 'Чернігів', precision: 'place' }], forecast: [] }] };
 }
 // Живой API (сервер бота) -> иначе статический tracks.json (GitHub Pages, обновляется сервером раз в ~2 мин).
-let useStatic = /github\.io$/.test(location.hostname), dataTs = 0;
+const DATA_BASE = window.AIRRADAR_DATA_BASE || document.baseURI;
+let useStatic = /github\.io$/.test(location.hostname) || !!window.AIRRADAR_DATA_BASE, dataTs = 0;
 async function fetchTracks() {
   if (!useStatic) {
     try {
@@ -486,7 +490,7 @@ async function fetchTracks() {
     } catch (e) { /* падаем на статику */ }
     useStatic = true;
   }
-  const r = await fetch(new URL('tracks.json', document.baseURI).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' });
+  const r = await fetch(new URL('tracks.json', DATA_BASE).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' });
   if (!r.ok) throw new Error('tracks.json ' + r.status);
   return await r.json();
 }
@@ -499,7 +503,7 @@ async function load() {
       place: i.place || i.oblast, precision: i.precision, toward: false, killed: i.killed, injured: i.injured, children: i.children, flags: i.flags || '', damage: i.damage })));
     evSig = ''; listSig = '';
     if (useStatic && !DEMO) {
-      try { const st = await (await fetch(new URL('stats.json', document.baseURI).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' })).json(); oblastActive = new Set(st.active_regions || []); restyleOblasts(); } catch (e) {}
+      try { const st = await (await fetch(new URL('stats.json', DATA_BASE).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' })).json(); oblastActive = new Set(st.active_regions || []); restyleOblasts(); } catch (e) {}
     } else if (DEMO) { oblastActive = new Set(['kharkivska', 'sumska', 'kyivska', 'odeska']); restyleOblasts(); }
     // Статика старше реального времени: часы берём у клиента, экстраполяция добирает отставание.
     serverNow = (useStatic && !DEMO) ? Math.floor(Date.now() / 1000) : (data.now || Math.floor(Date.now() / 1000));
@@ -620,7 +624,7 @@ document.getElementById('btn-share').onclick = async () => {
   try { if (navigator.share) { await navigator.share({ title: 'AirRadar', url: u.href }); return; } await navigator.clipboard.writeText(u.href); alert('Посилання скопійовано'); }
   catch (e) { prompt('Скопіюй посилання:', u.href); }
 };
-if ('serviceWorker' in navigator && location.protocol === 'https:' && !DEMO) navigator.serviceWorker.register('sw.js').catch(() => {});
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !DEMO && !window.AIRRADAR_DATA_BASE) navigator.serviceWorker.register('sw.js').catch(() => {});
 setInterval(evalMe, 5000);
 </script>
 </body>

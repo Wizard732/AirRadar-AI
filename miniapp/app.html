@@ -39,6 +39,7 @@
   .btn small { display:block; color:var(--dim); margin-top:2px; font-size:12px; }
   .upd { color:var(--dim); font-size:11px; margin-bottom:8px; }
 </style>
+<script src="native.js"></script>
 </head>
 <body>
 <div id="app">
@@ -65,7 +66,7 @@ const params = new URLSearchParams(location.search);
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const CATS = { drone: ['БпЛА', '🛸'], missile: ['Ракети', '🚀'], kab: ['КАБ', '💣'], air: ['Авіація', '✈️'], fpv: ['FPV', '✦'], arty: ['РСЗО/арт.', '💥'] };
-const dataURL = n => new URL(n, document.baseURI).href + '?t=' + Math.floor(Date.now() / 60000);
+const dataURL = n => new URL(n, window.AIRRADAR_DATA_BASE || document.baseURI).href + '?t=' + Math.floor(Date.now() / 60000);
 const fetchJSON = async n => { const r = await fetch(dataURL(n), { cache: 'no-store' }); if (!r.ok) throw new Error(n + ' ' + r.status); return r.json(); };
 const fmtUpd = ts => ts ? 'Оновлено ' + new Date(ts * 1000).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : '';
 const chips = c => Object.keys(CATS).filter(k => c[k]).map(k => `<span class="chip">${CATS[k][1]} ${CATS[k][0]} ${c[k]}</span>`).join('');
@@ -121,11 +122,23 @@ async function renderImp() {
 }
 function renderMore() {
   const base = location.href.replace(/[^/]*$/, '');
-  $('t-more').innerHTML = `<h2>Ще</h2>
+  const N = window.AirRadarNative, nativeCard = N && N.native ? `<div class="card"><b>📱 Пуш-сповіщення</b>
+    <div class="note" style="margin-top:6px">${({ ready: '✅ Дозвіл на сповіщення є.', denied: '⚠️ Сповіщення вимкнені в налаштуваннях телефона — увімкни їх для AirRadar.', 'no-plugin': '⚠️ Пуші недоступні в цій збірці.', error: '⚠️ Не вдалося підключити пуші: ' + esc(N.error || ''), web: '' })[N.status] || 'Підключаємо…'}</div>
+    <div class="note">Щоб тривоги та попередження приходили в додаток, надішли боту в Telegram команду з цим кодом (бот видалить повідомлення):</div>
+    <div style="font:600 15px ui-monospace,Menlo,monospace;margin:8px 0;word-break:break-all;color:var(--acc)">/pair ${esc(N.code)}</div>
+    <button class="btn" id="b-copy" style="margin-bottom:6px">📋 Скопіювати команду</button>
+    <button class="btn" id="b-bot" style="margin-bottom:6px">✈️ Відкрити бота в Telegram</button>
+    <button class="btn" id="b-newcode" style="margin-bottom:0">🔄 Новий код<small>Якщо код потрапив не туди — старий перестане діяти</small></button></div>` : '';
+  $('t-more').innerHTML = nativeCard + `<h2 style="margin-top:14px">Ще</h2>
     <button class="btn" id="b-ch">📣 Канал @AirRadarAI<small>Тривоги в стрічці Telegram</small></button>
     <button class="btn" id="b-open">🌐 Карта окремою сторінкою<small>Повний екран, можна додати на головний екран</small></button>
     <button class="btn" id="b-share">🔗 Поділитися<small>Надіслати посилання на Mini App</small></button>
     <div class="card"><b>ℹ️ Про дані</b><div class="note" style="margin-top:6px">Позиції виводяться зі зведень моніторингових каналів, а не з радара. Мітка «→ місто» — напрямок, а не точне положення. Висоту джерела не публікують.</div></div>`;
+  if (N && N.native) {
+    $('b-copy').onclick = async () => { try { await navigator.clipboard.writeText('/pair ' + N.code); $('b-copy').textContent = '✅ Скопійовано'; } catch (e) { prompt('Скопіюй:', '/pair ' + N.code); } };
+    $('b-bot').onclick = () => window.open('https://t.me/AirRadar_AI_bot', '_blank');
+    $('b-newcode').onclick = async () => { await N.newCode(); renderMore(); };
+  }
   $('b-ch').onclick = () => tg && tg.openTelegramLink ? tg.openTelegramLink('https://t.me/AirRadarAI') : window.open('https://t.me/AirRadarAI', '_blank');
   $('b-open').onclick = () => tg && tg.openLink ? tg.openLink(base) : window.open(base, '_blank');
   $('b-share').onclick = () => { const u = base + 'app.html'; tg && tg.openTelegramLink ? tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(u)) : (navigator.share ? navigator.share({ url: u }) : prompt('Посилання:', u)); };
@@ -136,7 +149,7 @@ function show(t) {
   current = t;
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('on', s.id === 't-' + t));
-  if (t === 'map' && !mapLoaded) { mapLoaded = true; $('map-frame').src = new URL(params.get('map') || './', document.baseURI).href; }
+  if (t === 'map' && !mapLoaded) { mapLoaded = true; $('map-frame').src = new URL(params.get('map') || (window.AIRRADAR_DATA_BASE ? 'radar.html' : './'), document.baseURI).href; }
   else if (renderers[t]) renderers[t]();
   try { localStorage.setItem('app_tab', t); } catch (e) {}
 }

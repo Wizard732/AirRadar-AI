@@ -35,7 +35,7 @@ jobs:
         run: |
           mkdir -p site/radar
           cp miniapp/radar.html site/index.html
-          cp miniapp/app.html miniapp/manifest.webmanifest miniapp/sw.js miniapp/icon-192.png miniapp/icon-512.png site/
+          cp miniapp/app.html miniapp/native.js miniapp/manifest.webmanifest miniapp/sw.js miniapp/icon-192.png miniapp/icon-512.png site/
           cp map_live.html site/snapshot.html
           # /radar -> корень (ссылки вида <url>/radar из уведомлений)
           echo '<!doctype html><meta charset=utf-8><meta http-equiv=refresh content="0;url=../"><a href="../">radar</a>' > site/radar/index.html
