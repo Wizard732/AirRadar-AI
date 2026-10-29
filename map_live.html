@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "unknown", "text": "Робота ППО по чомусь, локаційно все чисто, будьте обережні ⚠️", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 22}, {"type": "air_defense", "region": "unknown", "text": "Працює ППО", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 24}];
+const EMBEDDED_THREATS = [{"type": "shahed", "region": "sumska", "text": "Шостка-район бандероль", "sources": 2, "origin": "", "destination": "sumska", "track": null, "age_min": 3}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 12, "standdown_live": true, "next_wave_min": 304, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
