@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "sumska", "text": "🟡 Сумський район — повітряна тривога, жовтий рівень: Дронова загроза (жовтий рівень)", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 10}, {"type": "stand_down", "region": "sumska", "text": "🟢 Сумський район — відбій повітряної тривоги", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 19}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "chernigivska", "text": "• Рух 4 ворожих БпЛА на Чернігівщині – Бобровиця (1), Ніжин (1), Куликівка (1), Сновськ (1).", "sources": 1, "origin": "", "destination": "chernigivska", "track": null, "age_min": 1}, {"type": "stand_down", "region": "kyivska", "text": "💚 Відбій у столиці. Повертаємось до своїх ранкових справ!", "sources": 1, "origin": "", "destination": "kyivska", "track": null, "age_min": 1}, {"type": "stand_down", "region": "unknown", "text": "🟢Відбій, всім горілочки🏻[", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 2}, {"type": "uav", "region": "sumska", "text": "🟡 Сумський район — повітряна тривога, жовтий рівень: Дронова загроза (жовтий рівень)", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 20}, {"type": "stand_down", "region": "sumska", "text": "🟢 Сумський район — відбій повітряної тривоги", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 29}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 6, "standdown_live": true, "next_wave_min": 304, "standdown_hits": 4, "standdown_total": 8}};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 304, "standdown_hits": 4, "standdown_total": 8}, "kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 139, "standdown_hits": 5, "standdown_total": 10}, "chernigivska": {"standdown_min": 7, "standdown_live": true, "standdown_hits": 3, "standdown_total": 6}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
