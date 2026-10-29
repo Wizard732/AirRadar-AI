@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "air_defense", "region": "unknown", "text": "Працює ППО", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 2}];
+const EMBEDDED_THREATS = [{"type": "air_defense", "region": "unknown", "text": "⚠️Схоже працює ППО на болотах", "sources": 2, "origin": "", "destination": "unknown", "track": null, "age_min": 4}, {"type": "stand_down", "region": "unknown", "text": "▫️Наразі чисто. Без пусків балістичних ракет.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 7}, {"type": "ballistic", "region": "unknown", "text": "🧨Загроза застосування балістичного озброєння з Курська, рф", "sources": 5, "origin": "", "destination": "unknown", "track": null, "age_min": 9}, {"type": "ballistic", "region": "unknown", "text": "Балістична загроза з Курського напрямку", "sources": 2, "origin": "", "destination": "unknown", "track": null, "age_min": 10}, {"type": "cruise_missile", "region": "sumska", "text": "🔴 Сумський район — повітряна тривога, червоний рівень: Ракетна загроза (червоний рівень)", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 10}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 5, "standdown_live": true, "next_wave_min": 304, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
