@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "unknown", "text": "1 реактивний БпЛА над [", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 22}, {"type": "uav", "region": "dnipropetrovska", "text": "Дніпропетровщина: Реактивний БпЛА над Дніпром Новий реактивний БпЛА з Брянщини рухається в бік Чернігівщини", "sources": 1, "origin": "chernigivska", "destination": "dnipropetrovska", "track": null, "age_min": 23}, {"type": "shahed", "region": "sumska", "text": "Береза, Глухів, бандероль курсом на Кролевець, Конотоп район", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 27}];
+const EMBEDDED_THREATS = [{"type": "shahed", "region": "poltavska", "text": "Бандероль на Полтаву", "sources": 1, "origin": "", "destination": "poltavska", "track": null, "age_min": 1}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 304, "standdown_hits": 4, "standdown_total": 8}};
+const EMBEDDED_FORECAST = {"poltavska": {"wave_hours": {"from": 13, "to": 19}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
