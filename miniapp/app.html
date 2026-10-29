@@ -128,6 +128,8 @@ function renderMore() {
     <div style="font:600 15px ui-monospace,Menlo,monospace;margin:8px 0;word-break:break-all;color:var(--acc)">/pair ${esc(N.code)}</div>
     <button class="btn" id="b-copy" style="margin-bottom:6px">📋 Скопіювати команду</button>
     <button class="btn" id="b-bot" style="margin-bottom:6px">✈️ Відкрити бота в Telegram</button>
+    <button class="btn" id="b-test" style="margin-bottom:6px">🔔 Перевірити гучний сигнал</button>
+    ${N.battery === false ? '<button class="btn" id="b-batt" style="margin-bottom:6px">🔋 Не вимикати у фоні<small>Дозволь роботу без обмежень економії батареї, щоб тривога не запізнювалась</small></button>' : ''}
     <button class="btn" id="b-newcode" style="margin-bottom:0">🔄 Новий код<small>Якщо код потрапив не туди — старий перестане діяти</small></button></div>` : '';
   $('t-more').innerHTML = nativeCard + `<h2 style="margin-top:14px">Ще</h2>
     <button class="btn" id="b-ch">📣 Канал @AirRadarAI<small>Тривоги в стрічці Telegram</small></button>
@@ -138,6 +140,8 @@ function renderMore() {
     $('b-copy').onclick = async () => { try { await navigator.clipboard.writeText('/pair ' + N.code); $('b-copy').textContent = '✅ Скопійовано'; } catch (e) { prompt('Скопіюй:', '/pair ' + N.code); } };
     $('b-bot').onclick = () => window.open('https://t.me/AirRadar_AI_bot', '_blank');
     $('b-newcode').onclick = async () => { await N.newCode(); renderMore(); };
+    $('b-test').onclick = () => N.test();
+    if ($('b-batt')) $('b-batt').onclick = async () => { await N.askBattery(); setTimeout(async () => { await N.init(); renderMore(); }, 1500); };
   }
   $('b-ch').onclick = () => tg && tg.openTelegramLink ? tg.openTelegramLink('https://t.me/AirRadarAI') : window.open('https://t.me/AirRadarAI', '_blank');
   $('b-open').onclick = () => tg && tg.openLink ? tg.openLink(base) : window.open(base, '_blank');
