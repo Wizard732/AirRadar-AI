@@ -89,56 +89,7 @@ def event_message(e: dict, dist: float, point: tuple[float, float], now: int, la
 
 
 # --- Офіційні тривоги по районах (alerts.in.ua): другий сигнал, коли канали ще мовчать ---------------
-_RAIONS: list | None = None
-
-
-def _raions() -> list:
-    global _RAIONS
-    if _RAIONS is None:
-        import json
-        from pathlib import Path
-        _RAIONS = []
-        try:
-            data = json.loads((Path(__file__).with_name("miniapp") / "raions.json").read_text(encoding="utf-8"))
-            for f in data.get("features", []):
-                g = f["geometry"]
-                polys = g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]]
-                xs = [pt[0] for p in polys for pt in p[0]]
-                ys = [pt[1] for p in polys for pt in p[0]]
-                key = f["properties"]["r"] + "|" + f["properties"]["o"].split(" ")[0]
-                _RAIONS.append((key, (min(xs), min(ys), max(xs), max(ys)), polys))
-        except (OSError, ValueError, KeyError):
-            logger.warning("raions.json недоступний — тривоги за районом вимкнено")
-    return _RAIONS
-
-
-def _in_ring(ring: list, x: float, y: float) -> bool:
-    inside = False
-    j = len(ring) - 1
-    for i in range(len(ring)):
-        if (ring[i][1] > y) != (ring[j][1] > y) and x < (ring[j][0] - ring[i][0]) * (y - ring[i][1]) / (ring[j][1] - ring[i][1]) + ring[i][0]:
-            inside = not inside
-        j = i
-    return inside
-
-
-_RAION_CACHE: dict[tuple[float, float], tuple[str, str] | None] = {}
-
-
-def raion_at(lat: float, lon: float) -> tuple[str, str] | None:
-    """(ключ «Район|Область», назва району) для точки; None — поза районами."""
-    ck = (round(lat, 3), round(lon, 3))
-    if ck in _RAION_CACHE:
-        return _RAION_CACHE[ck]
-    found = None
-    for key, (x0, y0, x1, y1), polys in _raions():
-        if x0 <= lon <= x1 and y0 <= lat <= y1 and any(_in_ring(p[0], lon, lat) for p in polys):
-            found = (key, key.split("|")[0])
-            break
-    if len(_RAION_CACHE) > 5000:
-        _RAION_CACHE.clear()
-    _RAION_CACHE[ck] = found
-    return found
+from raion_geo import raion_at  # noqa: E402,F401
 
 
 def official_message(level: str, name: str, label: str = "") -> str:
@@ -184,9 +135,11 @@ async def evaluate_once(db, send, now: int | None = None, map_url: str = "") -> 
         official = set(db.siren_states_fresh())
     except Exception:  # noqa: BLE001
         official = set()
+    import os
+    official_known = official if os.getenv("ALERTS_IN_UA_TOKEN", "").strip() else None   # None — офіційних даних немає, не заспокоюємо й не лякаємо
     for tg in targets:
         uid, suffix, label = tg["uid"], tg["suffix"], tg["label"]
-        risks = risk_for_point(list(live.values()), tg["point"], now, imminent_km=tg["radius"], watch_km=tg["radius"] * 3)
+        risks = risk_for_point(list(live.values()), tg["point"], now, imminent_km=tg["radius"], watch_km=tg["radius"] * 3, official=official_known)
         all_states = db.guard_states(uid)
         # Стан цієї точки: ключі трека + suffix (для живої точки — ключі без «|p»).
         states = {(k[: -len(suffix)] if suffix else k): v for k, v in all_states.items()
@@ -197,6 +150,10 @@ async def evaluate_once(db, send, now: int | None = None, map_url: str = "") -> 
             if track is not None:
                 keyed[track.key] = (track, r)
         for key, (track, r) in keyed.items():
+            # Ранжування: слабкий сигнал (watch, одне джерело, офіційної тривоги там немає) не будить людину;
+            # imminent/over надсилаємо завжди — безпека важливіша за тишу.
+            if r.level == "watch" and r.official is False and r.sources < 2:
+                continue
             if decide(states.get(key), r, now):
                 try:
                     await send(uid, guard_message(r, map_url, label))

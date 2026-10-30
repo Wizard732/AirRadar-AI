@@ -130,6 +130,11 @@
   /* ---- нижнє меню і вкладки (як у «Мапи тривог») ---- */
   #mtools { position:fixed; right:62px; bottom:66px; z-index:1000; display:flex; gap:6px; } #mtools .btn { width:40px; height:40px; padding:0; display:grid; place-items:center; font-size:16px; } #mtools .btn.on { border-color:#ff6b6b; color:#ff6b6b; }
   @media (min-width:800px) { #mtools { bottom:78px; } }
+  .gh { width:36px; height:36px; border-radius:50%; border:2px dashed rgba(255,255,255,.8); background:rgba(10,12,18,.6); display:grid; place-items:center; color:#fff; cursor:pointer; animation:ghp 2.4s ease-in-out infinite; }
+  .gh svg { width:19px; height:19px; } .gh.y { border-color:#e8c860; color:#e8c860; } .gh.r { border-color:#ff8a80; color:#ff8a80; }
+  .ghl { position:absolute; left:50%; top:40px; transform:translateX(-50%); white-space:nowrap; font:600 10px sans-serif; color:#fff; text-shadow:0 0 3px #000, 0 0 3px #000; pointer-events:none; }
+  @keyframes ghp { 50% { opacity:.55; } }
+  .bdg { display:inline-block; padding:1px 7px; border-radius:6px; font-size:11px; margin-top:3px; background:rgba(255,255,255,.1); } .bdg.ok { background:rgba(60,190,110,.25); color:#7ee0a0; } .bdg.warn { background:rgba(255,180,60,.2); color:#ffc061; }
   #nav { position:fixed; left:0; right:0; bottom:0; height:56px; z-index:1500; display:flex; background:#1c1f26; border-top:1px solid rgba(255,255,255,.08); padding-bottom:env(safe-area-inset-bottom); }
   #nav button { flex:1; background:none; border:none; color:#8b95a8; display:grid; place-items:center; cursor:pointer; position:relative; }
   #nav button.on { color:#ff6b6b; } #nav svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
@@ -373,6 +378,27 @@ function openRegion(slug, raion) {
     ${mine.length ? `<h4>Цілі за зведеннями каналів · ${mine.length}</h4>` + mine.map(i => `<div class="acard t"><div class="ai" style="color:#222">${i.kind === 't' ? (isMissile(i.t.weapon) ? ICO.missile : ICO.drone) : CATS[i.cat].i}</div><div><div class="a1">${i.kind === 't' ? trackName(i.t) : (WNAME[i.e.weapon] || i.e.weapon)}</div><div class="a2">${i.kind === 't' ? (i.t.dest ? 'у напрямку ' + i.t.dest.name : (i.t.heading !== null ? compass(i.t.heading) : '')) : (i.e.place || '')} · ${ago(curTs() - i.ts)}</div></div></div>`).join('') : ''}`;
   rs.style.display = 'block'; rs.scrollTop = 0;
   document.getElementById('rs-x').onclick = () => { rs.style.display = 'none'; };
+}
+const ghostLayer = L.layerGroup().addTo(map);
+let ghostSig = '';
+function renderGhosts() {
+  // Офіційна тривога в області, а цілей зі зведень там немає — показуємо «привид»: пунктирна мітка без координат.
+  const per = {};
+  for (const a of alertsDetail) { if (!['raion', 'city', 'hromada'].includes(a.type) || a.kind === 'artillery_shelling' || a.kind === 'urban_fights') continue; const o = per[a.slug] = per[a.slug] || { n: 0, red: false, keys: [] }; o.n++; if (a.level !== 'yellow') o.red = true; if (a.type === 'raion') o.keys.push(a.title.replace(' район', '') + '|' + (SLUG_NAME[a.slug] || '').split(' ')[0]); }
+  const have = new Set(lastItems.map(i => i.slug).filter(Boolean));
+  const sig = JSON.stringify(Object.keys(per).filter(s => !have.has(s)).map(s => [s, per[s].n, per[s].red]));
+  if (sig === ghostSig) return; ghostSig = sig; ghostLayer.clearLayers();
+  for (const slug of Object.keys(per)) {
+    if (have.has(slug) || !slug) continue;
+    const o = per[slug]; let lat = 0, lon = 0, c = 0;
+    if (raionLayer) raionLayer.eachLayer(l => { if (o.keys.includes(l._key)) { const ct = l.getBounds().getCenter(); lat += ct.lat; lon += ct.lng; c++; } });
+    if (!c && oblastLayer) oblastLayer.eachLayer(l => { if (l._slug === slug) { const ct = l.getBounds().getCenter(); lat = ct.lat; lon = ct.lng; c = 1; } });
+    if (!c) continue;
+    const ico = o.red ? ICO.missile : ICO.drone;
+    const m = L.marker([lat / c, lon / c], { icon: L.divIcon({ className: '', iconSize: [36, 36], iconAnchor: [18, 18], html: `<div class="gh ${o.red ? 'r' : 'y'}">${ico}</div>` }), zIndexOffset: 100 }).addTo(ghostLayer);
+    m.bindTooltip(`Офіційна тривога: ${o.n} ${o.n === 1 ? 'район/громада' : 'районів/громад'}. Позиції цілі за зведеннями поки немає`, { direction: 'top', className: 'lbl' });
+    m.on('click', () => openRegion(slug));
+  }
 }
 function raionAt(ll) {
   if (!raionLayer) return null; let hit = null;
@@ -712,6 +738,7 @@ async function load() {
     sirensRaionsP = new Set(Array.isArray(data.sirens_raions_p) ? data.sirens_raions_p : []);
     sirenThreats = data.siren_threats || {}; alertsDetail = Array.isArray(data.alerts) ? data.alerts : [];
     feedData = Array.isArray(data.feed) ? data.feed : [];
+    accData = data.accuracy || null;
     { const nb = document.getElementById('nav-badge'); if (nb) nb.textContent = alertsDetail.filter(a => a.type !== 'hromada').length || ''; } restyleRaions(); listSig = '';
     if (sirens) { oblastActive = new Set(sirens); restyleOblasts(); }
     else if (useStatic && !DEMO) {
@@ -834,7 +861,7 @@ function frame(nowMs) {
   }
   const stat = renderTracks();
   // Маркеры двигаются каждый кадр; следы, прогноз и HUD — 4 раза в секунду (иначе мерцают подсказки).
-  if (nowMs - lastSlow > 250) { lastSlow = nowMs; drawTrailsAndForecast(curTs()); renderEvents(curTs()); renderList(curTs()); updateHud(stat); }
+  if (nowMs - lastSlow > 250) { lastSlow = nowMs; drawTrailsAndForecast(curTs()); renderEvents(curTs()); renderList(curTs()); renderGhosts(); updateHud(stat); }
   requestAnimationFrame(frame);
 }
 load().then(() => {
@@ -857,7 +884,7 @@ setInterval(evalMe, 5000);
 // =====================================================================================================
 //  Вкладки як у «Мапи тривог»: список, тривалості, статистика, історія, довідка, налаштування
 // =====================================================================================================
-let hist = { alerts: [], events: [], now: 0 }, feedData = [], curView = 'map', histAt = 0;
+let hist = { alerts: [], events: [], now: 0 }, accData = null, feedData = [], curView = 'map', histAt = 0;
 const $v = id => document.getElementById(id);
 const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const hhmm = ts => new Date(ts * 1000).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
@@ -915,7 +942,7 @@ function fillList() {
   } else if (lsub === 'targets') {
     const rows = tracks.filter(t => { const l = t.points[t.points.length - 1]; return t.status !== 'stale' && now - l.ts < 30 * 60; }).filter(t => q(trackName(t))).sort((a, b) => b.points[b.points.length - 1].ts - a.points[a.points.length - 1].ts);
     h = rows.map(t => { const l = t.points[t.points.length - 1], f = t.points[0], dir = t.dest ? '→ ' + t.dest.name : (t.heading !== null ? compass(t.heading) : (l.place || ''));
-      return `<div class="vrow"><div><b>${esc(dir)}</b><small>${esc(trackName(t))}</small><small>${t.status === 'loitering' ? 'Кружляє' : 'Рухається'} · ${l.ts >= now - 60 ? 'щойно' : ago(now - l.ts)}</small><small>Виявлено ${hhmm(f.ts)} · відстежується ${Math.max(1, Math.round((now - f.ts) / 60))} хв</small></div><div class="ai" style="width:34px;height:34px;border-radius:50%;background:#fff;color:#222;display:grid;place-items:center;flex:none"><span style="width:20px;height:20px;display:block">${isMissile(t.weapon) ? ICO.missile : ICO.drone}</span></div></div>`; }).join('')
+      return `<div class="vrow"><div><b>${esc(dir)}</b><small>${esc(trackName(t))}</small><small>${t.status === 'loitering' ? 'Кружляє' : 'Рухається'} · ${l.ts >= now - 60 ? 'щойно' : ago(now - l.ts)}</small><small>Виявлено ${hhmm(f.ts)} · відстежується ${Math.max(1, Math.round((now - f.ts) / 60))} хв</small>${t.official === true ? '<span class="bdg ok">✅ підтверджено офіційною тривогою</span>' : (t.official === false ? `<span class="bdg warn">⚠️ без офіційного підтвердження · джерел: ${t.sources || 1}</span>` : '')}</div><div class="ai" style="width:34px;height:34px;border-radius:50%;background:#fff;color:#222;display:grid;place-items:center;flex:none"><span style="width:20px;height:20px;display:block">${isMissile(t.weapon) ? ICO.missile : ICO.drone}</span></div></div>`; }).join('')
       || '<div class="fx"><div class="a1">Зараз немає цілей з відомою позицією за зведеннями каналів.</div><div class="a2">Офіційні тривоги дивіться у вкладці «Активні».</div></div>';
   } else if (lsub === 'threats') {
     h = (feedData || []).filter(f => q(f.text)).map(f => `<div class="fx"><div class="a1">${esc(f.text)}</div><div class="a2">${when(f.ts)}${oblName(f.region) ? ' · ' + esc(oblName(f.region)) : ''} · зведення каналів</div></div>`).join('') || '<div class="fx"><div class="a1">Свіжих повідомлень немає.</div></div>';
@@ -992,7 +1019,7 @@ function renderStats() {
   if (!el.dataset.init) {
     el.dataset.init = 1;
     el.innerHTML = `<h2>Статистика</h2><div class="sub" id="s-sub"></div><select id="s-per">${PSEL}</select><select id="s-obl"><option value="">Усі області</option>${Object.entries(SLUG_NAME).sort((a, b) => a[1].localeCompare(b[1])).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select>
-      <div class="grph">Кількість оголошень тривог за годиною доби</div><div id="s-h"></div><div class="grph">Кількість тривог за областями</div><div class="seg" id="s-met"><button data-m="n">Кількість</button><button data-m="dur">Тривалість</button><button data-m="avg">Середня</button></div><div id="s-o"></div><div class="grph">За районами / містами</div><div id="s-r"></div>`;
+      <div class="grph">Кількість оголошень тривог за годиною доби</div><div id="s-h"></div><div class="grph">Кількість тривог за областями</div><div class="seg" id="s-met"><button data-m="n">Кількість</button><button data-m="dur">Тривалість</button><button data-m="avg">Середня</button></div><div id="s-o"></div><div class="grph">За районами / містами</div><div id="s-r"></div><div class="grph">Точність наших прогнозів · 30 днів</div><div id="s-acc"></div>`;
     $v('s-per').onchange = e => { sPer = e.target.value; fillStats(); }; $v('s-obl').onchange = e => { sSlug = e.target.value; fillStats(); };
     $v('s-met').onclick = e => { const b = e.target.closest('button'); if (b) { sMet = b.dataset.m; fillStats(); } };
   }
@@ -1010,6 +1037,10 @@ function fillStats() {
   const bo = {}; all.forEach(o => (bo[o.slug] = bo[o.slug] || []).push(o));
   $v('s-o').innerHTML = bar(Object.entries(bo).map(([s, a]) => [s, sMet === 'avg' ? a.reduce((x, o) => x + val(o), 0) / a.length : a.reduce((x, o) => x + val(o), 0)]).sort((a, b) => b[1] - a[1]), oblName);
   $v('s-r').innerHTML = bar(all.map(o => [o.title, val(o)]).sort((a, b) => b[1] - a[1]).slice(0, 25), x => x);
+  const A = accData, ov = A && A.overall;
+  $v('s-acc').innerHTML = !A ? '<div class="fx"><div class="a1">Дані про точність ще не зібрані.</div></div>' :
+    `<div class="fx"><div class="a1"><b>${ov && ov.pct !== null ? ov.pct + '%' : 'замало даних'}</b> прогнозів «можливо до міста» збулися</div><div class="a2">Перевірено: ${ov ? ov.resolved : 0} (влучань ${ov ? ov.hits : 0}, промахів ${ov ? ov.misses : 0}). Прогноз збувся, якщо та сама ціль пройшла в межах 15 км від міста. Невідомий результат у точність не входить.</div></div>` +
+    (A.regions || []).filter(r => r.slug).map(r => `<div class="hbar"><div class="n">${esc(oblName(r.slug))}</div><div class="t"><i style="width:${r.pct === null ? 4 : Math.max(3, r.pct)}%;background:${r.pct === null ? '#555' : (r.pct >= 70 ? '#3aa66a' : (r.pct >= 40 ? '#c9a23c' : '#c0504a'))}"></i></div><div class="v">${r.pct === null ? 'мало' : r.pct + '%'}</div></div>`).join('');
 }
 // ---------- Історія ----------
 let hDay = dayStart(), hq = '';
@@ -1047,7 +1078,7 @@ function renderHelp() {
   el.innerHTML = `<h2>Про AirRadar</h2><div class="fx"><div class="a1"><b>Мапа повітряних тривог і цілей</b><br>AirRadar показує офіційні тривоги (alerts.in.ua) та цілі за зведеннями моніторингових каналів: шахеди, ракети, КАБ, авіація.</div></div>
   <div class="fx" style="border-left:4px solid #c0392b"><div class="a1"><b>Важливо: це неофіційна мапа.</b> Не використовуйте її як основне джерело оповіщення. Орієнтуйтесь на офіційні сирени та Повітряні сили ЗСУ.</div></div>
   <div class="grph">Що означають кольори та іконки</div>
-  <div class="fx">${sw('#6b2a2f', '<b>Червоний</b> — повітряна тривога, підвищена загроза (ракетна небезпека)')}${sw('#c9a23c', '<b>Жовтий</b> — знижена загроза, зокрема БпЛА (шахеди)')}${sw('#e8872a', 'Загроза артобстрілу')}${sw('#5a49b5', 'Загроза вуличних боїв')}${sw('linear-gradient(90deg,#9a2a32,#4b1e28)', 'Темніший колір — довше триває тривога')}${sw('#1b2338', 'Немає інформації про тривогу чи загрозу')}${sw('#4a2230', 'Тривога в частині району (громади)')}</div>
+  <div class="fx">${sw('#6b2a2f', '<b>Червоний</b> — повітряна тривога, підвищена загроза (ракетна небезпека)')}${sw('#c9a23c', '<b>Жовтий</b> — знижена загроза, зокрема БпЛА (шахеди)')}${sw('#e8872a', 'Загроза артобстрілу')}${sw('#5a49b5', 'Загроза вуличних боїв')}${sw('linear-gradient(90deg,#9a2a32,#4b1e28)', 'Темніший колір — довше триває тривога')}${sw('#1b2338', 'Немає інформації про тривогу чи загрозу')}<div class="leg"><span class="gh" style="width:22px;height:22px;animation:none;flex:none"></span><span>Пунктирна мітка — офіційна тривога є, а позиції цілі за зведеннями ще немає</span></div>${sw('#4a2230', 'Тривога в частині району (громади)')}</div>
   <div class="fx">${ic(ICO.drone, 'Ударний БпЛА (шахед)')}${ic(ICO.drone.replace('<svg', '<svg style="color:#b57bff"'), 'Реактивний БпЛА')}${ic(ICO.fpv, 'FPV / Ланцет')}${ic(ICO.missile, 'Ракета / балістика')}${ic(ICO.cruise, 'Крилата ракета')}${ic(ICO.kab, 'Керована авіабомба (КАБ)')}${ic(ICO.air, 'Авіація')}${ic(ICO.arty, 'РСЗВ / артилерія / влучання')}</div>
   <div class="grph">Часті запитання</div>
   <details class="faq"><summary>Я побачив ракету чи безпілотник. Що робити?</summary><div>Не знімайте і не публікуйте, не підходьте до вікон. Негайно в укриття або в приміщення з двома стінами між вами й вулицею (коридор, ванна). Повідомте про побачене в «Повітряні сили ЗСУ» через чат-бот «Повітряна тривога» або за номером 102.</div></details>

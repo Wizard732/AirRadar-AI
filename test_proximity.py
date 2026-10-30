@@ -166,5 +166,36 @@ class OfficialRaionTests(unittest.TestCase):
         self.assertEqual(event_risks([e], (50.05, 36.0), NOW, 10.0), [])
 
 
+class TrustTests(unittest.TestCase):
+    def _track(self, sources):
+        from track_engine import Point, Track
+        tr = Track(id="t1", weapon="shahed", profile="", points=[Point(NOW - 300, 50.0, 36.0, 1, "x", "place"), Point(NOW - 60, 50.05, 36.0, 1, "y", "place")],
+                   speed_kmh=180.0, speed_source="measured", heading=0.0, sources=set(sources))
+        return tr
+
+    def test_pass_by_text_and_trust(self):
+        from track_engine import risk_for_point, risk_text
+        tr = self._track({"a"})
+        # ціль йде на північ уздовж 36.0, точка за 7 км на схід: пройде повз
+        r = risk_for_point([tr], (50.30, 36.10), NOW, imminent_km=30.0, watch_km=60.0, official=set())[0]
+        self.assertTrue(r.pass_by)
+        txt = risk_text(r)
+        self.assertIn("пройде за", txt)
+        self.assertIn("Без офіційного підтвердження", txt)
+
+    def test_official_confirmation_text(self):
+        from track_engine import risk_for_point, risk_text
+        tr = self._track({"a", "b"})
+        r = risk_for_point([tr], (50.30, 36.0), NOW, imminent_km=30.0, watch_km=60.0, official={"kharkivska"})[0]
+        self.assertTrue(r.official)
+        self.assertIn("Підтверджено офіційною", risk_text(r))
+
+    def test_no_official_data_no_phrase(self):
+        from track_engine import risk_for_point, risk_text
+        r = risk_for_point([self._track({"a"})], (50.30, 36.0), NOW, imminent_km=30.0, watch_km=60.0)[0]
+        self.assertIsNone(r.official)
+        self.assertNotIn("офіційн", risk_text(r))
+
+
 if __name__ == "__main__":
     unittest.main()

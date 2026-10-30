@@ -108,10 +108,11 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
         return web.json_response({"threats": [], "error": "temporarily unavailable"}, status=503)
 
 
-def _track_json(t, now: int) -> dict:
-    from track_engine import compass_ua, forecast_places, position_at
+def _track_json(t, now: int, official: set | None = None) -> dict:
+    from track_engine import _is_official, compass_ua, forecast_places, position_at
     lat, lon, est = position_at(t, now)
     return {
+        "sources": max(1, len(t.sources)), "official": _is_official(lat, lon, official),
         "id": t.key, "weapon": t.weapon, "profile": t.profile, "status": t.status,
         "count": t.count,
         "speed_kmh": t.speed_kmh, "speed_source": t.speed_source,
@@ -131,6 +132,7 @@ def radar_payload(db, minutes: int, now: int) -> dict:
     from track_engine import build_events, build_tracks
     rows = db.recent_observations(now - minutes * 60)
     tracks = build_tracks(rows, now, window_s=minutes * 60)
+    off_set = set(db.siren_states_fresh()) if os.getenv("ALERTS_IN_UA_TOKEN", "").strip() else None
     impacts = []
     try:
         import impact_log
@@ -160,6 +162,11 @@ def radar_payload(db, minutes: int, now: int) -> dict:
         if k.startswith("threat:"):
             _, slug, kind = k.split(":", 2)
             threats.setdefault(slug, []).append(kind)
+    try:
+        import forecast_eval
+        accuracy = forecast_eval.accuracy_regions(db, now, 30)
+    except Exception:  # noqa: BLE001
+        accuracy = None
     feed: list = []
     try:   # стрічка «Загрози»: свіжі інциденти зі зведень каналів (без назв джерел — правило №6)
         from fast_filter import public_text
@@ -167,9 +174,9 @@ def radar_payload(db, minutes: int, now: int) -> dict:
                 for t in db.active_threats(within_seconds=3 * 3600, include_reported=True)][:60]
     except Exception:  # noqa: BLE001
         pass
-    return {"now": now, "window_min": minutes, "tracks": [_track_json(t, now) for t in tracks],
+    return {"now": now, "window_min": minutes, "tracks": [_track_json(t, now, off_set) for t in tracks],
             "events": build_events(rows, now), "impacts": impacts, "sirens": sirens, "sirens_raions": sirens_raions, "sirens_raions_y": sirens_raions_y,
-            "sirens_raions_p": sirens_raions_p, "siren_threats": threats if on else None, "alerts": detail, "feed": feed}
+            "sirens_raions_p": sirens_raions_p, "siren_threats": threats if on else None, "alerts": detail, "feed": feed, "accuracy": accuracy}
 
 
 def history_payload(db, now: int, days: int = 7) -> dict:

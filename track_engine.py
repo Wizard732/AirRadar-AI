@@ -94,6 +94,7 @@ class Track:
     aim: float | None = None           # курс из «звідки → куди», если замеров смещения нет
     dest: tuple | None = None          # (lat, lon, name) — «курсом на X», если последнее сообщение так говорит
     course_to: str = ""                # цель из текста («курсом на Обухів»)
+    sources: set = field(default_factory=set)   # незалежні джерела, що бачили цю ціль (довіра)
 
     @property
     def last(self) -> Point:
@@ -171,7 +172,9 @@ def _nodes(rows: list[dict]) -> list[dict]:
         node = snaps.setdefault(key, {"ts": ts, "lat": r["lat"], "lon": r["lon"], "weapon": r["weapon"],
                                       "profile": r["profile"], "count": 0, "place": r["place"],
                                       "precision": r["precision"], "unknown_count": 0,
-                                      "aim": r.get("aim"), "dest": r.get("dest")})
+                                      "aim": r.get("aim"), "dest": r.get("dest"), "sources": set()})
+        if r.get("source"):
+            node["sources"].add(r["source"])
         if r["count"]:
             node["count"] += r["count"]
         else:
@@ -245,6 +248,7 @@ def _append(t: Track, n: dict) -> None:
         t.profile = "reactive"
     t.aim = n.get("aim")
     t.dest = n.get("dest")
+    t.sources |= n.get("sources", set())
 
 
 def _finalize(t: Track, now_ts: int) -> None:
@@ -352,6 +356,9 @@ class Risk:
     speed_source: str
     count: int
     eta_range: tuple[int, int] | None = None   # (раньше, позже) в минутах — честный разброс вместо одного числа
+    sources: int = 1                  # скільки незалежних джерел бачили ціль
+    official: bool | None = None      # True — в районі цілі є офіційна тривога; None — офіційних даних немає
+    pass_by: bool = False             # ціль пройде повз (MDA більший за похибку курсу), а не «на вас»
 
 
 LEAD_MIN = 20            # предупреждаем не ближе, чем за ~20 мин лёта: быстрая цель видна издалека
@@ -367,8 +374,20 @@ def _eta_range(eta: int, speed_source: str) -> tuple[int, int]:
     return max(0, int(eta / fast)), max(1, math.ceil(eta / slow))
 
 
+def _is_official(lat: float, lon: float, official: set | None) -> bool | None:
+    """Чи є офіційна тривога там, де зараз ціль (район або область). None — офіційних даних немає."""
+    if official is None:
+        return None
+    from raion_geo import raion_at
+    ra = raion_at(lat, lon)
+    if ra and (f"raion:{ra[0]}" in official or f"raionY:{ra[0]}" in official):
+        return True
+    from city_coords import region_for_point
+    return region_for_point(lat, lon) in official
+
+
 def risk_for_point(tracks: list[Track], point: tuple[float, float], now_ts: int,
-                   imminent_km: float = 10.0, watch_km: float = 30.0) -> list[Risk]:
+                   imminent_km: float = 10.0, watch_km: float = 30.0, official: set | None = None) -> list[Risk]:
     """Для каждой активной цели: расстояние, сближается ли, ближайшая точка подхода и ETA.
 
     Дальность наблюдения зависит от скорости (LEAD_MIN минут лёта), допуск на курс растёт с
@@ -414,8 +433,10 @@ def risk_for_point(tracks: list[Track], point: tuple[float, float], now_ts: int,
         else:
             continue
         rng = _eta_range(eta, t.speed_source) if eta is not None and level != "over" else None
+        pass_by = bool(approaching and has_course and not approx_only and level == "imminent" and cpa >= margin and cpa >= 3.0)
         risks.append(Risk(t.id, t.weapon, level, round(dist, 1), round(brg), approaching, round(cpa, 1),
-                          eta, t.speed_kmh, t.speed_source, t.count, rng))
+                          eta, t.speed_kmh, t.speed_source, t.count, rng, max(1, len(t.sources)),
+                          _is_official(lat, lon, official), pass_by))
     risks.sort(key=lambda r: r.distance_km)
     return risks
 
@@ -428,6 +449,16 @@ def _eta_phrase(r: Risk) -> str:
     return f"орієнтовно {r.eta_min} хв"
 
 
+def trust_phrase(r: Risk) -> str:
+    """Скільки джерел і чи є офіційне підтвердження — чесно, без паніки і без заспокоєння."""
+    if r.official is True:
+        return " ✅ Підтверджено офіційною тривогою."
+    if r.official is False:
+        return (" ⚠️ Без офіційного підтвердження (1 джерело)." if r.sources < 2
+                else f" ⚠️ Офіційної тривоги там ще немає ({r.sources} джерела бачать ціль).")
+    return ""
+
+
 def risk_text(r: Risk) -> str:
     """Одна строка без воды: что, где, куда, как быстро. «Орієнтовно» — всегда."""
     what = "Реактивний БпЛА" if r.weapon == "uav" and r.speed_kmh >= 250 else (
@@ -436,16 +467,16 @@ def risk_text(r: Risk) -> str:
     if r.count > 1:
         what = f"{r.count} цілі"
     if r.level == "over":
-        return f"🔴 {what} над вами або поруч (~{r.distance_km:g} км)."
+        return f"🔴 {what} над вами або поруч (~{r.distance_km:g} км)." + trust_phrase(r)
     side = compass_ua(r.bearing_from_point)
     speed = f"~{r.speed_kmh:g} км/год" + ("" if r.speed_source == "measured" else ", типова")
     eta = _eta_phrase(r)
     if r.level == "imminent":
-        course = "курс на вас" if r.approaching else "курс невідомий — вважайте, що на вас"
-        return f"🟠 {what}: {r.distance_km:g} км, {side}, {course}" + (f", {eta}" if eta else "") + f" ({speed})."
+        course = ("курс на вас" if not r.pass_by else f"пройде за ~{r.cpa_km:g} км від вас") if r.approaching else "курс невідомий — вважайте, що на вас"
+        return f"🟠 {what}: {r.distance_km:g} км, {side}, {course}" + (f", {eta}" if eta else "") + f" ({speed})." + trust_phrase(r)
     if not r.approaching:
-        return f"🟡 {what}: {r.distance_km:g} км, {side}, курс невідомий, орієнтовно — слідкуйте ({speed})."
-    return f"🟡 {what}: {r.distance_km:g} км, {side}, може пройти за ~{r.cpa_km:g} км від вас, {eta} ({speed})."
+        return f"🟡 {what}: {r.distance_km:g} км, {side}, курс невідомий, орієнтовно — слідкуйте ({speed})." + trust_phrase(r)
+    return f"🟡 {what}: {r.distance_km:g} км, {side}, може пройти за ~{r.cpa_km:g} км від вас, {eta} ({speed})." + trust_phrase(r)
 
 
 # --- одиночные события: КАБ, ракеты, авиация, FPV, РСЗО… ---------------------------

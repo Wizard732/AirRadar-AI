@@ -47,5 +47,24 @@ class ForecastEvalTests(unittest.TestCase):
         self.assertIsNone(acc["pct"], "мало разрешённых прогнозов — процент не показываем")
 
 
+class RegionAccuracyTests(unittest.TestCase):
+    def test_by_region_and_too_few_is_none(self):
+        import forecast_eval as fe
+        d = tempfile.TemporaryDirectory()
+        db = Database(os.path.join(d.name, "t.db"))
+        fe.ensure(db)
+        now = int(time.time())
+        with db._lock:
+            for i, (r, o) in enumerate([("kharkivska", "hit")] * 6 + [("kharkivska", "miss")] * 2 + [("sumska", "hit")]):
+                db._conn.execute("INSERT INTO forecast_log(track_key,town,lat,lon,made_ts,eta_ts,outcome,region) VALUES (?,?,?,?,?,?,?,?)",
+                                 (f"k{i}", "x", 50, 36, now - 3600, now - 1800, o, r))
+            db._conn.commit()
+        res = fe.accuracy_regions(db, now)
+        by = {x["slug"]: x for x in res["regions"]}
+        self.assertEqual(by["kharkivska"]["pct"], 75)
+        self.assertIsNone(by["sumska"]["pct"])
+        d.cleanup()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -23,18 +23,23 @@ def ensure(db) -> None:
             "CREATE TABLE IF NOT EXISTS forecast_log (id INTEGER PRIMARY KEY AUTOINCREMENT, track_key TEXT NOT NULL, "
             "town TEXT NOT NULL, lat REAL NOT NULL, lon REAL NOT NULL, made_ts INTEGER NOT NULL, eta_ts INTEGER NOT NULL, "
             "speed_source TEXT NOT NULL DEFAULT '', outcome TEXT NOT NULL DEFAULT '', UNIQUE(track_key, town))")
+        try:
+            db._conn.execute("ALTER TABLE forecast_log ADD COLUMN region TEXT NOT NULL DEFAULT ''")  # noqa: SLF001
+        except Exception:  # noqa: BLE001 — колонка вже є
+            pass
         db._conn.commit()  # noqa: SLF001
 
 
 def log_forecasts(db, tracks, now: int) -> int:
     ensure(db)
     n = 0
+    from city_coords import region_for_point
     with db._lock:  # noqa: SLF001
         for t in tracks:
             for f in forecast_places(t, now):
                 cur = db._conn.execute(  # noqa: SLF001
-                    "INSERT OR IGNORE INTO forecast_log(track_key, town, lat, lon, made_ts, eta_ts, speed_source) VALUES (?,?,?,?,?,?,?)",
-                    (t.key, f.name, f.lat, f.lon, now, now + f.eta_min * 60, t.speed_source))
+                    "INSERT OR IGNORE INTO forecast_log(track_key, town, lat, lon, made_ts, eta_ts, speed_source, region) VALUES (?,?,?,?,?,?,?,?)",
+                    (t.key, f.name, f.lat, f.lon, now, now + f.eta_min * 60, t.speed_source, region_for_point(f.lat, f.lon) or ""))
                 n += cur.rowcount
         db._conn.commit()  # noqa: SLF001
     return n
@@ -79,3 +84,24 @@ def accuracy(db, now: int | None = None, days: int = 7) -> dict[str, Any]:
     resolved = hits + misses
     return {"days": days, "hits": hits, "misses": misses, "unknown": c.get("unknown", 0), "resolved": resolved,
             "pct": round(100 * hits / resolved) if resolved >= MIN_RESOLVED else None}
+
+
+def accuracy_regions(db, now: int | None = None, days: int = 30) -> dict[str, Any]:
+    """Точність прогнозів за N днів: загалом і по областях міста-цілі. Мало даних — pct=None, чесно «замало»."""
+    now = int(now if now is not None else time.time())
+    ensure(db)
+    with db._lock:  # noqa: SLF001
+        rows = db._conn.execute(  # noqa: SLF001
+            "SELECT region, outcome, COUNT(*) FROM forecast_log WHERE made_ts>=? AND outcome IN ('hit','miss') GROUP BY 1, 2",
+            (now - days * 86400,)).fetchall()
+    by: dict[str, dict[str, int]] = {}
+    for region, outcome, n in rows:
+        by.setdefault(region or "", {"hit": 0, "miss": 0})[outcome] = n
+    out = []
+    for region, c in by.items():
+        resolved = c["hit"] + c["miss"]
+        out.append({"slug": region, "hits": c["hit"], "misses": c["miss"], "resolved": resolved,
+                    "pct": round(100 * c["hit"] / resolved) if resolved >= 5 else None})
+    out.sort(key=lambda x: -x["resolved"])
+    total = accuracy(db, now, days)
+    return {"days": days, "overall": total, "regions": out}
