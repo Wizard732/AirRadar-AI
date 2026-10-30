@@ -110,7 +110,7 @@
   #map { background:#10131a; }
   #status { display:block; position:fixed; top:10px; left:50%; transform:translateX(-50%); z-index:1000; white-space:nowrap; padding:7px 14px; text-align:center; }
   @media (max-width:799px) { #status { left:10px; transform:none; right:62px; white-space:normal; } }
-  .oblbl { background:none; border:none; box-shadow:none; color:#9fb4ff; font:600 10px sans-serif; text-shadow:0 0 3px #000; padding:0; pointer-events:none; }
+  .oblbl { background:none; border:none; box-shadow:none; color:var(--lbl,#9fb4ff); font:600 10px sans-serif; text-shadow:0 0 3px #000; padding:0; pointer-events:none; }
   .oblbl::before { display:none; }
   .leaflet-tooltip.oblbl { opacity:.95; }
   #rsheet { position:fixed; left:0; right:0; bottom:0; z-index:1300; max-height:58vh; overflow:auto; display:none; background:#1c1f26; color:#eef1f6; border-radius:16px 16px 0 0; box-shadow:0 -6px 24px rgba(0,0,0,.5); padding:14px 14px 20px; }
@@ -128,6 +128,8 @@
   .acard .ai svg { width:19px; height:19px; }
   .acard .a1 { font-weight:700; font-size:14px; } .acard .a2 { font-size:12px; opacity:.85; margin-top:2px; }
   /* ---- нижнє меню і вкладки (як у «Мапи тривог») ---- */
+  #mtools { position:fixed; right:62px; bottom:66px; z-index:1000; display:flex; gap:6px; } #mtools .btn { width:40px; height:40px; padding:0; display:grid; place-items:center; font-size:16px; } #mtools .btn.on { border-color:#ff6b6b; color:#ff6b6b; }
+  @media (min-width:800px) { #mtools { bottom:78px; } }
   #nav { position:fixed; left:0; right:0; bottom:0; height:56px; z-index:1500; display:flex; background:#1c1f26; border-top:1px solid rgba(255,255,255,.08); padding-bottom:env(safe-area-inset-bottom); }
   #nav button { flex:1; background:none; border:none; color:#8b95a8; display:grid; place-items:center; cursor:pointer; position:relative; }
   #nav button.on { color:#ff6b6b; } #nav svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
@@ -194,6 +196,7 @@
   <button data-v="help" title="Допомога"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/></svg></button>
   <button data-v="set" title="Налаштування"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </nav>
+<div id="mtools"><button class="btn" data-t="leg" title="Кольорові позначення">ℹ</button><button class="btn" data-t="theme" title="Світла / темна мапа">☀</button><button class="btn" data-t="osm" title="Підкладка мапи">🌐</button><button class="btn" data-t="tg" title="Цілі на мапі">➤</button></div>
 <div id="rsheet"></div>
 <div id="sheet" class="panel"><span class="close" id="sheet-x">×</span><div id="sheet-body"></div></div>
 <div id="ticker" class="panel"></div>
@@ -378,7 +381,34 @@ map.on('click', e => {
   const ll = [e.latlng.lat, e.latlng.lng], slug = slugAt(ll);
   if (slug) openRegion(slug, raionAt(ll));
 });
-function restyleRaions() { if (raionLayer) raionLayer.eachLayer(l => l.setStyle(sirensRaions.has(l._key) ? RA_ON : (sirensRaionsY.has(l._key) ? RA_WARN : (sirensRaionsP.has(l._key) ? RA_PART : RA_OFF)))); }
+const PAL = {
+  dark:  { bg: '#10131a', lbl: '#9fb4ff', obOff: ['#33405e', '#1b2338'], obOn: ['#8e3b42', '#6b2a2f'], obWarn: ['#e0bd5a', '#c9a23c'], obSiren: ['#5a2a33', '#3a1f27'], raOn: ['#8e3b42', '#6b2a2f'], raWarn: ['#e0bd5a', '#c9a23c'], raPart: ['#8a2432', '#4a2230'], raOffLine: '#2a3550', age: [[150, 42, 50], [78, 30, 40]] },
+  light: { bg: '#efe9dc', lbl: '#5b4a35', obOff: ['#c9b89b', '#e9decb'], obOn: ['#b8493e', '#d96b5c'], obWarn: ['#d7a920', '#f2c63a'], obSiren: ['#c9807a', '#e5a79d'], raOn: ['#b8493e', '#dc6a58'], raWarn: ['#d7a920', '#f2c63a'], raPart: ['#c9807a', '#ecbab0'], raOffLine: '#c9b89b', age: [[232, 124, 104], [170, 62, 54]] },
+};
+let palName = 'dark';
+function applyPalette(name) {
+  palName = name; const p = PAL[name];
+  const set = (o, [line, fill]) => { o.color = line; o.fillColor = fill; };
+  set(OB_OFF, p.obOff); set(OB_ON, p.obOn); set(OB_WARN, p.obWarn); set(OB_SIREN, p.obSiren); set(RA_ON, p.raOn); set(RA_WARN, p.raWarn); set(RA_PART, p.raPart); RA_OFF.color = p.raOffLine;
+  document.getElementById('map').style.background = p.bg; document.documentElement.style.setProperty('--lbl', p.lbl);
+  restyleOblasts(); restyleRaions();
+}
+function raionSince() {
+  const m = {}; for (const a of alertsDetail) if (a.type === 'raion' && a.since) m[a.title.replace(' район', '') + '|' + (SLUG_NAME[a.slug] || '').split(' ')[0]] = Date.parse(a.since) / 1000;
+  return m;
+}
+function ageRed(age) { const k = Math.min(1, Math.max(0, (age - 1800) / (6 * 3600))), [A, B] = PAL[palName].age; const mix = (a, b) => Math.round(a + (b - a) * k); return `rgb(${mix(A[0], B[0])},${mix(A[1], B[1])},${mix(A[2], B[2])})`; }
+function restyleRaions() {
+  if (!raionLayer) return;
+  const since = raionSince(), now = Date.now() / 1000, other = {};
+  for (const a of alertsDetail) if (a.type === 'raion' && a.kind && a.kind !== 'air_raid') other[a.title.replace(' район', '') + '|' + (SLUG_NAME[a.slug] || '').split(' ')[0]] = a.kind;
+  raionLayer.eachLayer(l => {
+    if (other[l._key] === 'artillery_shelling') l.setStyle({ color: '#f0a050', weight: .8, opacity: .9, fillColor: '#e8872a', fillOpacity: 1 });
+    else if (other[l._key] === 'urban_fights') l.setStyle({ color: '#8c7bd8', weight: .8, opacity: .9, fillColor: '#5a49b5', fillOpacity: 1 });
+    else if (sirensRaions.has(l._key)) l.setStyle(Object.assign({}, RA_ON, { fillColor: since[l._key] ? ageRed(now - since[l._key]) : RA_ON.fillColor }));
+    else l.setStyle(sirensRaionsY.has(l._key) ? RA_WARN : (sirensRaionsP.has(l._key) ? RA_PART : RA_OFF));
+  });
+}
 async function loadRaions() {
   try {
     const g = await (await fetch(new URL('raions.json', document.baseURI).href)).json();
@@ -460,6 +490,8 @@ function tipText(t, pos) {
 function drawTrailsAndForecast(ts) {
   trailLayer.clearLayers(); fcLayer.clearLayers();
   for (const t of tracks) {
+    const m0 = markers.get(t.id);
+    if (m0 && m0.pos && !m0.pos.stale && t.heading !== null && t.id !== selectedId && !t.dest) L.polyline([m0.pos.ll, dest(m0.pos.ll, t.heading, 22)], { color: '#fff', weight: 1.2, dashArray: '2 5', opacity: .55, interactive: false }).addTo(trailLayer);
     const m = markers.get(t.id); if (!m || !m.pos || t.id !== selectedId) continue;   // мінімалізм: траса й прогноз лише для вибраної цілі
     const color = trackColor(t);
     const pts = t.points.filter(p => p.ts <= ts).map(p => [p.lat, p.lon]);
@@ -1013,7 +1045,7 @@ function renderHelp() {
   el.innerHTML = `<h2>Про AirRadar</h2><div class="fx"><div class="a1"><b>Мапа повітряних тривог і цілей</b><br>AirRadar показує офіційні тривоги (alerts.in.ua) та цілі за зведеннями моніторингових каналів: шахеди, ракети, КАБ, авіація.</div></div>
   <div class="fx" style="border-left:4px solid #c0392b"><div class="a1"><b>Важливо: це неофіційна мапа.</b> Не використовуйте її як основне джерело оповіщення. Орієнтуйтесь на офіційні сирени та Повітряні сили ЗСУ.</div></div>
   <div class="grph">Що означають кольори та іконки</div>
-  <div class="fx">${sw('#6b2a2f', '<b>Червоний</b> — ракетна загроза / повітряна тривога (червоний рівень)')}${sw('#c9a23c', '<b>Жовтий</b> — загроза застосування БпЛА (шахеди), жовтий рівень')}${sw('#e8872a', 'Загроза артобстрілу')}${sw('#1b2338', 'Немає інформації про тривогу чи загрозу')}${sw('#4a2230', 'Тривога в частині району (громади)')}</div>
+  <div class="fx">${sw('#6b2a2f', '<b>Червоний</b> — повітряна тривога, підвищена загроза (ракетна небезпека)')}${sw('#c9a23c', '<b>Жовтий</b> — знижена загроза, зокрема БпЛА (шахеди)')}${sw('#e8872a', 'Загроза артобстрілу')}${sw('#5a49b5', 'Загроза вуличних боїв')}${sw('linear-gradient(90deg,#9a2a32,#4b1e28)', 'Темніший колір — довше триває тривога')}${sw('#1b2338', 'Немає інформації про тривогу чи загрозу')}${sw('#4a2230', 'Тривога в частині району (громади)')}</div>
   <div class="fx">${ic(ICO.drone, 'Ударний БпЛА (шахед)')}${ic(ICO.drone.replace('<svg', '<svg style="color:#b57bff"'), 'Реактивний БпЛА')}${ic(ICO.fpv, 'FPV / Ланцет')}${ic(ICO.missile, 'Ракета / балістика')}${ic(ICO.cruise, 'Крилата ракета')}${ic(ICO.kab, 'Керована авіабомба (КАБ)')}${ic(ICO.air, 'Авіація')}${ic(ICO.arty, 'РСЗВ / артилерія / влучання')}</div>
   <div class="grph">Часті запитання</div>
   <details class="faq"><summary>Я побачив ракету чи безпілотник. Що робити?</summary><div>Не знімайте і не публікуйте, не підходьте до вікон. Негайно в укриття або в приміщення з двома стінами між вами й вулицею (коридор, ванна). Повідомте про побачене в «Повітряні сили ЗСУ» через чат-бот «Повітряна тривога» або за номером 102.</div></details>
@@ -1061,6 +1093,20 @@ function showView(name) {
 }
 document.getElementById('nav').onclick = e => { const b = e.target.closest('button'); if (b) showView(b.dataset.v); };
 setInterval(() => { if (curView === 'list') fillList(); }, 5000);
+function legendHtml() {
+  const sw = (c, t) => `<div class="leg"><b style="background:${c}"></b><span>${t}</span></div>`;
+  return `<div class="hd"><div><h3>Кольорові позначення</h3></div><span class="x" id="rs-x">×</span></div><div style="margin-top:8px">${sw('#6b2a2f', 'Повітряна тривога — червоний рівень, підвищена загроза (ракетна небезпека)')}${sw('#c9a23c', 'Жовтий рівень — знижена загроза, зокрема БпЛА (шахеди)')}${sw('#e8872a', 'Загроза артобстрілу')}${sw('#5a49b5', 'Загроза вуличних боїв')}${sw('#4a2230', 'Тривога в частині району (громади)')}${sw('#1b2338', 'Немає інформації про тривогу')}${sw('linear-gradient(90deg,#9a2a32,#4b1e28)', 'Темніший колір — довше триває тривога')}</div>`;
+}
+document.getElementById('mtools').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.t === 'leg') { const rs = document.getElementById('rsheet'); rs.innerHTML = legendHtml(); rs.style.display = 'block'; document.getElementById('rs-x').onclick = () => { rs.style.display = 'none'; }; }
+  else if (b.dataset.t === 'theme') { SET.light = !SET.light; setSave(); applyPalette(SET.light ? 'light' : 'dark'); b.classList.toggle('on', !!SET.light); }
+  else if (b.dataset.t === 'osm') { SET.osm = !SET.osm; setSave(); applySettings(); b.classList.toggle('on', !!SET.osm); }
+  else if (b.dataset.t === 'tg') { SET.tg = SET.tg === false; setSave(); applySettings(); b.classList.toggle('on', SET.tg === false); }
+};
+applyPalette(SET.light ? 'light' : 'dark');
+document.querySelector('#mtools [data-t=theme]').classList.toggle('on', !!SET.light);
+document.querySelector('#mtools [data-t=osm]').classList.toggle('on', !!SET.osm);
 applySettings();
 </script>
 </body>
