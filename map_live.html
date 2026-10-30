@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kharkivska", "text": "🏍 Харків: реактивний БпЛА над містом.", "sources": 1, "origin": "", "destination": "kharkivska", "track": {"from": [49.994, 36.231], "to": [47.838, 35.14], "from_name": "Харків", "to_name": "Запоріжжя", "speed_kmh": 277.5, "course_deg": 199, "minutes": 68, "points": 3}, "age_min": 1}, {"type": "uav", "region": "dnipropetrovska", "text": "🏍 Група реактивних БпЛА на сході Дніпропетровщини курсом на захід.", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": {"from": [48.465, 35.046], "to": [49.994, 36.231], "from_name": "Дніпро", "to_name": "Харків", "speed_kmh": 478.4, "course_deg": 26, "minutes": 30, "points": 4}, "age_min": 2}, {"type": "uav", "region": "zaporizka", "text": "🛵 Ударний БпЛА на м. Запоріжжя з півдня.", "sources": 1, "origin": "", "destination": "zaporizka", "track": null, "age_min": 24}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "dnipropetrovska", "text": "🏍 Дніпро: реактивний БпЛА у напрямку міста зі сходу", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": {"from": [48.465, 35.046], "to": [49.994, 36.231], "from_name": "Дніпро", "to_name": "Харків", "speed_kmh": 478.4, "course_deg": 26, "minutes": 30, "points": 4}, "age_min": 6}, {"type": "uav", "region": "kharkivska", "text": "🏍 Харків: реактивний БпЛА над містом.", "sources": 1, "origin": "", "destination": "kharkivska", "track": {"from": [49.994, 36.231], "to": [47.838, 35.14], "from_name": "Харків", "to_name": "Запоріжжя", "speed_kmh": 277.5, "course_deg": 199, "minutes": 68, "points": 3}, "age_min": 11}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kharkivska": {"standdown_min": 45, "standdown_live": true, "standdown_hits": 2, "standdown_total": 5, "wave_hours": {"from": 23, "to": 5}}};
+const EMBEDDED_FORECAST = {"kharkivska": {"standdown_min": 35, "standdown_live": true, "standdown_hits": 2, "standdown_total": 5, "wave_hours": {"from": 23, "to": 5}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
