@@ -1310,7 +1310,15 @@ async def _sirens_fetch(session, token: str) -> set[str] | None:
     payload = await fetch_active_alerts(session, token)
     if payload is None:
         return None
-    from sirens import active_extra_keys, active_raion_keys
+    from sirens import active_extra_keys, active_raion_keys, alert_details
+    try:   # деталі для листа області на карті: файл поруч із БД, читає export_radar / health_server
+        import json as _json, tempfile as _tmp
+        _p = os.path.join(os.path.dirname(os.path.abspath(os.getenv("DB_PATH", "airradar.db"))), "siren_detail.json")
+        with _tmp.NamedTemporaryFile("w", dir=os.path.dirname(_p), delete=False, encoding="utf-8") as _f:
+            _json.dump({"ts": int(time.time()), "alerts": alert_details(payload)}, _f, ensure_ascii=False)
+        os.replace(_f.name, _p)
+    except Exception:  # noqa: BLE001 — деталі не критичні
+        logger.debug("siren_detail не записано", exc_info=True)
     return active_alert_slugs(payload) | active_raion_keys(payload) | active_extra_keys(payload)
 
 

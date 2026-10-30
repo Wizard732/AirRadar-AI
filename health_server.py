@@ -145,6 +145,16 @@ def radar_payload(db, minutes: int, now: int) -> dict:
     sirens_raions = sorted(k[6:] for k in fresh if k.startswith("raion:")) if on else None
     sirens_raions_y = sorted(k[7:] for k in fresh if k.startswith("raionY:")) if on else None
     sirens_raions_p = sorted(k[7:] for k in fresh if k.startswith("raionP:")) if on else None
+    detail: list = []
+    if on:
+        try:
+            import json as _json
+            from config import load_settings
+            _d = _json.loads((Path(load_settings().db_path).resolve().parent / "siren_detail.json").read_text(encoding="utf-8"))
+            if now - int(_d.get("ts", 0)) <= 600:
+                detail = _d.get("alerts", [])
+        except Exception:  # noqa: BLE001
+            detail = []
     threats: dict[str, list[str]] = {}
     for k in fresh if on else []:
         if k.startswith("threat:"):
@@ -152,7 +162,7 @@ def radar_payload(db, minutes: int, now: int) -> dict:
             threats.setdefault(slug, []).append(kind)
     return {"now": now, "window_min": minutes, "tracks": [_track_json(t, now) for t in tracks],
             "events": build_events(rows, now), "impacts": impacts, "sirens": sirens, "sirens_raions": sirens_raions, "sirens_raions_y": sirens_raions_y,
-            "sirens_raions_p": sirens_raions_p, "siren_threats": threats if on else None}
+            "sirens_raions_p": sirens_raions_p, "siren_threats": threats if on else None, "alerts": detail}
 
 
 async def _api_tracks(request: web.Request) -> web.Response:  # noqa: ANN001

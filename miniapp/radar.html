@@ -104,6 +104,27 @@
   .empty { color:#444; }
   .sh { width:30px; height:30px; } .sh svg { width:28px; height:28px; filter:drop-shadow(0 0 2px rgba(0,0,0,.9)); }
   .sh .cnt { right:-8px; top:-8px; }
+
+  /* ---- стиль «Мапи тривог»: плоска темна мапа, кольорові області, нижній лист області ---- */
+  #map { background:#10131a; }
+  #status { display:block; position:fixed; top:10px; left:50%; transform:translateX(-50%); z-index:1000; white-space:nowrap; padding:7px 14px; text-align:center; }
+  @media (max-width:799px) { #status { left:10px; transform:none; right:62px; white-space:normal; } }
+  .oblbl { background:none; border:none; box-shadow:none; color:#9fb4ff; font:600 10px sans-serif; text-shadow:0 0 3px #000; padding:0; pointer-events:none; }
+  .oblbl::before { display:none; }
+  .leaflet-tooltip.oblbl { opacity:.95; }
+  #rsheet { position:fixed; left:0; right:0; bottom:0; z-index:1300; max-height:58vh; overflow:auto; display:none; background:#1c1f26; color:#eef1f6; border-radius:16px 16px 0 0; box-shadow:0 -6px 24px rgba(0,0,0,.5); padding:14px 14px 20px; }
+  @media (min-width:800px) { #rsheet { left:auto; right:12px; bottom:12px; width:380px; border-radius:16px; max-height:70vh; } }
+  #rsheet .hd { display:flex; justify-content:space-between; align-items:flex-start; }
+  #rsheet h3 { font-size:17px; } #rsheet .tm { color:#8b95a8; font-size:12px; margin-top:2px; }
+  #rsheet .x { font-size:22px; color:#8b95a8; cursor:pointer; padding:0 4px; }
+  #rsheet .chips2 { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0 4px; }
+  #rsheet .chips2 span { padding:5px 10px; border-radius:6px; background:#343842; font-size:13px; }
+  #rsheet .chips2 span.red { background:#7a2230; }
+  #rsheet h4 { margin:14px 0 6px; font-size:14px; color:#cfd4de; }
+  .acard { display:flex; gap:10px; align-items:center; padding:10px 12px; border-radius:12px; margin-bottom:8px; background:#7a2230; }
+  .acard.y { background:#6b5320; } .acard.t { background:#2a2e38; }
+  .acard .ai { width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,.9); display:grid; place-items:center; font-size:16px; flex:none; }
+  .acard .a1 { font-weight:700; font-size:14px; } .acard .a2 { font-size:12px; opacity:.85; margin-top:2px; }
 </style>
 <script src="native.js"></script>
 </head>
@@ -119,6 +140,7 @@
 </div>
 <div id="banner" class="panel"></div>
 <div id="list" class="panel"><div id="list-head"></div><div id="list-body"></div></div>
+<div id="rsheet"></div>
 <div id="sheet" class="panel"><span class="close" id="sheet-x">×</span><div id="sheet-body"></div></div>
 <div id="ticker" class="panel"></div>
 <div id="timebar" class="panel">
@@ -232,28 +254,57 @@ function useTiles(i) {
   tileLayer.on('tileload', () => { tileErrs = 0; });
 }
 useTiles(0);
+map.getPane('tilePane').style.display = 'none';   // плоска темна мапа, як у «Мапи тривог»
 // Контури областей (OSM-межі з jsDelivr; без них карта працює як раніше). Активні області підсвічуються.
 map.createPane('oblasts').style.zIndex = 250;
 const ISO2SLUG = { 'UA-05': 'vinnytska', 'UA-07': 'volynska', 'UA-09': 'luhanska', 'UA-12': 'dnipropetrovska', 'UA-14': 'donetska', 'UA-18': 'zhytomyrska',
   'UA-21': 'zakarpatska', 'UA-23': 'zaporizka', 'UA-26': 'ivano_frankivska', 'UA-30': 'kyivska', 'UA-32': 'kyivska', 'UA-35': 'kirovohradska', 'UA-40': 'crimea',
   'UA-43': 'crimea', 'UA-46': 'lvivska', 'UA-48': 'mykolaivska', 'UA-51': 'odeska', 'UA-53': 'poltavska', 'UA-56': 'rivnenska', 'UA-59': 'sumska',
   'UA-61': 'ternopilska', 'UA-63': 'kharkivska', 'UA-65': 'khersonska', 'UA-68': 'khmelnytska', 'UA-71': 'cherkaska', 'UA-74': 'chernigivska', 'UA-77': 'chernivetska' };
-let raionLayer = null, sirensRaions = new Set(), sirensRaionsY = new Set(), sirensRaionsP = new Set(), sirenThreats = {}, oblastLayer = null, oblastActive = new Set(), sirens = null, threatSlugs = new Set();
-const OB_ON = { color: '#ff3b30', weight: 1.6, opacity: .9, fillColor: '#ff3b30', fillOpacity: .30 }, OB_WARN = { color: '#d9a400', weight: 1.2, opacity: .8, fillColor: '#d9a400', fillOpacity: .26 }, OB_OFF = { color: '#8b95a8', weight: .7, opacity: .4, fillOpacity: 0 };
+let alertsDetail = [], lastItems = [], raionLayer = null, sirensRaions = new Set(), sirensRaionsY = new Set(), sirensRaionsP = new Set(), sirenThreats = {}, oblastLayer = null, oblastActive = new Set(), sirens = null, threatSlugs = new Set();
+const OB_ON = { color: '#c4485a', weight: 1.2, opacity: .9, fillColor: '#7a2230', fillOpacity: .95 }, OB_WARN = { color: '#e0b04a', weight: 1.2, opacity: .9, fillColor: '#d9a63a', fillOpacity: .95 }, OB_OFF = { color: '#33405e', weight: .9, opacity: .9, fillColor: '#1b2338', fillOpacity: .95 };
 const SLUG_NAME = { vinnytska:'Вінницька область', volynska:'Волинська область', luhanska:'Луганська область', dnipropetrovska:'Дніпропетровська область', donetska:'Донецька область', zhytomyrska:'Житомирська область', zakarpatska:'Закарпатська область', zaporizka:'Запорізька область', ivano_frankivska:'Івано-Франківська область', kyivska:'Київська область', kirovohradska:'Кіровоградська область', crimea:'Крим', lvivska:'Львівська область', mykolaivska:'Миколаївська область', odeska:'Одеська область', poltavska:'Полтавська область', rivnenska:'Рівненська область', sumska:'Сумська область', ternopilska:'Тернопільська область', kharkivska:'Харківська область', khersonska:'Херсонська область', khmelnytska:'Хмельницька область', cherkaska:'Черкаська область', chernigivska:'Чернігівська область', chernivetska:'Чернівецька область' };
 function inRing(r, x, y) { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; } return c; }
 function inGeo(g, x, y) { const polys = g.type === 'Polygon' ? [g.coordinates] : (g.type === 'MultiPolygon' ? g.coordinates : []); return polys.some(p => inRing(p[0], x, y)); }
 function slugAt(ll) { if (!oblastLayer) return null; let hit = null; oblastLayer.eachLayer(l => { if (!hit && l.getBounds().contains(ll) && inGeo(l.feature.geometry, ll[1], ll[0])) hit = l._slug; }); return hit; }
-const RA_ON = { color: '#ff3b30', weight: .8, opacity: .9, fillColor: '#ff3b30', fillOpacity: .38 }, RA_OFF = { color: '#8b95a8', weight: .4, opacity: .22, fillOpacity: 0 };
-const RA_PART = { color: '#ff3b30', weight: .5, opacity: .6, fillColor: '#ff3b30', fillOpacity: .14 };
+const RA_ON = { color: '#c4485a', weight: .8, opacity: .9, fillColor: '#8a2432', fillOpacity: 1 }, RA_OFF = { color: '#2a3550', weight: .4, opacity: .5, fillOpacity: 0 };
+const RA_PART = { color: '#8a2432', weight: .5, opacity: .7, fillColor: '#4a2230', fillOpacity: 1 };
 const THREAT_NAME = { drones: '🛸 дрони', ballistic_missiles: '🚀 балістика', cruise_missiles: '🚀 крилаті', unspecified_missiles: '🚀 ракети', guided_aerial_bombs: '💣 КАБ', kab: '💣 КАБ', artillery_shelling: '💥 обстріл' };
-const RA_WARN = { color: '#d9a400', weight: .8, opacity: .9, fillColor: '#ffd60a', fillOpacity: .30 };
+const RA_WARN = { color: '#e0b04a', weight: .8, opacity: .9, fillColor: '#d9a63a', fillOpacity: 1 };
+const O2SLUG = {}; for (const [k, v] of Object.entries(SLUG_NAME)) O2SLUG[v.split(' ')[0]] = k;
+const KIND_NAME = { air_raid: 'Повітряна тривога', artillery_shelling: 'Загроза обстрілу', urban_fights: 'Вуличні бої', chemical: 'Хімічна загроза', nuclear: 'Радіаційна загроза' };
+const TH_ICON = { drones: '🛸', ballistic_missiles: '🚀', cruise_missiles: '🚀', unspecified_missiles: '🚀', guided_aerial_bombs: '💣', kab: '💣' };
+function fmtDur(ms) { const m = Math.max(0, Math.floor(ms / 60000)), h = Math.floor(m / 60); return h ? `${h} год. ${m % 60} хв.` : `${m} хв.`; }
+function openRegion(slug, raion) {
+  if (!slug) return;
+  const rs = document.getElementById('rsheet');
+  const list = alertsDetail.filter(a => a.slug === slug);
+  const now = new Date(), months = ['січня','лютого','березня','квітня','травня','червня','липня','серпня','вересня','жовтня','листопада','грудня'];
+  const card = a => {
+    const since = a.since ? new Date(a.since) : null, today = since && since.toDateString() === now.toDateString();
+    const ic = (a.threats || []).map(t => TH_ICON[t]).find(Boolean) || (a.kind === 'air_raid' ? '🔔' : '💥');
+    const hl = raion && (a.title || '').startsWith(raion) ? 'outline:2px solid #fff;' : '';
+    return `<div class="acard ${a.level === 'yellow' ? 'y' : ''}" style="${hl}"><div class="ai">${ic}</div><div><div class="a1">${a.title || a.raion}</div><div class="a2">${since ? (today ? 'Сьогодні' : since.toLocaleDateString('uk-UA')) + ', ' + since.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : ''}${since ? ' · ⏱ ' + fmtDur(now - since) : ''}${a.kind && a.kind !== 'air_raid' ? ' · ' + (KIND_NAME[a.kind] || a.kind) : ''}</div></div></div>`;
+  };
+  const red = list.filter(a => a.level !== 'yellow'), yel = list.filter(a => a.level === 'yellow');
+  const chips = list.some(a => a.type === 'oblast') ? '<span class="red">Область</span>' : '';
+  const cities = list.filter(a => a.type === 'city').map(a => `<span>${a.title.replace(/^м\. ?/, 'м. ')}</span>`).join('');
+  const mine = lastItems.filter(i => i.slug === slug);
+  const th = (sirenThreats[slug] || []).map(k => THREAT_NAME[k] || k).join(' · ');
+  rs.innerHTML = `<div class="hd"><div><h3>${SLUG_NAME[slug] || slug}</h3><div class="tm">${now.getDate()} ${months[now.getMonth()]} о ${now.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}${th ? ' · ' + th : ''}</div></div><span class="x" id="rs-x">×</span></div>
+    <div class="chips2">${chips}${cities}</div>
+    ${yel.length ? `<h4>Потенційні загрози</h4>${yel.map(card).join('')}` : ''}
+    ${red.length ? `<h4>Активні</h4>${red.map(card).join('')}` : (yel.length ? '' : '<h4>Тривог немає</h4>')}
+    ${mine.length ? `<h4>Цілі за зведеннями каналів · ${mine.length}</h4>` + mine.map(i => `<div class="acard t"><div class="ai">${i.kind === 't' ? '🛸' : '💥'}</div><div><div class="a1">${i.kind === 't' ? trackName(i.t) : (WNAME[i.e.weapon] || i.e.weapon)}</div><div class="a2">${i.kind === 't' ? (i.t.dest ? 'у напрямку ' + i.t.dest.name : (i.t.heading !== null ? compass(i.t.heading) : '')) : (i.e.place || '')} · ${ago(curTs() - i.ts)}</div></div></div>`).join('') : ''}`;
+  rs.style.display = 'block'; rs.scrollTop = 0;
+  document.getElementById('rs-x').onclick = () => { rs.style.display = 'none'; };
+}
 function restyleRaions() { if (raionLayer) raionLayer.eachLayer(l => l.setStyle(sirensRaions.has(l._key) ? RA_ON : (sirensRaionsY.has(l._key) ? RA_WARN : (sirensRaionsP.has(l._key) ? RA_PART : RA_OFF)))); }
 async function loadRaions() {
   try {
     const g = await (await fetch(new URL('raions.json', document.baseURI).href)).json();
-    raionLayer = L.geoJSON(g, { pane: 'oblasts', interactive: false, style: () => RA_OFF }).addTo(map);
-    raionLayer.eachLayer(l => { l._key = l.feature.properties.r + '|' + l.feature.properties.o.split(' ')[0]; });
+    raionLayer = L.geoJSON(g, { pane: 'oblasts', interactive: true, style: () => RA_OFF }).addTo(map);
+    raionLayer.eachLayer(l => { l._key = l.feature.properties.r + '|' + l.feature.properties.o.split(' ')[0]; l.on('click', () => openRegion(O2SLUG[l.feature.properties.o.split(' ')[0]] || (l.feature.properties.o.startsWith('Автон') ? 'crimea' : null), l.feature.properties.r)); });
     restyleRaions();
   } catch (e) { /* без районів — лише області */ }
 }
@@ -262,8 +313,8 @@ function restyleOblasts() { if (oblastLayer) oblastLayer.eachLayer(l => l.setSty
 async function loadOblasts() {
   try {
     const g = await (await fetch('https://cdn.jsdelivr.net/gh/EugeneBorshch/ukraine_geojson@master/UA_FULL_Ukraine.geojson')).json();
-    oblastLayer = L.geoJSON(g, { pane: 'oblasts', interactive: false, style: () => OB_OFF }).addTo(map);
-    oblastLayer.eachLayer(l => { l._slug = ISO2SLUG[l.feature.properties['iso3166-2']]; });
+    oblastLayer = L.geoJSON(g, { pane: 'oblasts', interactive: true, style: () => OB_OFF }).addTo(map);
+    oblastLayer.eachLayer(l => { l._slug = ISO2SLUG[l.feature.properties['iso3166-2']]; const nm = (l.feature.properties.name || '').replace(' область', '').replace('Автономна Республіка ', 'АР '); l.bindTooltip(nm, { permanent: true, direction: 'center', className: 'oblbl' }); l.on('click', () => openRegion(l._slug)); });
     restyleOblasts(); listSig = ''; try { renderList(curTs(), true); } catch (e) {}
   } catch (e) { /* без контурів */ }
 }
@@ -385,7 +436,7 @@ function renderSheet() {
 function updateHud(stat) {
   const ts = curTs();
   const nEv = visibleEvents(ts).length, total = stat.active + nEv;
-  document.getElementById('st-main').textContent = total ? `Загроз на карті: ${total}` : 'Активних загроз немає';
+  document.getElementById('st-main').textContent = 'Станом на: ' + new Date().toLocaleString('uk-UA', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).replace(',', ' о') + (total ? ' · загроз: ' + total : '');
   document.getElementById('st-sub').textContent = total
     ? `${sirens && (sirens.length || sirensRaions.size) ? '🚨 тривога: ' + sirens.length + ' обл. + ' + sirensRaions.size + ' р-нів · ' : ''}${stat.reactive ? 'реактивних: ' + stat.reactive + ' · ' : ''}дані на ${fmtClock(dataTs || serverNow)}`
     : `дані на ${fmtClock(dataTs || serverNow)}`;
@@ -548,7 +599,7 @@ async function load() {
     sirensRaions = new Set(Array.isArray(data.sirens_raions) ? data.sirens_raions : []);
     sirensRaionsY = new Set(Array.isArray(data.sirens_raions_y) ? data.sirens_raions_y : []);
     sirensRaionsP = new Set(Array.isArray(data.sirens_raions_p) ? data.sirens_raions_p : []);
-    sirenThreats = data.siren_threats || {}; restyleRaions(); listSig = '';
+    sirenThreats = data.siren_threats || {}; alertsDetail = Array.isArray(data.alerts) ? data.alerts : []; restyleRaions(); listSig = '';
     if (sirens) { oblastActive = new Set(sirens); restyleOblasts(); }
     else if (useStatic && !DEMO) {
       try { const st = await (await fetch(new URL('stats.json', DATA_BASE).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' })).json(); oblastActive = new Set(st.active_regions || []); restyleOblasts(); } catch (e) {}
@@ -605,6 +656,7 @@ function renderList(ts, force) {
   for (const e of visibleEvents(ts)) items.push({ kind: 'e', e, ts: e.ts, cat: catOf(e.weapon), ll: [e.lat, e.lon] });
   const risks = me ? new Map(riskFor(me, nowTs()).map(r => [r.t.id, r])) : null;
   for (const it of items) { if (me) it.km = dist(me, it.ll); it.slug = slugAt(it.ll); }
+  lastItems = items;
   const gcount = {}; for (const it of items) gcount[it.slug || ''] = (gcount[it.slug || ''] || 0) + 1;
   items.sort(me ? (a, b) => a.km - b.km : (a, b) => (gcount[b.slug || ''] - gcount[a.slug || '']) || ((a.slug || 'я') < (b.slug || 'я') ? -1 : 1) || (b.ts - a.ts));
   const ts2 = new Set(items.map(i => i.slug).filter(Boolean));

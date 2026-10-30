@@ -194,6 +194,24 @@ def active_extra_keys(payload: dict[str, Any]) -> set[str]:
     return out
 
 
+def alert_details(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Короткий список активних тривог для листа «Область → райони» на карті (без зайвих полів)."""
+    out = []
+    for e in (payload.get("alerts") if isinstance(payload, dict) else None) or []:
+        if not isinstance(e, dict):
+            continue
+        slug = _entry_slug(e)
+        if not slug:
+            continue
+        out.append({
+            "slug": slug, "type": str(e.get("location_type") or ""), "title": str(e.get("location_title") or ""),
+            "raion": str(e.get("location_raion") or ""), "level": str(e.get("alert_level") or "red"),
+            "kind": str(e.get("alert_type") or ""), "since": str(e.get("started_at") or ""),
+            "threats": [str((t or {}).get("threat_type") or "") for t in (e.get("threats") or [])],
+        })
+    return out
+
+
 async def fetch_active_alerts(
     session: aiohttp.ClientSession, token: str, timeout_sec: int = 15,
 ) -> dict[str, Any] | None:
