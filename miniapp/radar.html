@@ -122,8 +122,8 @@
   #rsheet .chips2 span { padding:5px 10px; border-radius:6px; background:#343842; font-size:13px; }
   #rsheet .chips2 span.red { background:#7a2230; }
   #rsheet h4 { margin:14px 0 6px; font-size:14px; color:#cfd4de; }
-  .acard { display:flex; gap:10px; align-items:center; padding:10px 12px; border-radius:12px; margin-bottom:8px; background:#7a2230; }
-  .acard.y { background:#6b5320; } .acard.t { background:#2a2e38; }
+  .acard { display:flex; gap:10px; align-items:center; padding:10px 12px; border-radius:12px; margin-bottom:8px; background:#6b2a2f; }
+  .acard.y { background:#6b5522; } .acard.t { background:#2a2e38; }
   .acard .ai { width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,.92); color:#222; display:grid; place-items:center; flex:none; }
   .acard .ai svg { width:19px; height:19px; }
   .acard .a1 { font-weight:700; font-size:14px; } .acard .a2 { font-size:12px; opacity:.85; margin-top:2px; }
@@ -196,7 +196,8 @@ const ICO = {
   missile: SVG('<path d="M12 1C13.5 4 14 7 14 10V17L17 20V22L14 20.5V22H10V20.5L7 22V20L10 17V10C10 7 10.5 4 12 1Z"/>'),
   kab:     SVG('<path d="M12 1C15 1 16.5 5 16.5 9V16H7.5V9C7.5 5 9 1 12 1Z"/><path d="M7.5 14L4 21H8L9.5 17H14.5L16 21H20L16.5 14Z"/><rect x="7.5" y="9" width="9" height="1.6" fill="#0b0e14" opacity=".45"/>'),
   air:     SVG('<path d="M12 1L13.5 8L23 13V15.5L13.5 13L13 19L16 21V22.5L12 21.5L8 22.5V21L11 19L10.5 13L1 15.5V13L10.5 8Z"/>'),
-  fpv:     SVG('<circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="3"/><circle cx="19" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/>'),
+  fpv:     SVG('<path d="M12 2V22M2 12H22M5 5L19 19M19 5L5 19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>'),
+  cruise:  SVG('<path d="M11.2 1H12.8L13.3 9L19 13V15L13.3 13.3L13 20L15.5 22V23H8.5V22L11 20L10.7 13.3L5 15V13L10.7 9Z"/>'),
   arty:    SVG('<path d="M12 1L14 8L21 5L16 11L23 14L15 15L17 22L12 17L7 22L9 15L1 14L8 11L3 5L10 8Z"/>'),
   impact:  SVG('<path d="M12 1L14 8L21 5L16 11L23 14L15 15L17 22L12 17L7 22L9 15L1 14L8 11L3 5L10 8Z"/>'),
   blast:   SVG('<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="3"/>'),
@@ -216,7 +217,8 @@ const WNAME = { shahed: 'Шахед', uav: 'БпЛА', recon_drone: 'Розві�
   strat_aviation: 'Стратегічна авіація', fpv: 'FPV-дрон', mlrs: 'РСЗО', artillery: 'Артилерія', explosion: 'Вибух', air_defense: 'Робота ППО', impact: 'Влучання', heard: 'Вибухи (чутно)' };
 const catOf = w => Object.keys(CATS).find(k => CATS[k].w.includes(w)) || 'drone';
 const isMissile = w => ['cruise_missile', 'ballistic', 'missile', 'air_missile', 'coastal_missile'].includes(w);
-const trackColor = t => isMissile(t.weapon) ? '#ff3b30' : (t.profile === 'reactive' ? '#ff9f0a' : '#ffd60a');
+const trackColor = t => isMissile(t.weapon) ? '#ff3b30' : '#ffd60a';   // колір групи в списку: ракети — червоний, шахеди — жовтий
+const markerColor = t => t.profile === 'reactive' ? '#b57bff' : '#fff';
 const trackName = t => (WNAME[t.weapon] || 'БпЛА') + (t.profile === 'reactive' ? ' · реактивний' : '') + (t.count > 1 ? ' ×' + t.count : '');
 let hiddenCats = new Set(); try { hiddenCats = new Set(JSON.parse(localStorage.getItem('rd_hidden') || '[]')); } catch (e) {}
 const EVENT_KEEP_S = 90 * 60;
@@ -276,16 +278,16 @@ const ISO2SLUG = { 'UA-05': 'vinnytska', 'UA-07': 'volynska', 'UA-09': 'luhanska
   'UA-43': 'crimea', 'UA-46': 'lvivska', 'UA-48': 'mykolaivska', 'UA-51': 'odeska', 'UA-53': 'poltavska', 'UA-56': 'rivnenska', 'UA-59': 'sumska',
   'UA-61': 'ternopilska', 'UA-63': 'kharkivska', 'UA-65': 'khersonska', 'UA-68': 'khmelnytska', 'UA-71': 'cherkaska', 'UA-74': 'chernigivska', 'UA-77': 'chernivetska' };
 let alertsDetail = [], lastItems = [], raionLayer = null, sirensRaions = new Set(), sirensRaionsY = new Set(), sirensRaionsP = new Set(), sirenThreats = {}, oblastLayer = null, oblastActive = new Set(), sirens = null, threatSlugs = new Set(), regionKind = {};
-const OB_SIREN = { color: '#7a2a38', weight: 1, opacity: .9, fillColor: '#4a1f2b', fillOpacity: .95 };
-const OB_ON = { color: '#c4485a', weight: 1.2, opacity: .9, fillColor: '#7a2230', fillOpacity: .95 }, OB_WARN = { color: '#e0b04a', weight: 1.2, opacity: .9, fillColor: '#d9a63a', fillOpacity: .95 }, OB_OFF = { color: '#33405e', weight: .9, opacity: .9, fillColor: '#1b2338', fillOpacity: .95 };
+const OB_SIREN = { color: '#5a2a33', weight: 1, opacity: .9, fillColor: '#3a1f27', fillOpacity: .95 };
+const OB_ON = { color: '#8e3b42', weight: 1.2, opacity: .9, fillColor: '#6b2a2f', fillOpacity: .97 }, OB_WARN = { color: '#e0bd5a', weight: 1.2, opacity: .9, fillColor: '#c9a23c', fillOpacity: .97 }, OB_OFF = { color: '#33405e', weight: .9, opacity: .9, fillColor: '#1b2338', fillOpacity: .95 };
 const SLUG_NAME = { vinnytska:'Вінницька область', volynska:'Волинська область', luhanska:'Луганська область', dnipropetrovska:'Дніпропетровська область', donetska:'Донецька область', zhytomyrska:'Житомирська область', zakarpatska:'Закарпатська область', zaporizka:'Запорізька область', ivano_frankivska:'Івано-Франківська область', kyivska:'Київська область', kirovohradska:'Кіровоградська область', crimea:'Крим', lvivska:'Львівська область', mykolaivska:'Миколаївська область', odeska:'Одеська область', poltavska:'Полтавська область', rivnenska:'Рівненська область', sumska:'Сумська область', ternopilska:'Тернопільська область', kharkivska:'Харківська область', khersonska:'Херсонська область', khmelnytska:'Хмельницька область', cherkaska:'Черкаська область', chernigivska:'Чернігівська область', chernivetska:'Чернівецька область' };
 function inRing(r, x, y) { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; } return c; }
 function inGeo(g, x, y) { const polys = g.type === 'Polygon' ? [g.coordinates] : (g.type === 'MultiPolygon' ? g.coordinates : []); return polys.some(p => inRing(p[0], x, y)); }
 function slugAt(ll) { if (!oblastLayer) return null; let hit = null; oblastLayer.eachLayer(l => { if (!hit && l.getBounds().contains(ll) && inGeo(l.feature.geometry, ll[1], ll[0])) hit = l._slug; }); return hit; }
-const RA_ON = { color: '#c4485a', weight: .8, opacity: .9, fillColor: '#8a2432', fillOpacity: 1 }, RA_OFF = { color: '#2a3550', weight: .4, opacity: .5, fillOpacity: 0 };
+const RA_ON = { color: '#8e3b42', weight: .8, opacity: .9, fillColor: '#6b2a2f', fillOpacity: 1 }, RA_OFF = { color: '#2a3550', weight: .4, opacity: .5, fillOpacity: 0 };
 const RA_PART = { color: '#8a2432', weight: .5, opacity: .7, fillColor: '#4a2230', fillOpacity: 1 };
 const THREAT_NAME = { drones: '🛸 дрони', ballistic_missiles: '🚀 балістика', cruise_missiles: '🚀 крилаті', unspecified_missiles: '🚀 ракети', guided_aerial_bombs: '💣 КАБ', kab: '💣 КАБ', artillery_shelling: '💥 обстріл' };
-const RA_WARN = { color: '#e0b04a', weight: .8, opacity: .9, fillColor: '#d9a63a', fillOpacity: 1 };
+const RA_WARN = { color: '#e0bd5a', weight: .8, opacity: .9, fillColor: '#c9a23c', fillOpacity: 1 };
 const O2SLUG = {}; for (const [k, v] of Object.entries(SLUG_NAME)) O2SLUG[v.split(' ')[0]] = k;
 const KIND_NAME = { air_raid: 'Повітряна тривога', artillery_shelling: 'Загроза обстрілу', urban_fights: 'Вуличні бої', chemical: 'Хімічна загроза', nuclear: 'Радіаційна загроза' };
 const TH_ICON = { drones: '🛸', ballistic_missiles: '🚀', cruise_missiles: '🚀', unspecified_missiles: '🚀', guided_aerial_bombs: '💣', kab: '💣' };
@@ -341,8 +343,8 @@ function shahedIcon(t) {
   const reactive = t.profile === 'reactive';
   const color = trackColor(t);
   const known = t.heading !== null;
-  const g = isMissile(t.weapon) ? ICO.missile : ICO.drone;
-  const svg = g.replace('<svg ', `<svg class="body" style="color:${color}" stroke="#0b0e14" stroke-width="1.3" paint-order="stroke" `);
+  const g = t.weapon === 'cruise_missile' ? ICO.cruise : (isMissile(t.weapon) ? ICO.missile : ICO.drone);
+  const svg = g.replace('<svg ', `<svg class="body" style="color:${markerColor(t)}" stroke="#0b0e14" stroke-width="1.3" paint-order="stroke" `);
   const count = t.count > 1 ? `<span class="cnt">${t.count}</span>` : '';
   const unk = '';
   return L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17], html: `<div class="sh">${svg}${unk}${count}</div>` });
