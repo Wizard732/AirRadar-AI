@@ -124,5 +124,47 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(self.run_once(NOW + 5), 1)
 
 
+class EventGuardTests(unittest.TestCase):
+    def test_kab_near_user_warns_once(self):
+        d = tempfile.TemporaryDirectory()
+        db = Database(os.path.join(d.name, "t.db"))
+        db.add_observations(NOW - 120, "x", [Observation("kab", "", 2, None, "kharkivska", "Вовчанськ", "toward", 50.0, 36.0, "place")])
+        db.set_guard(5, True)
+        db.update_guard_location(5, 50.1, 36.0, False, now=NOW)
+        sent = []
+
+        async def send(uid, text):
+            sent.append(text)
+        self.assertEqual(asyncio.run(evaluate_once(db, send, now=NOW)), 1)
+        self.assertIn("КАБ", sent[0])
+        self.assertEqual(asyncio.run(evaluate_once(db, send, now=NOW + 30)), 0)
+        d.cleanup()
+
+
+class OfficialRaionTests(unittest.TestCase):
+    def test_official_alert_in_users_raion(self):
+        d = tempfile.TemporaryDirectory()
+        db = Database(os.path.join(d.name, "t.db"))
+        db.set_guard(7, True)
+        db.update_guard_location(7, 49.99, 36.23, False, now=NOW)   # Харків
+        sent = []
+
+        async def send(uid, text):
+            sent.append(text)
+        db.set_siren_state("raion:Харківський|Харківська", True)
+        self.assertEqual(asyncio.run(evaluate_once(db, send, now=NOW)), 1)
+        self.assertIn("Тривога у вашому районі", sent[0])
+        self.assertEqual(asyncio.run(evaluate_once(db, send, now=NOW + 30)), 0)       # без повтору
+        db.set_siren_state("raion:Харківський|Харківська", False)
+        self.assertEqual(asyncio.run(evaluate_once(db, send, now=NOW + 60)), 1)
+        self.assertIn("Відбій", sent[1])
+        d.cleanup()
+
+    def test_kab_stale_after_six_minutes(self):
+        e = {"weapon": "kab", "ts": NOW - 7 * 60, "lat": 50.0, "lon": 36.0, "place": "x", "count": 1}
+        from proximity import event_risks
+        self.assertEqual(event_risks([e], (50.05, 36.0), NOW, 10.0), [])
+
+
 if __name__ == "__main__":
     unittest.main()

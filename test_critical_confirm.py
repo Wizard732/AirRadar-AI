@@ -65,6 +65,7 @@ class CriticalConfirmPipelineTests(unittest.TestCase):
         self.file.close()
         self.db = Database(self.file.name)
         _import_main()
+        main._DEDUP = type(main._DEDUP)()   # глобальний дедуп публікацій не має протікати між тестами
         self.publisher = FakePublisher()
 
     def tearDown(self):
@@ -90,7 +91,7 @@ class CriticalConfirmPipelineTests(unittest.TestCase):
 
     def test_single_source_ballistic_not_published(self):
         agg = self._aggregator()
-        ts = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
+        ts = (datetime.now(timezone.utc) - timedelta(minutes=5))
         self._process("Загроза балістики у Києві", ts, "channel_a", agg)
 
         # В канале тишина.
@@ -104,7 +105,7 @@ class CriticalConfirmPipelineTests(unittest.TestCase):
 
     def test_second_source_confirms_and_publishes(self):
         agg = self._aggregator()
-        base = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
+        base = (datetime.now(timezone.utc) - timedelta(minutes=5))
         self._process("Загроза балістики у Києві", base, "channel_a", agg)
         self._process("Балістика летить на Київ", base + timedelta(seconds=90),
                       "channel_b", agg)
@@ -125,7 +126,7 @@ class CriticalConfirmPipelineTests(unittest.TestCase):
             await main._publish_items(db, publisher, None, items)
 
         agg = AlertAggregator(60, flush)  # гард выключен (по умолчанию)
-        ts = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
+        ts = (datetime.now(timezone.utc) - timedelta(minutes=5))
         self._process("Загроза балістики у Києві", ts, "channel_a", agg)
         self.assertEqual(len(publisher.sent), 1, "без гарда — прежнее поведение")
 

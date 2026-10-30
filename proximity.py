@@ -57,6 +57,7 @@ EVENT_NAME = {"kab": "КАБ", "missile": "Ракета", "air_missile": "Рак
 EVENT_RADIUS_KM = {"kab": 30.0, "mlrs": 25.0, "missile": 80.0, "air_missile": 80.0, "coastal_missile": 80.0,
                    "aviation": 60.0, "tac_aviation": 60.0, "strat_aviation": 150.0}
 EVENT_MAX_AGE_S = 20 * 60
+EVENT_AGE_BY_WEAPON = {"kab": 6 * 60, "mlrs": 6 * 60}   # КАБ/РСЗО не «летять»: через кілька хвилин вже неактуально
 EVENT_RENOTIFY_S = 30 * 60
 
 
@@ -68,7 +69,7 @@ def event_risks(events: list[dict], point: tuple[float, float], now: int, radius
     """Свіжі події без треку (КАБ, ракети, авіація…) у межах радіуса для цієї зброї. [(подія, км)] від найближчої."""
     out = []
     for e in events:
-        if e["weapon"] not in EVENT_NAME or now - e["ts"] > EVENT_MAX_AGE_S:
+        if e["weapon"] not in EVENT_NAME or now - e["ts"] > EVENT_AGE_BY_WEAPON.get(e["weapon"], EVENT_MAX_AGE_S):
             continue
         d = haversine_km(point, (e["lat"], e["lon"]))
         if d <= max(radius_km, EVENT_RADIUS_KM[e["weapon"]]):
@@ -85,6 +86,68 @@ def event_message(e: dict, dist: float, point: tuple[float, float], now: int, la
     if label:
         text = f"📍 {label}\n{text}"
     return text + (f"\n🗺 {map_url.rstrip('/')}/radar" if map_url else "")
+
+
+# --- Офіційні тривоги по районах (alerts.in.ua): другий сигнал, коли канали ще мовчать ---------------
+_RAIONS: list | None = None
+
+
+def _raions() -> list:
+    global _RAIONS
+    if _RAIONS is None:
+        import json
+        from pathlib import Path
+        _RAIONS = []
+        try:
+            data = json.loads((Path(__file__).with_name("miniapp") / "raions.json").read_text(encoding="utf-8"))
+            for f in data.get("features", []):
+                g = f["geometry"]
+                polys = g["coordinates"] if g["type"] == "MultiPolygon" else [g["coordinates"]]
+                xs = [pt[0] for p in polys for pt in p[0]]
+                ys = [pt[1] for p in polys for pt in p[0]]
+                key = f["properties"]["r"] + "|" + f["properties"]["o"].split(" ")[0]
+                _RAIONS.append((key, (min(xs), min(ys), max(xs), max(ys)), polys))
+        except (OSError, ValueError, KeyError):
+            logger.warning("raions.json недоступний — тривоги за районом вимкнено")
+    return _RAIONS
+
+
+def _in_ring(ring: list, x: float, y: float) -> bool:
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        if (ring[i][1] > y) != (ring[j][1] > y) and x < (ring[j][0] - ring[i][0]) * (y - ring[i][1]) / (ring[j][1] - ring[i][1]) + ring[i][0]:
+            inside = not inside
+        j = i
+    return inside
+
+
+_RAION_CACHE: dict[tuple[float, float], tuple[str, str] | None] = {}
+
+
+def raion_at(lat: float, lon: float) -> tuple[str, str] | None:
+    """(ключ «Район|Область», назва району) для точки; None — поза районами."""
+    ck = (round(lat, 3), round(lon, 3))
+    if ck in _RAION_CACHE:
+        return _RAION_CACHE[ck]
+    found = None
+    for key, (x0, y0, x1, y1), polys in _raions():
+        if x0 <= lon <= x1 and y0 <= lat <= y1 and any(_in_ring(p[0], lon, lat) for p in polys):
+            found = (key, key.split("|")[0])
+            break
+    if len(_RAION_CACHE) > 5000:
+        _RAION_CACHE.clear()
+    _RAION_CACHE[ck] = found
+    return found
+
+
+def official_message(level: str, name: str, label: str = "") -> str:
+    if level == "red":
+        text = (f"🔴 Тривога у вашому районі ({name} р-н). Офіційні дані. Ціль може бути ще без координат у зведеннях — "
+                "негайно в укриття, не чекайте прогнозу.")
+    else:
+        text = f"🟡 Попередження: загроза БпЛА у вашому районі ({name} р-н). Офіційні дані. Будьте готові піти в укриття."
+    return f"📍 {label}\n{text}" if label else text
 
 
 REPEATS = 2
@@ -117,6 +180,10 @@ async def evaluate_once(db, send, now: int | None = None, map_url: str = "") -> 
     import guard_places
     import family
     persistent = guard_places.persistent_users(db)
+    try:
+        official = set(db.siren_states_fresh())
+    except Exception:  # noqa: BLE001
+        official = set()
     for tg in targets:
         uid, suffix, label = tg["uid"], tg["suffix"], tg["label"]
         risks = risk_for_point(list(live.values()), tg["point"], now, imminent_km=tg["radius"], watch_km=tg["radius"] * 3)
@@ -154,6 +221,26 @@ async def evaluate_once(db, send, now: int | None = None, map_url: str = "") -> 
                         logger.warning("guard: повтор не надіслано %s", uid, exc_info=True)
                         continue
                     db.set_guard_state(uid, f"{key}#r{len(reps) + 1}{suffix}", r.level, r.distance_km, now)
+        # Офіційна тривога в районі точки (alerts.in.ua): відразу, навіть коли канали ще не дали координат.
+        ra = raion_at(*tg["point"])
+        if ra is not None:
+            cur = "red" if f"raion:{ra[0]}" in official else ("yellow" if f"raionY:{ra[0]}" in official else None)
+            prev = states.get("off:raion")
+            prev_lvl = None if prev is None else prev["level"]
+            if cur and (prev_lvl is None or (prev_lvl == "watch" and cur == "red")):
+                try:
+                    await send(uid, official_message(cur, ra[1], label))
+                    sent += 1
+                    db.set_guard_state(uid, "off:raion" + suffix, "imminent" if cur == "red" else "watch", 0.0, now)
+                except Exception:  # noqa: BLE001
+                    logger.warning("guard: офіційну тривогу не надіслано %s", uid, exc_info=True)
+            elif not cur and prev is not None:
+                try:
+                    await send(uid, (f"📍 {label}\n" if label else "") + f"🟢 Відбій тривоги у вашому районі ({ra[1]} р-н). Слідкуємо далі.")
+                    sent += 1
+                except Exception:  # noqa: BLE001
+                    logger.warning("guard: відбій району не надіслано %s", uid, exc_info=True)
+                db.clear_guard_state(uid, "off:raion" + suffix)
         # Події без треку (КАБ, ракети, авіація…): одне попередження на подію.
         ev_now = {}
         for e, d in event_risks(events, tg["point"], now, tg["radius"]):
@@ -172,7 +259,7 @@ async def evaluate_once(db, send, now: int | None = None, map_url: str = "") -> 
         for key in [k for k in states if k.startswith("ev:") and k not in ev_now]:
             db.clear_guard_state(uid, key + suffix)
         for key, st in states.items():
-            if key.startswith("ev:"):
+            if key.startswith(("ev:", "off:")):
                 continue
             if key in keyed or key.split("#r")[0] in keyed:   # «#r…» — лічильник повторів, живе, поки жива ціль
                 continue

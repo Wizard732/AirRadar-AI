@@ -1266,6 +1266,10 @@ async def _sirens_loop(db: Database, token: str, http_session=None,
             incoming = await _sirens_fetch(session, token)
             if incoming is not None:
                 try:
+                    db.alert_sync(_LAST_ALERTS, int(time.time()))
+                except Exception:  # noqa: BLE001 — журнал не критичний
+                    logger.debug("alert_sync не вдався", exc_info=True)
+                try:
                     # Райони («raion:…») — лише для карти: окремо від сповіщень по областях.
                     raions = {k for k in incoming if k.startswith(("raion", "threat:"))}
                     incoming = incoming - raions
@@ -1304,6 +1308,9 @@ async def _sirens_loop(db: Database, token: str, http_session=None,
         raise
 
 
+_LAST_ALERTS: list[dict] = []
+
+
 async def _sirens_fetch(session, token: str) -> set[str] | None:
     """Один опрос alerts.in.ua → множество слагов; None = опрос не удался."""
     from sirens import active_alert_slugs, fetch_active_alerts
@@ -1311,6 +1318,14 @@ async def _sirens_fetch(session, token: str) -> set[str] | None:
     if payload is None:
         return None
     from sirens import active_extra_keys, active_raion_keys, alert_details
+    global _LAST_ALERTS
+    _LAST_ALERTS = alert_details(payload)
+    for _a in _LAST_ALERTS:   # ISO → epoch для журналу
+        try:
+            from datetime import datetime as _dt
+            _a["started_ts"] = int(_dt.fromisoformat(_a["since"].replace("Z", "+00:00")).timestamp()) if _a.get("since") else 0
+        except ValueError:
+            _a["started_ts"] = 0
     try:   # деталі для листа області на карті: файл поруч із БД, читає export_radar / health_server
         import json as _json, tempfile as _tmp
         _p = os.path.join(os.path.dirname(os.path.abspath(os.getenv("DB_PATH", "airradar.db"))), "siren_detail.json")

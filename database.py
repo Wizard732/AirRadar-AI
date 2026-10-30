@@ -238,6 +238,38 @@ class Database:
                 )
                 """
             )
+            # Журнал офіційних тривог alerts.in.ua: для вкладок «Історія», «Тривалості», «Статистика» на карті.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_log (
+                    id          INTEGER PRIMARY KEY,
+                    slug        TEXT NOT NULL,
+                    loc_type    TEXT NOT NULL DEFAULT '',
+                    title       TEXT NOT NULL DEFAULT '',
+                    raion       TEXT NOT NULL DEFAULT '',
+                    level       TEXT NOT NULL DEFAULT 'red',
+                    kind        TEXT NOT NULL DEFAULT '',
+                    started_ts  INTEGER NOT NULL,
+                    ended_ts    INTEGER NOT NULL DEFAULT 0,
+                    last_seen   INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_log_started ON alert_log(started_ts)")
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS alert_events (
+                    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts      INTEGER NOT NULL,
+                    slug    TEXT NOT NULL DEFAULT '',
+                    title   TEXT NOT NULL DEFAULT '',
+                    raion   TEXT NOT NULL DEFAULT '',
+                    kind    TEXT NOT NULL,
+                    detail  TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_events_ts ON alert_events(ts)")
             # Репорты угроз от пользователей (share location в боте).
             # Координаты храним округлёнными до ~100 м; в публичный API не
             # отдаём user_id — только точку и возраст.
@@ -1711,6 +1743,66 @@ class Database:
                 self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось сохранить состояние сирен: %s", exc)
+
+    def alert_sync(self, entries: list[dict[str, Any]], now: int) -> None:
+        """Синхронізувати журнал із поточним списком активних тривог (id, slug, type, title, raion, level, kind, started).
+
+        Нові → подія «start», зник → «end» (відбій), змінився рівень → «level». Перший запуск (порожній журнал)
+        подій не пише, щоб не засипати «Джерела» початковим станом."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                c = self._conn
+                primed = c.execute("SELECT COUNT(*) FROM alert_log").fetchone()[0] > 0
+                open_rows = {r["id"]: r for r in c.execute("SELECT * FROM alert_log WHERE ended_ts = 0")}
+                seen = set()
+                for e in entries:
+                    aid = int(e.get("id") or 0)
+                    if not aid:
+                        continue
+                    seen.add(aid)
+                    row = open_rows.get(aid)
+                    started = int(e.get("started_ts") or now)
+                    if row is None:
+                        c.execute(
+                            "INSERT OR REPLACE INTO alert_log (id, slug, loc_type, title, raion, level, kind, started_ts, ended_ts, last_seen) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
+                            (aid, e["slug"], e["type"], e["title"], e.get("raion", ""), e["level"], e["kind"], started, now),
+                        )
+                        if primed:
+                            c.execute("INSERT INTO alert_events (ts, slug, title, raion, kind, detail) VALUES (?,?,?,?,?,?)",
+                                      (now, e["slug"], e["title"], e.get("raion", ""), "start", e["level"]))
+                    else:
+                        if row["level"] != e["level"]:
+                            c.execute("INSERT INTO alert_events (ts, slug, title, raion, kind, detail) VALUES (?,?,?,?,?,?)",
+                                      (now, e["slug"], e["title"], e.get("raion", ""), "level", f"{row['level']}>{e['level']}"))
+                        c.execute("UPDATE alert_log SET level = ?, last_seen = ? WHERE id = ?", (e["level"], now, aid))
+                for aid, row in open_rows.items():
+                    if aid not in seen:
+                        c.execute("UPDATE alert_log SET ended_ts = ? WHERE id = ?", (now, aid))
+                        c.execute("INSERT INTO alert_events (ts, slug, title, raion, kind, detail) VALUES (?,?,?,?,?,?)",
+                                  (now, row["slug"], row["title"], row["raion"], "end", row["level"]))
+                c.execute("DELETE FROM alert_log WHERE started_ts < ? AND ended_ts > 0", (now - 40 * 86400,))
+                c.execute("DELETE FROM alert_events WHERE ts < ?", (now - 40 * 86400,))
+                c.commit()
+        except sqlite3.Error as exc:
+            logger.warning("alert_sync: %s", exc)
+
+    def alert_history(self, since_ts: int) -> dict[str, list]:
+        """Тривоги, що перетинають [since_ts, now], і події за той самий час (для вкладок історії/статистики)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                al = self._conn.execute(
+                    "SELECT id, slug, loc_type, title, raion, level, kind, started_ts, ended_ts FROM alert_log "
+                    "WHERE ended_ts = 0 OR ended_ts >= ? ORDER BY started_ts", (since_ts,)).fetchall()
+                ev = self._conn.execute(
+                    "SELECT ts, slug, title, raion, kind, detail FROM alert_events WHERE ts >= ? ORDER BY ts DESC LIMIT 600",
+                    (since_ts,)).fetchall()
+            return {"alerts": [list(r) for r in al], "events": [list(r) for r in ev]}
+        except sqlite3.Error as exc:
+            logger.warning("alert_history: %s", exc)
+            return {"alerts": [], "events": []}
 
     def siren_states_active(self) -> list[str]:
         """Регионы с активной сиреной по последнему опросу (пусто = нет данных)."""

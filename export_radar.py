@@ -14,7 +14,7 @@ from pathlib import Path
 
 from config import load_settings
 from database import Database
-from health_server import radar_payload
+from health_server import history_payload, radar_payload
 from impact_log import DEFAULT_DELAY_S, impacts_payload
 from stats_engine import stats_payload
 from track_engine import build_tracks
@@ -50,6 +50,7 @@ def main() -> int:
     forecast_eval.evaluate(db, tracks, now)
     changed = False
     changed |= _write_if_changed(out / "tracks.json", radar_payload(db, WINDOW_MIN, now), ("now",), 1800)
+    changed |= _write_if_changed(out / "alerts_hist.json", history_payload(db, now, 7), ("now",), 600)
     changed |= _write_if_changed(out / "stats.json", stats_payload(db, now), ("now",), 900)
     changed |= _write_if_changed(out / "impacts.json", impacts_payload(db, now, delay), ("now",), 900)
     return 0 if changed else 10

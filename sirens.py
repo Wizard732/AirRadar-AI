@@ -204,7 +204,7 @@ def alert_details(payload: dict[str, Any]) -> list[dict[str, Any]]:
         if not slug:
             continue
         out.append({
-            "slug": slug, "type": str(e.get("location_type") or ""), "title": str(e.get("location_title") or ""),
+            "id": e.get("id"), "slug": slug, "type": str(e.get("location_type") or ""), "title": str(e.get("location_title") or ""),
             "raion": str(e.get("location_raion") or ""), "level": str(e.get("alert_level") or "red"),
             "kind": str(e.get("alert_type") or ""), "since": str(e.get("started_at") or ""),
             "threats": [str((t or {}).get("threat_type") or "") for t in (e.get("threats") or [])],

@@ -127,6 +127,43 @@
   .acard .ai { width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,.92); color:#222; display:grid; place-items:center; flex:none; }
   .acard .ai svg { width:19px; height:19px; }
   .acard .a1 { font-weight:700; font-size:14px; } .acard .a2 { font-size:12px; opacity:.85; margin-top:2px; }
+  /* ---- нижнє меню і вкладки (як у «Мапи тривог») ---- */
+  #nav { position:fixed; left:0; right:0; bottom:0; height:56px; z-index:1500; display:flex; background:#1c1f26; border-top:1px solid rgba(255,255,255,.08); padding-bottom:env(safe-area-inset-bottom); }
+  #nav button { flex:1; background:none; border:none; color:#8b95a8; display:grid; place-items:center; cursor:pointer; position:relative; }
+  #nav button.on { color:#ff6b6b; } #nav svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  #nav .badge { position:absolute; top:6px; left:50%; margin-left:6px; min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:#c0392b; color:#fff; font:700 10px/17px sans-serif; text-align:center; }
+  #timebar { bottom:66px !important; }
+  #list { bottom:66px; } .nolbl .oblbl { display:none; } #sheet { bottom:70px !important; } #rsheet { bottom:56px !important; }
+  @media (min-width:800px) { #rsheet { bottom:68px !important; } #list { bottom:68px !important; } }
+  .view { position:fixed; left:0; right:0; top:0; bottom:56px; z-index:1400; overflow:auto; background:#15171d; color:#eef1f6; display:none; padding:14px 14px 24px; -webkit-overflow-scrolling:touch; }
+  .view h2 { font-size:19px; margin-bottom:2px; } .view .sub { color:#8b95a8; font-size:12.5px; margin-bottom:10px; }
+  .vw { max-width:760px; margin:0 auto; }
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+  .tabs button, .seg button { padding:6px 11px; border-radius:7px; border:none; background:#2a2d36; color:#cfd4de; font:inherit; font-size:13px; cursor:pointer; }
+  .tabs button.on, .seg button.on { background:#7a2a33; color:#fff; }
+  .seg { display:flex; gap:4px; background:#22252d; border-radius:10px; padding:4px; margin:8px 0; } .seg button { flex:1; background:none; }
+  .view input[type=search], .view select { width:100%; padding:10px 12px; border-radius:10px; border:none; background:#2a2d36; color:#eef1f6; font:inherit; margin:6px 0; }
+  .view .row2 { display:flex; gap:8px; } .view .row2 > * { flex:1; }
+  .grph { margin:14px 0 6px; font-size:13px; color:#8b95a8; text-transform:uppercase; letter-spacing:.04em; }
+  .acard .a3 { font-size:12px; opacity:.8; margin-top:2px; }
+  .acard.o { background:#8a5420; }
+  .vrow { display:flex; justify-content:space-between; align-items:center; padding:11px 12px; border-radius:10px; background:#23262f; margin-bottom:6px; }
+  .vrow b { font-size:14px; } .vrow small { display:block; color:#8b95a8; font-size:12px; margin-top:2px; } .vrow .vv { font-size:17px; font-weight:700; }
+  .vgrp { margin:16px 0 6px; font-weight:700; color:#cfd4de; display:flex; justify-content:space-between; }
+  .bars { display:flex; align-items:flex-end; gap:3px; height:130px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.1); }
+  .bars i { flex:1; background:#d9685a; border-radius:3px 3px 0 0; position:relative; min-height:1px; } .bars i span { position:absolute; bottom:100%; left:50%; transform:translateX(-50%); font:10px sans-serif; color:#aab; font-style:normal; }
+  .bx { display:flex; gap:3px; font-size:10px; color:#8b95a8; } .bx span { flex:1; text-align:center; }
+  .hbar { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:12.5px; } .hbar .n { width:130px; flex:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hbar .t { flex:1; background:#22252d; border-radius:4px; height:16px; } .hbar .t i { display:block; height:100%; background:#3aa6a0; border-radius:4px; } .hbar .v { width:46px; text-align:right; color:#aab; }
+  .tl { position:relative; height:20px; margin:3px 0; background:repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 4.1667%); border-radius:4px; }
+  .tl i { position:absolute; top:2px; bottom:2px; border-radius:3px; min-width:3px; } .tl em { position:absolute; left:6px; top:2px; font:11px sans-serif; font-style:normal; color:#fff; text-shadow:0 0 3px #000; white-space:nowrap; pointer-events:none; }
+  .th { display:flex; font-size:10px; color:#8b95a8; position:sticky; top:-14px; background:#15171d; padding:4px 0; z-index:2; } .th span { flex:1; text-align:center; }
+  .fx { padding:12px; border-radius:12px; background:#23262f; margin-bottom:8px; } .fx .a1 { font-size:14px; line-height:1.4; } .fx .a2 { color:#8b95a8; font-size:12px; margin-top:6px; }
+  .faq { background:#23262f; border-radius:12px; margin-bottom:8px; } .faq summary { padding:13px 14px; cursor:pointer; font-weight:600; } .faq div { padding:0 14px 14px; color:#cfd4de; font-size:13.5px; line-height:1.5; }
+  .leg { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13.5px; } .leg b { width:22px; height:22px; border-radius:6px; flex:none; } .leg svg { width:22px; height:22px; flex:none; color:#fff; }
+  .opt { display:flex; justify-content:space-between; align-items:center; padding:13px 14px; border-radius:12px; background:#23262f; margin-bottom:8px; } .opt small { display:block; color:#8b95a8; font-size:12px; }
+  .opt input[type=checkbox] { width:42px; height:24px; accent-color:#c0392b; }
+  .chor { width:100%; height:auto; margin:6px 0; } .chor path { stroke:#0f1218; stroke-width:.6; }
 </style>
 <script src="native.js"></script>
 </head>
@@ -142,6 +179,21 @@
 </div>
 <div id="banner" class="panel"></div>
 <div id="list" class="panel"><div id="list-head"></div><div id="list-body"></div></div>
+<div id="v-list" class="view"><div class="vw"></div></div>
+<div id="v-dur" class="view"><div class="vw"></div></div>
+<div id="v-stats" class="view"><div class="vw"></div></div>
+<div id="v-hist" class="view"><div class="vw"></div></div>
+<div id="v-help" class="view"><div class="vw"></div></div>
+<div id="v-set" class="view"><div class="vw"></div></div>
+<nav id="nav">
+  <button data-v="map" class="on" title="Мапа"><svg viewBox="0 0 24 24"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2z"/><path d="M9 4v14M15 6v14"/></svg><span class="badge" id="nav-badge"></span></button>
+  <button data-v="list" title="Список тривог"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></button>
+  <button data-v="dur" title="Тривалості"><svg viewBox="0 0 24 24"><path d="M6 3h12M6 21h12M7 3c0 5 5 6 5 9s-5 4-5 9M17 3c0 5-5 6-5 9s5 4 5 9"/></svg></button>
+  <button data-v="stats" title="Статистика"><svg viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></button>
+  <button data-v="hist" title="Історія"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg></button>
+  <button data-v="help" title="Допомога"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 .9-1 1.7M12 17h.01"/></svg></button>
+  <button data-v="set" title="Налаштування"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+</nav>
 <div id="rsheet"></div>
 <div id="sheet" class="panel"><span class="close" id="sheet-x">×</span><div id="sheet-body"></div></div>
 <div id="ticker" class="panel"></div>
@@ -614,7 +666,9 @@ async function load() {
     sirensRaions = new Set(Array.isArray(data.sirens_raions) ? data.sirens_raions : []);
     sirensRaionsY = new Set(Array.isArray(data.sirens_raions_y) ? data.sirens_raions_y : []);
     sirensRaionsP = new Set(Array.isArray(data.sirens_raions_p) ? data.sirens_raions_p : []);
-    sirenThreats = data.siren_threats || {}; alertsDetail = Array.isArray(data.alerts) ? data.alerts : []; restyleRaions(); listSig = '';
+    sirenThreats = data.siren_threats || {}; alertsDetail = Array.isArray(data.alerts) ? data.alerts : [];
+    feedData = Array.isArray(data.feed) ? data.feed : [];
+    { const nb = document.getElementById('nav-badge'); if (nb) nb.textContent = alertsDetail.length || ''; } restyleRaions(); listSig = '';
     if (sirens) { oblastActive = new Set(sirens); restyleOblasts(); }
     else if (useStatic && !DEMO) {
       try { const st = await (await fetch(new URL('stats.json', DATA_BASE).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' })).json(); oblastActive = new Set(st.active_regions || []); restyleOblasts(); } catch (e) {}
@@ -745,7 +799,7 @@ load().then(() => {
   else map.setView([48.7, 31.5], innerWidth < 800 ? 5.6 : 6, { animate: false });   // вся Україна, як у «Мапі тривог»
   requestAnimationFrame(frame);
 });
-setInterval(load, 10000);
+let loadTimer = setInterval(load, 10000);
 // Посилання на поточний вид: ?lat=&lon=&z= (відкривається саме на цьому місці).
 document.getElementById('btn-share').onclick = async () => {
   const c = map.getCenter(), u = new URL(location.href);
@@ -755,6 +809,249 @@ document.getElementById('btn-share').onclick = async () => {
 };
 if ('serviceWorker' in navigator && location.protocol === 'https:' && !DEMO && !window.AIRRADAR_DATA_BASE) navigator.serviceWorker.register('sw.js').catch(() => {});
 setInterval(evalMe, 5000);
+
+// =====================================================================================================
+//  Вкладки як у «Мапи тривог»: список, тривалості, статистика, історія, довідка, налаштування
+// =====================================================================================================
+let hist = { alerts: [], events: [], now: 0 }, feedData = [], curView = 'map', histAt = 0;
+const $v = id => document.getElementById(id);
+const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const hhmm = ts => new Date(ts * 1000).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+const MONTHS = ['січня','лютого','березня','квітня','травня','червня','липня','серпня','вересня','жовтня','листопада','грудня'];
+const dayStart = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return Math.floor(x / 1000); };
+const when = ts => { const d = new Date(ts * 1000), t = hhmm(ts); return ts >= dayStart() ? 'Сьогодні, ' + t : (ts >= dayStart() - 86400 ? 'Вчора, ' + t : d.getDate() + ' ' + MONTHS[d.getMonth()] + (d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() + ' р.' : '') + ' о ' + t); };
+const durTxt = s => { s = Math.max(0, Math.floor(s)); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), c = s % 60;
+  return d ? `${d} д. ${h} год. ${m} хв.` : (h ? `${h} год. ${m} хв.` : (m >= 5 ? `${m} хв.` : `${m} хв. ${c} с.`)); };
+const hm = s => { s = Math.max(0, Math.round(s / 60)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+const oblName = slug => SLUG_NAME[slug] || slug;
+const place = a => (a.type === 'oblast' ? 'Область' : (a.raion ? a.raion + ', ' : '') + oblName(a.slug));
+const isoTs = a => a.since ? Math.floor(new Date(a.since) / 1000) : 0;
+async function loadHist(force) {
+  if (!force && Date.now() - histAt < 45000) return;
+  histAt = Date.now();
+  try {
+    const url = useStatic ? new URL('alerts_hist.json', DATA_BASE).href + '?t=' + Math.floor(Date.now() / 30000) : '/api/alerts-history?days=7';
+    const r = await fetch(url, { cache: 'no-store' }); if (r.ok) hist = await r.json();
+  } catch (e) { /* без історії вкладки показують лише поточні дані */ }
+}
+const dropIcon = a => a.kind && a.kind !== 'air_raid' ? ICO.arty : ((a.threats || []).some(t => /missile|bomb|kab/.test(t)) || a.level !== 'yellow' ? ICO.missile : ICO.drone);
+function acardH(a, now) {
+  const since = isoTs(a), cls = a.kind === 'artillery_shelling' ? 'o' : (a.level === 'yellow' ? 'y' : '');
+  return `<div class="acard ${cls}"><div class="ai">${dropIcon(a)}</div><div><div class="a1">${esc(a.title)}</div><div class="a3">${esc(place(a))}</div><div class="a2">${since ? when(since) + ' · ⏱ ' + durTxt(now - since) : ''}${a.kind && a.kind !== 'air_raid' ? ' · ' + esc(KIND_NAME[a.kind] || a.kind) : ''}</div></div></div>`;
+}
+// ---------- Список ----------
+let lsub = 'active', lq = '';
+const SUBS = [['active', 'Активні'], ['targets', 'Цілі'], ['threats', 'Загрози'], ['boom', 'Вибухи'], ['src', 'Джерела'], ['recent', 'Нещодавні']];
+function renderList() {
+  const el = $v('v-list').firstElementChild;
+  if (!el.dataset.init) {
+    el.dataset.init = 1;
+    el.innerHTML = `<h2>Список тривог</h2><div class="sub" id="l-sub"></div><div class="tabs" id="l-tabs"></div><input type="search" id="l-q" placeholder="Пошук за назвою…"><div id="l-body"></div>`;
+    $v('l-tabs').innerHTML = SUBS.map(([k, n]) => `<button data-k="${k}">${n}</button>`).join('');
+    $v('l-tabs').onclick = e => { const b = e.target.closest('button'); if (b) { lsub = b.dataset.k; fillList(); } };
+    $v('l-q').oninput = e => { lq = e.target.value.trim().toLowerCase(); fillList(); };
+  }
+  fillList();
+}
+function fillList() {
+  const now = Math.floor(Date.now() / 1000);
+  $v('l-sub').textContent = 'Станом на: ' + new Date().toLocaleString('uk-UA', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }).replace(',', ' о');
+  [...$v('l-tabs').children].forEach(b => b.classList.toggle('on', b.dataset.k === lsub));
+  const q = x => !lq || x.toLowerCase().includes(lq);
+  let h = '';
+  if (lsub === 'active' || lsub === 'recent') {
+    let rows;
+    if (lsub === 'active') rows = alertsDetail.filter(a => q(a.title + ' ' + place(a))).sort((a, b) => isoTs(b) - isoTs(a));
+    else rows = (hist.alerts || []).filter(r => r[8] > 0 && now - r[8] < 6 * 3600).map(r => ({ id: r[0], slug: r[1], type: r[2], title: r[3], raion: r[4], level: r[5], kind: r[6], since: new Date(r[7] * 1000).toISOString(), end: r[8] }))
+      .filter(a => q(a.title + ' ' + place(a))).sort((a, b) => b.end - a.end);
+    const t0 = dayStart(), today = rows.filter(a => isoTs(a) >= t0), old = rows.filter(a => isoTs(a) < t0);
+    const card = a => lsub === 'recent' ? acardH(a, a.end).replace('⏱ ', '✔ відбій ' + hhmm(a.end) + ' · тривала ') : acardH(a, now);
+    h = (today.length ? '<div class="vgrp">Сьогодні</div>' + today.map(card).join('') : '') + (old.length ? '<div class="vgrp">Довготривалі тривоги</div>' + old.map(card).join('') : '');
+    if (!rows.length) h = '<div class="fx"><div class="a1">' + (lsub === 'active' ? 'Активних тривог немає.' : 'За останні години відбоїв ще не було (журнал накопичується з моменту запуску).') + '</div></div>';
+  } else if (lsub === 'targets') {
+    const rows = tracks.filter(t => { const l = t.points[t.points.length - 1]; return t.status !== 'stale' && now - l.ts < 30 * 60; }).filter(t => q(trackName(t))).sort((a, b) => b.points[b.points.length - 1].ts - a.points[a.points.length - 1].ts);
+    h = rows.map(t => { const l = t.points[t.points.length - 1], f = t.points[0], dir = t.dest ? '→ ' + t.dest.name : (t.heading !== null ? compass(t.heading) : (l.place || ''));
+      return `<div class="vrow"><div><b>${esc(dir)}</b><small>${esc(trackName(t))}</small><small>${t.status === 'loitering' ? 'Кружляє' : 'Рухається'} · ${l.ts >= now - 60 ? 'щойно' : ago(now - l.ts)}</small><small>Виявлено ${hhmm(f.ts)} · відстежується ${Math.max(1, Math.round((now - f.ts) / 60))} хв</small></div><div class="ai" style="width:34px;height:34px;border-radius:50%;background:#fff;color:#222;display:grid;place-items:center;flex:none"><span style="width:20px;height:20px;display:block">${isMissile(t.weapon) ? ICO.missile : ICO.drone}</span></div></div>`; }).join('')
+      || '<div class="fx"><div class="a1">Зараз немає цілей з відомою позицією за зведеннями каналів.</div><div class="a2">Офіційні тривоги дивіться у вкладці «Активні».</div></div>';
+  } else if (lsub === 'threats') {
+    h = (feedData || []).filter(f => q(f.text)).map(f => `<div class="fx"><div class="a1">${esc(f.text)}</div><div class="a2">${when(f.ts)} · ${esc(oblName(f.region))} · зведення каналів</div></div>`).join('') || '<div class="fx"><div class="a1">Свіжих повідомлень немає.</div></div>';
+  } else if (lsub === 'boom') {
+    const BW = ['explosion', 'impact', 'heard', 'air_defense'];
+    h = events.filter(e => BW.includes(e.weapon) && q((e.place || '') + ' ' + WNAME[e.weapon])).sort((a, b) => b.ts - a.ts).slice(0, 80)
+      .map(e => `<div class="fx"><div class="a1"><b>${esc(e.place || 'область')}</b> · ${esc(WNAME[e.weapon] || e.weapon)}${e.killed ? ' · загинули: ' + e.killed : ''}${e.injured ? ' · поранені: ' + e.injured : ''}</div><div class="a2">${when(e.ts)}${(e.damage || []).length ? ' · ' + esc(e.damage.join(', ')) : ''}</div></div>`).join('')
+      || '<div class="fx"><div class="a1">Свіжих вибухів у зведеннях немає.</div></div>';
+  } else if (lsub === 'src') {
+    const txt = r => r[4] === 'start' ? 'Повітряна тривога' : (r[4] === 'end' ? 'Відбій тривоги' : 'Рівень тривоги змінено: ' + (r[5] || '').split('>').map(x => x === 'red' ? 'Червоний' : 'Жовтий').join(' → '));
+    h = (hist.events || []).filter(r => q(r[2] + ' ' + oblName(r[1]))).slice(0, 120).map(r => `<div class="fx"><div class="a1"><b>${esc(r[2])}</b><br>${esc(oblName(r[1]))}</div><div class="a1" style="margin-top:6px">${txt(r)}</div><div class="a2">${when(r[0])} · Офіційне API «Повітряна тривога»</div></div>`).join('')
+      || '<div class="fx"><div class="a1">Журнал змін ще порожній: події накопичуються після запуску.</div></div>';
+  }
+  $v('l-body').innerHTML = h;
+}
+// ---------- спільне: інтервали тривог за період ----------
+function periodOf(k) {
+  const t0 = dayStart(), n = Math.floor(Date.now() / 1000), wd = (new Date().getDay() + 6) % 7;
+  return { today: [t0, n], yesterday: [t0 - 86400, t0], week: [t0 - wd * 86400, n], d7: [n - 7 * 86400, n] }[k];
+}
+function aggregate(period, level, slugFilter) {
+  const [p0, p1] = period, out = new Map();
+  for (const r of hist.alerts || []) {
+    const [, slug, type, title, raion, lv, , s, e] = r, end = e || p1;
+    if (end < p0 || s > p1 || (level !== 'all' && lv !== level) || (slugFilter && slug !== slugFilter)) continue;
+    const key = slug + '|' + title, o = out.get(key) || { slug, title, type, raion, dur: 0, n: 0 };
+    o.dur += Math.max(0, Math.min(end, p1) - Math.max(s, p0)); o.n += 1; out.set(key, o);
+  }
+  return [...out.values()];
+}
+const PSEL = '<option value="today">Сьогодні</option><option value="yesterday">Вчора</option><option value="week">Цей тиждень</option><option value="d7">За останні 7 днів</option>';
+// ---------- Тривалості ----------
+let dPer = 'today', dLv = 'all', dMet = 'dur';
+function choropleth(vals, max) {
+  if (!oblastLayer) return '';
+  const ys = [], xs = []; oblastLayer.eachLayer(l => { const b = l.getBounds(); xs.push(b.getWest(), b.getEast()); ys.push(b.getSouth(), b.getNorth()); });
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys), k = Math.cos(48.5 * Math.PI / 180), W = 360, sc = W / ((x1 - x0) * k), H = (y1 - y0) * sc;
+  const P = (lon, lat) => ((lon - x0) * k * sc).toFixed(1) + ',' + ((y1 - lat) * sc).toFixed(1);
+  let paths = '';
+  oblastLayer.eachLayer(l => {
+    const g = l.feature.geometry, polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates, v = vals[l._slug] || 0, a = max ? v / max : 0;
+    const col = v ? `rgb(${Math.round(110 + 140 * a)},${Math.round(50 - 20 * a)},${Math.round(55 - 20 * a)})` : '#2b303b';
+    paths += `<path fill="${col}" d="${polys.map(p => 'M' + p[0].map(c => P(c[0], c[1])).join('L') + 'Z').join('')}"><title>${esc(oblName(l._slug))}</title></path>`;
+  });
+  return `<svg class="chor" viewBox="0 0 ${W} ${H.toFixed(0)}">${paths}</svg>`;
+}
+function renderDur() {
+  const el = $v('v-dur').firstElementChild;
+  if (!el.dataset.init) {
+    el.dataset.init = 1;
+    el.innerHTML = `<h2>Тривалості</h2><div class="sub" id="d-sub"></div><div id="d-map"></div><div class="row2"><select id="d-per">${PSEL}</select><select id="d-lv"><option value="all">Усі</option><option value="red">Червоні</option><option value="yellow">Жовті</option></select></div>
+      <div class="seg" id="d-met"><button data-m="dur">Тривалість</button><button data-m="n">Кількість</button><button data-m="avg">Сер. тривалість</button></div><div id="d-body"></div>`;
+    $v('d-per').onchange = e => { dPer = e.target.value; fillDur(); }; $v('d-lv').onchange = e => { dLv = e.target.value; fillDur(); };
+    $v('d-met').onclick = e => { const b = e.target.closest('button'); if (b) { dMet = b.dataset.m; fillDur(); } };
+  }
+  fillDur();
+}
+function fillDur() {
+  const rows = aggregate(periodOf(dPer), dLv), val = o => dMet === 'dur' ? o.dur : (dMet === 'n' ? o.n : o.dur / Math.max(1, o.n));
+  [...$v('d-met').children].forEach(b => b.classList.toggle('on', b.dataset.m === dMet));
+  $v('d-sub').textContent = new Date(periodOf(dPer)[0] * 1000).toLocaleDateString('uk-UA') + ' — ' + new Date().toLocaleString('uk-UA', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  const by = {}; rows.forEach(o => (by[o.slug] = by[o.slug] || []).push(o));
+  const tot = {}; for (const s in by) tot[s] = dMet === 'avg' ? by[s].reduce((a, o) => a + val(o), 0) / by[s].length : by[s].reduce((a, o) => a + val(o), 0);
+  $v('d-map').innerHTML = choropleth(tot, Math.max(0, ...Object.values(tot)));
+  const f = o => dMet === 'n' ? o.n : hm(val(o));
+  $v('d-body').innerHTML = Object.keys(by).sort((a, b) => tot[b] - tot[a]).map(s => `<div class="vgrp"><span>${esc(oblName(s))}</span><span>${by[s].length}</span></div>` +
+    by[s].sort((a, b) => val(b) - val(a)).map(o => `<div class="vrow"><div><b>${esc(o.title)}</b><small>Тривалість: ${hm(o.dur)} · Середня тривалість: ${hm(o.dur / o.n)}</small></div><div class="vv">${f(o)}</div></div>`).join('')).join('')
+    || '<div class="fx"><div class="a1">За цей період у журналі ще немає даних.</div><div class="a2">Журнал тривог накопичується з моменту підключення офіційного API, історія буде повнішою з кожним днем.</div></div>';
+}
+// ---------- Статистика ----------
+let sPer = 'today', sSlug = '', sMet = 'n';
+function renderStats() {
+  const el = $v('v-stats').firstElementChild;
+  if (!el.dataset.init) {
+    el.dataset.init = 1;
+    el.innerHTML = `<h2>Статистика</h2><div class="sub" id="s-sub"></div><select id="s-per">${PSEL}</select><select id="s-obl"><option value="">Усі області</option>${Object.entries(SLUG_NAME).sort((a, b) => a[1].localeCompare(b[1])).map(([k, n]) => `<option value="${k}">${n}</option>`).join('')}</select>
+      <div class="grph">Кількість оголошень тривог за годиною доби</div><div id="s-h"></div><div class="grph">Кількість тривог за областями</div><div class="seg" id="s-met"><button data-m="n">Кількість</button><button data-m="dur">Тривалість</button><button data-m="avg">Середня</button></div><div id="s-o"></div><div class="grph">За районами / містами</div><div id="s-r"></div>`;
+    $v('s-per').onchange = e => { sPer = e.target.value; fillStats(); }; $v('s-obl').onchange = e => { sSlug = e.target.value; fillStats(); };
+    $v('s-met').onclick = e => { const b = e.target.closest('button'); if (b) { sMet = b.dataset.m; fillStats(); } };
+  }
+  fillStats();
+}
+function fillStats() {
+  const per = periodOf(sPer), all = aggregate(per, 'all', sSlug), val = o => sMet === 'n' ? o.n : (sMet === 'dur' ? o.dur : o.dur / Math.max(1, o.n)), fm = v => sMet === 'n' ? v : hm(v);
+  [...$v('s-met').children].forEach(b => b.classList.toggle('on', b.dataset.m === sMet));
+  $v('s-sub').textContent = new Date(per[0] * 1000).toLocaleDateString('uk-UA') + ' – ' + new Date(per[1] * 1000).toLocaleDateString('uk-UA');
+  const hrs = new Array(24).fill(0);
+  for (const r of hist.alerts || []) if (r[7] >= per[0] && r[7] <= per[1] && (!sSlug || r[1] === sSlug)) hrs[new Date(r[7] * 1000).getHours()]++;
+  const mx = Math.max(1, ...hrs);
+  $v('s-h').innerHTML = `<div class="bars">${hrs.map(v => `<i style="height:${Math.round(v / mx * 100)}%">${v ? `<span>${v}</span>` : ''}</i>`).join('')}</div><div class="bx">${hrs.map((_, i) => `<span>${String(i).padStart(2, '0')}</span>`).join('')}</div>`;
+  const bar = (list, nameF) => { const m = Math.max(1e-9, ...list.map(x => x[1])); return list.map(([k, v]) => `<div class="hbar"><div class="n">${esc(nameF(k))}</div><div class="t"><i style="width:${Math.max(2, v / m * 100)}%"></i></div><div class="v">${fm(v)}</div></div>`).join('') || '<div class="fx"><div class="a1">Немає даних за період.</div></div>'; };
+  const bo = {}; all.forEach(o => (bo[o.slug] = bo[o.slug] || []).push(o));
+  $v('s-o').innerHTML = bar(Object.entries(bo).map(([s, a]) => [s, sMet === 'avg' ? a.reduce((x, o) => x + val(o), 0) / a.length : a.reduce((x, o) => x + val(o), 0)]).sort((a, b) => b[1] - a[1]), oblName);
+  $v('s-r').innerHTML = bar(all.map(o => [o.title, val(o)]).sort((a, b) => b[1] - a[1]).slice(0, 25), x => x);
+}
+// ---------- Історія ----------
+let hDay = dayStart(), hq = '';
+function renderHist() {
+  const el = $v('v-hist').firstElementChild;
+  if (!el.dataset.init) {
+    el.dataset.init = 1;
+    el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><button class="btn" id="h-p">‹</button><h2 id="h-d" style="margin:0"></h2><button class="btn" id="h-n">›</button></div><input type="search" id="h-q" placeholder="Пошук області…"><div id="h-body"></div>`;
+    $v('h-p').onclick = () => { hDay -= 86400; fillHist(); }; $v('h-n').onclick = () => { if (hDay < dayStart()) { hDay += 86400; fillHist(); } };
+    $v('h-q').oninput = e => { hq = e.target.value.trim().toLowerCase(); fillHist(); };
+  }
+  fillHist();
+}
+function fillHist() {
+  const d0 = hDay, d1 = hDay + 86400, nowS = Math.floor(Date.now() / 1000), d = new Date(d0 * 1000);
+  $v('h-d').textContent = d.getDate() + ' ' + MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+  const by = {};
+  for (const r of hist.alerts || []) {
+    const [, slug, , title, , lv, , s, e] = r, end = e || nowS;
+    if (end < d0 || s > d1 || (hq && !(oblName(slug) + ' ' + title).toLowerCase().includes(hq))) continue;
+    const o = by[slug] = by[slug] || {}; (o[title] = o[title] || []).push([Math.max(s, d0), Math.min(end, d1), lv]);
+  }
+  const pct = t => ((t - d0) / 864).toFixed(2);
+  let h = `<div class="th">${Array.from({ length: 24 }, (_, i) => `<span>${String(i).padStart(2, '0')}</span>`).join('')}</div>`;
+  for (const s of Object.keys(by).sort((a, b) => oblName(a).localeCompare(oblName(b)))) {
+    h += `<div class="vgrp" style="margin:12px 0 2px">${esc(oblName(s))}</div>`;
+    for (const t of Object.keys(by[s]).sort()) h += `<div class="tl">${by[s][t].map(([a, b, lv]) => `<i style="left:${pct(a)}%;width:${Math.max(.3, pct(b) - pct(a))}%;background:${lv === 'yellow' ? '#c9a23c' : '#8e2f38'}"></i>`).join('')}<em>${esc(t)}</em></div>`;
+  }
+  $v('h-body').innerHTML = h + (Object.keys(by).length ? '' : '<div class="fx" style="margin-top:12px"><div class="a1">За цю добу в журналі немає тривог.</div><div class="a2">Журнал накопичується з моменту підключення офіційного API.</div></div>');
+}
+// ---------- Довідка ----------
+function renderHelp() {
+  const el = $v('v-help').firstElementChild; if (el.dataset.init) return; el.dataset.init = 1;
+  const sw = (c, t) => `<div class="leg"><b style="background:${c}"></b><span>${t}</span></div>`, ic = (g, t) => `<div class="leg">${g}<span>${t}</span></div>`;
+  el.innerHTML = `<h2>Про AirRadar</h2><div class="fx"><div class="a1"><b>Мапа повітряних тривог і цілей</b><br>AirRadar показує офіційні тривоги (alerts.in.ua) та цілі за зведеннями моніторингових каналів: шахеди, ракети, КАБ, авіація.</div></div>
+  <div class="fx" style="border-left:4px solid #c0392b"><div class="a1"><b>Важливо: це неофіційна мапа.</b> Не використовуйте її як основне джерело оповіщення. Орієнтуйтесь на офіційні сирени та Повітряні сили ЗСУ.</div></div>
+  <div class="grph">Що означають кольори та іконки</div>
+  <div class="fx">${sw('#6b2a2f', '<b>Червоний</b> — ракетна загроза / повітряна тривога (червоний рівень)')}${sw('#c9a23c', '<b>Жовтий</b> — загроза застосування БпЛА (шахеди), жовтий рівень')}${sw('#e8872a', 'Загроза артобстрілу')}${sw('#1b2338', 'Немає інформації про тривогу чи загрозу')}${sw('#4a2230', 'Тривога в частині району (громади)')}</div>
+  <div class="fx">${ic(ICO.drone, 'Ударний БпЛА (шахед)')}${ic(ICO.drone.replace('<svg', '<svg style="color:#b57bff"'), 'Реактивний БпЛА')}${ic(ICO.fpv, 'FPV / Ланцет')}${ic(ICO.missile, 'Ракета / балістика')}${ic(ICO.cruise, 'Крилата ракета')}${ic(ICO.kab, 'Керована авіабомба (КАБ)')}${ic(ICO.air, 'Авіація')}${ic(ICO.arty, 'РСЗВ / артилерія / влучання')}</div>
+  <div class="grph">Часті запитання</div>
+  <details class="faq"><summary>Я побачив ракету чи безпілотник. Що робити?</summary><div>Не знімайте і не публікуйте, не підходьте до вікон. Негайно в укриття або в приміщення з двома стінами між вами й вулицею (коридор, ванна). Повідомте про побачене в «Повітряні сили ЗСУ» через чат-бот «Повітряна тривога» або за номером 102.</div></details>
+  <details class="faq"><summary>Звідки дані?</summary><div>Офіційні тривоги — API alerts.in.ua. Цілі та їх рух — зведення моніторингових Telegram-каналів, які ми розбираємо і зводимо в треки. Прогноз підльоту — орієнтовний, швидкість беремо виміряну або типову для зброї.</div></details>
+  <details class="faq"><summary>Чому в області тривога, а цілей на мапі нема?</summary><div>Офіційний сервіс дає лише район і тип загрози без координат. Канали публікують позицію пізніше, тому цілі з'являються з відставанням. Кольорова підсвітка з'являється одразу.</div></details>
+  <details class="faq"><summary>Як працює «Мій район» і сповіщення?</summary><div>У боті @AirRadar_AI_bot увімкніть «Сторож»: бот пише про тривогу у вашому районі та про цілі, що летять до вашої точки, а у додатку лунає окремий тривожний звук.</div></details>
+  <details class="faq"><summary>Тривога чи відбій не на мапі</summary><div>Оновіть сторінку та перевірте інтернет. Якщо розбіжність лишається — напишіть боту, ми перевіримо джерело.</div></details>`;
+}
+// ---------- Налаштування ----------
+const SET = (() => { try { return JSON.parse(localStorage.getItem('rd_set') || '{}'); } catch (e) { return {}; } })();
+const setSave = () => { try { localStorage.setItem('rd_set', JSON.stringify(SET)); } catch (e) {} };
+function applySettings() {
+  document.getElementById('map').classList.toggle('nolbl', SET.lbl === false);
+  RA_OFF.opacity = SET.ra === false ? 0 : .5; restyleRaions();
+  map.getPane('markerPane').style.display = SET.tg === false ? 'none' : '';
+  map.getPane('tilePane').style.display = SET.osm ? '' : 'none';
+  clearInterval(loadTimer); loadTimer = setInterval(load, (SET.ref || 10) * 1000);
+}
+let setTab = 'gen';
+function renderSet() {
+  const el = $v('v-set').firstElementChild, chk = (k, def = true) => (SET[k] === undefined ? def : SET[k]) ? 'checked' : '';
+  const opt = (k, t, s, def = true) => `<label class="opt"><span>${t}<small>${s}</small></span><input type="checkbox" data-k="${k}" ${chk(k, def)}></label>`;
+  const tabs = `<div class="tabs">${[['gen', 'Загальні'], ['thr', 'Загрози'], ['map', 'Мапа'], ['adv', 'Додатково']].map(([k, n]) => `<button data-t="${k}" class="${setTab === k ? 'on' : ''}">${n}</button>`).join('')}</div>`;
+  let body = '';
+  if (setTab === 'gen') body = `<div class="opt"><span>Мова / Language<small>Поки доступна українська</small></span><b>Українська</b></div><div class="opt"><span>Оновлення даних<small>Як часто карта запитує нові дані</small></span><select id="o-ref" style="width:110px"><option value="10">10 с</option><option value="15">15 с</option><option value="30">30 с</option><option value="60">60 с</option></select></div><div class="opt"><span>Звук сповіщень<small>Тривожний сигнал у цій сторінці</small></span><button class="btn" id="o-snd">🔔</button></div>`;
+  else if (setTab === 'thr') body = Object.entries(CATS).map(([k, c]) => `<label class="opt"><span style="display:flex;gap:10px;align-items:center"><span style="width:22px;color:${c.c}">${c.i}</span>${c.n}<small></small></span><input type="checkbox" data-c="${k}" ${hiddenCats.has(k) ? '' : 'checked'}></label>`).join('');
+  else if (setTab === 'map') body = opt('lbl', 'Підписи областей', 'Назви областей на мапі') + opt('ra', 'Межі районів', 'Тонкі межі районів') + opt('tg', 'Цілі на мапі', 'Іконки шахедів, ракет, КАБ') + opt('osm', 'Підкладка OpenStreetMap', 'Вимкнено — плоска темна мапа', false);
+  else body = `<div class="fx"><div class="a1"><b>AirRadar</b><br>Дані: alerts.in.ua (офіційне API) та зведення моніторингових каналів.</div><div class="a2">Журнал тривог: ${(hist.alerts || []).length} записів за 7 днів.</div></div><button class="btn" id="o-reset" style="width:100%;margin-top:6px">Скинути налаштування</button>`;
+  el.innerHTML = `<h2>Налаштування</h2>${tabs}${body}`;
+  el.querySelector('.tabs').onclick = e => { const b = e.target.closest('button'); if (b) { setTab = b.dataset.t; renderSet(); } };
+  el.querySelectorAll('input[data-k]').forEach(i => i.onchange = () => { SET[i.dataset.k] = i.checked; setSave(); applySettings(); });
+  el.querySelectorAll('input[data-c]').forEach(i => i.onchange = () => { i.checked ? hiddenCats.delete(i.dataset.c) : hiddenCats.add(i.dataset.c); try { localStorage.setItem('rd_hidden', JSON.stringify([...hiddenCats])); } catch (e) {} listSig = ''; });
+  const r = $v('o-ref'); if (r) { r.value = String(SET.ref || 10); r.onchange = () => { SET.ref = +r.value; setSave(); applySettings(); }; }
+  const sn = $v('o-snd'); if (sn) sn.onclick = () => sndBtn.click();
+  const rs = $v('o-reset'); if (rs) rs.onclick = () => { for (const k in SET) delete SET[k]; setSave(); applySettings(); renderSet(); };
+}
+// ---------- навігація ----------
+const VIEWR = { list: renderList, dur: renderDur, stats: renderStats, hist: renderHist, help: renderHelp, set: renderSet };
+function showView(name) {
+  curView = name;
+  if (name !== 'map') document.getElementById('rsheet').style.display = 'none';
+  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === name));
+  document.querySelectorAll('.view').forEach(v => { v.style.display = v.id === 'v-' + name ? 'block' : 'none'; });
+  if (name !== 'map') { VIEWR[name](); loadHist().then(() => { if (curView === name) VIEWR[name](); }); }
+}
+document.getElementById('nav').onclick = e => { const b = e.target.closest('button'); if (b) showView(b.dataset.v); };
+setInterval(() => { if (curView === 'list') fillList(); }, 5000);
+applySettings();
 </script>
 </body>
 </html>

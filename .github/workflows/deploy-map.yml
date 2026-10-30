@@ -8,7 +8,7 @@ name: Deploy radar and map (GitHub Pages)
 on:
   push:
     branches: [main, radar-data]
-    paths: ["map_live.html", "miniapp/**", ".github/workflows/deploy-map.yml", "tracks.json", "stats.json", "impacts.json"]
+    paths: ["map_live.html", "miniapp/**", ".github/workflows/deploy-map.yml", "tracks.json", "stats.json", "impacts.json", "alerts_hist.json"]
   workflow_dispatch: {}
 
 permissions:
@@ -42,9 +42,10 @@ jobs:
           # /radar -> корень (ссылки вида <url>/radar из уведомлений)
           echo '<!doctype html><meta charset=utf-8><meta http-equiv=refresh content="0;url=../"><a href="../">radar</a>' > site/radar/index.html
           if git fetch --depth=1 origin radar-data 2>/dev/null; then
-            for f in tracks stats impacts; do git show FETCH_HEAD:$f.json > site/$f.json 2>/dev/null || true; done
+            for f in tracks stats impacts alerts_hist; do git show FETCH_HEAD:$f.json > site/$f.json 2>/dev/null || true; done
           fi
           [ -s site/tracks.json ] || echo '{"now":0,"tracks":[],"events":[]}' > site/tracks.json
+          [ -s site/alerts_hist.json ] || echo '{"now":0,"alerts":[],"events":[]}' > site/alerts_hist.json
           [ -s site/stats.json ] || echo '{"now":0,"periods":{"today":{"total":0},"yesterday":{"total":0},"7d":{"total":0},"30d":{"total":0}},"days":[],"hours":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"regions":[],"active_regions":[],"cats":{},"note":""}' > site/stats.json
           [ -s site/impacts.json ] || echo '{"now":0,"delay_min":180,"items":[],"totals":{"killed":0,"injured":0},"note":""}' > site/impacts.json
 

@@ -160,9 +160,33 @@ def radar_payload(db, minutes: int, now: int) -> dict:
         if k.startswith("threat:"):
             _, slug, kind = k.split(":", 2)
             threats.setdefault(slug, []).append(kind)
+    feed: list = []
+    try:   # стрічка «Загрози»: свіжі інциденти зі зведень каналів (без назв джерел — правило №6)
+        from fast_filter import public_text
+        feed = [{"ts": t["ts"], "text": public_text(t.get("text") or "", 220), "region": t["region"], "type": t["type"]}
+                for t in db.active_threats(within_seconds=3 * 3600, include_reported=True)][:60]
+    except Exception:  # noqa: BLE001
+        pass
     return {"now": now, "window_min": minutes, "tracks": [_track_json(t, now) for t in tracks],
             "events": build_events(rows, now), "impacts": impacts, "sirens": sirens, "sirens_raions": sirens_raions, "sirens_raions_y": sirens_raions_y,
-            "sirens_raions_p": sirens_raions_p, "siren_threats": threats if on else None, "alerts": detail}
+            "sirens_raions_p": sirens_raions_p, "siren_threats": threats if on else None, "alerts": detail, "feed": feed}
+
+
+def history_payload(db, now: int, days: int = 7) -> dict:
+    """Журнал офіційних тривог за N днів: alerts=[id,slug,type,title,raion,level,kind,start,end], events=[ts,slug,title,raion,kind,detail]."""
+    out = db.alert_history(now - days * 86400)
+    out["now"] = now
+    return out
+
+
+async def _api_alerts_history(request: web.Request) -> web.Response:  # noqa: ANN001
+    if _app_db is None:
+        return web.json_response({"alerts": [], "events": [], "error": "db not ready"})
+    try:
+        days = max(1, min(30, int(request.query.get("days", "7"))))
+    except ValueError:
+        days = 7
+    return web.json_response(history_payload(_app_db, int(time.time()), days))
 
 
 async def _api_tracks(request: web.Request) -> web.Response:  # noqa: ANN001
@@ -234,6 +258,7 @@ async def _serve_forever(port: int) -> None:
     app.router.add_get("/api/threats", _api_threats)
     app.router.add_get("/api/stats", _api_stats)
     app.router.add_get("/api/tracks", _api_tracks)
+    app.router.add_get("/api/alerts-history", _api_alerts_history)
     app.router.add_get("/api/risk", _api_risk)
     radar_path = Path(__file__).with_name("miniapp") / "radar.html"
     app.router.add_get("/radar", lambda request: web.FileResponse(radar_path))
