@@ -347,7 +347,7 @@ const RA_WARN = { color: '#e0bd5a', weight: .8, opacity: .9, fillColor: '#c9a23c
 const O2SLUG = {}; for (const [k, v] of Object.entries(SLUG_NAME)) O2SLUG[v.split(' ')[0]] = k;
 const KIND_NAME = { air_raid: 'Повітряна тривога', artillery_shelling: 'Загроза обстрілу', urban_fights: 'Вуличні бої', chemical: 'Хімічна загроза', nuclear: 'Радіаційна загроза' };
 const TH_ICON = { drones: '🛸', ballistic_missiles: '🚀', cruise_missiles: '🚀', unspecified_missiles: '🚀', guided_aerial_bombs: '💣', kab: '💣' };
-function fmtDur(ms) { const m = Math.max(0, Math.floor(ms / 60000)), h = Math.floor(m / 60); return h ? `${h} год. ${m % 60} хв.` : `${m} хв.`; }
+function fmtDur(ms) { return durTxt(ms / 1000); }
 function openRegion(slug, raion) {
   if (!slug) return;
   const rs = document.getElementById('rsheet');
@@ -359,7 +359,8 @@ function openRegion(slug, raion) {
     const hl = raion && (a.title || '').startsWith(raion) ? 'outline:2px solid #fff;' : '';
     return `<div class="acard ${a.level === 'yellow' ? 'y' : ''}" style="${hl}"><div class="ai">${ic}</div><div><div class="a1">${a.title || a.raion}</div><div class="a2">${since ? (today ? 'Сьогодні' : since.toLocaleDateString('uk-UA')) + ', ' + since.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : ''}${since ? ' · ⏱ ' + fmtDur(now - since) : ''}${a.kind && a.kind !== 'air_raid' ? ' · ' + (KIND_NAME[a.kind] || a.kind) : ''}</div></div></div>`;
   };
-  const red = list.filter(a => a.level !== 'yellow'), yel = list.filter(a => a.level === 'yellow');
+  const t0 = dayStart(), byNew = (x, y) => isoTs(y) - isoTs(x), fresh = a => isoTs(a) >= t0 - 3600;
+  const red = list.filter(a => a.level !== 'yellow' && fresh(a)).sort(byNew), yel = list.filter(a => a.level === 'yellow' && fresh(a)).sort(byNew), longA = list.filter(a => !fresh(a)).sort(byNew);
   const chips = list.some(a => a.type === 'oblast') ? '<span class="red">Область</span>' : '';
   const cities = list.filter(a => a.type === 'city' || a.type === 'hromada').slice(0, 14).map(a => `<span>${esc(a.title.replace(' територіальна громада', ' тергромада'))}</span>`).join('');
   const mine = lastItems.filter(i => i.slug === slug);
@@ -367,7 +368,8 @@ function openRegion(slug, raion) {
   rs.innerHTML = `<div class="hd"><div><h3>${SLUG_NAME[slug] || slug}</h3><div class="tm">${now.getDate()} ${months[now.getMonth()]} о ${now.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}${th ? ' · ' + th : ''}</div></div><span class="x" id="rs-x">×</span></div>
     <div class="chips2">${chips}${cities}</div>
     ${yel.length ? `<h4>Потенційні загрози</h4>${yel.map(card).join('')}` : ''}
-    ${red.length ? `<h4>Активні</h4>${red.map(card).join('')}` : (yel.length ? '' : '<h4>Тривог немає</h4>')}
+    ${red.length ? `<h4>Активні</h4>${red.map(card).join('')}` : (yel.length || longA.length ? '' : '<h4>Тривог немає</h4>')}
+    ${longA.length ? `<h4>Довготривалі тривоги</h4>${longA.map(card).join('')}` : ''}
     ${mine.length ? `<h4>Цілі за зведеннями каналів · ${mine.length}</h4>` + mine.map(i => `<div class="acard t"><div class="ai" style="color:#222">${i.kind === 't' ? (isMissile(i.t.weapon) ? ICO.missile : ICO.drone) : CATS[i.cat].i}</div><div><div class="a1">${i.kind === 't' ? trackName(i.t) : (WNAME[i.e.weapon] || i.e.weapon)}</div><div class="a2">${i.kind === 't' ? (i.t.dest ? 'у напрямку ' + i.t.dest.name : (i.t.heading !== null ? compass(i.t.heading) : '')) : (i.e.place || '')} · ${ago(curTs() - i.ts)}</div></div></div>`).join('') : ''}`;
   rs.style.display = 'block'; rs.scrollTop = 0;
   document.getElementById('rs-x').onclick = () => { rs.style.display = 'none'; };
