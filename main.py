@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 import time
+from pathlib import Path
 
 import aiohttp
 from telethon import TelegramClient, events
@@ -40,6 +42,7 @@ from health_server import start_health_server
 from publisher import Publisher
 from regions import detect_kyiv_zone, detect_region, region_name
 from incident_fusion import extract_incident_fact
+from threat_parser import parse_post
 from source_policy import normalize_source, source_group
 from sticker import get_sticker_header
 from track_speed import build_track
@@ -133,6 +136,10 @@ async def run() -> None:
             settings.tg_api_id,
             settings.tg_api_hash,
         )
+        # Гео-сторож ДО «Моя зона»/geo-репорта: локация включённого сторожа не должна
+        # становиться публичным репортом на карте (StopPropagation внутри).
+        from guard_handlers import register_guard_handlers
+        register_guard_handlers(bot_client, db)
         register_handlers(bot_client, db, settings.admin_id, settings.webapp_url, settings.map_webapp_url)
         # Interests-модуль: команды /add_channel, /my_channels + кнопки тем.
         from interests_ui import register_interests_handlers
@@ -171,6 +178,16 @@ async def run() -> None:
     # entity напрямую из диалогов. Поэтому: подключаемся, обходим диалоги и
     # собираем готовые сущности для каждого искомого канала. Эти сущности и
     # передаём в NewMessage(chats=...) — это самый надёжный способ.
+    # Без интерактивного ввода: на сервере нет терминала, input() падал с EOFError и бот
+    # молча перезапускался в цикле. Теперь — внятная ошибка, уведомление админу и
+    # код выхода 2 (systemd: RestartPreventExitStatus=2 не крутит рестарты).
+    await client.connect()
+    # В интерактивном терминале даём войти (телефон + код); в сервисе (stdin не TTY) — выходим.
+    if not await client.is_user_authorized() and not sys.stdin.isatty():
+        await _report_session_failure(settings)
+        logger.error("Сессия Telegram не авторизована: войди вручную (python main.py в терминале) и перезапусти сервис.")
+        await client.disconnect()
+        raise SystemExit(2)
     await client.start()
     logger.info("Загружаю диалоги и резолвлю каналы…")
 
@@ -350,11 +367,36 @@ async def run() -> None:
             settings.standdown_notice, settings.pre_wave_notice,
         )
 
+    # --- гео-сторож: персональные предупреждения «цель приближается» ---
+    proximity_task = None
+    if bot_client is not None:
+        from proximity import proximity_loop
+        proximity_task = asyncio.create_task(
+            proximity_loop(db, bot_client, map_url=getattr(settings, "map_webapp_url", "") or ""),
+            name="guard-proximity",
+        )
+        logger.info("Гео-сторож включён (проверка цели ↔ точки пользователя каждые 20 сек).")
+
+    # --- предупреждения районам «можливо до вас» по трекам с измеренным курсом ---
+    district_task = None
+    watchdog_task = None
+    # Одна «жива» зведення хвилі в каналі (редагується, а не спамить окремими постами).
+    shelter_task = None
+    if bot_client is not None:
+        from shelter_card import card_loop
+        shelter_task = asyncio.create_task(card_loop(db, bot_client, getattr(settings, "map_webapp_url", "") or ""), name="shelter-card")
+    from wave_digest import digest_loop
+    digest_task = asyncio.create_task(digest_loop(db, publisher), name="wave-digest")
+    if bot_client is not None:
+        from district_warn import district_loop
+        district_task = asyncio.create_task(district_loop(db, bot_client), name="district-warn")
+        watchdog_task = asyncio.create_task(_ingest_watchdog(bot_client, settings.admin_id), name="ingest-watchdog")
+
     # --- официальный учёт сирен alerts.in.ua (опционально, по токену) ---
     sirens_task = None
     if settings.alerts_in_ua_token:
         sirens_task = asyncio.create_task(
-            _sirens_loop(db, settings.alerts_in_ua_token, http_session=http_session),
+            _sirens_loop(db, settings.alerts_in_ua_token, http_session=http_session, publisher=publisher, bot_client=bot_client),
             name="sirens-poll",
         )
         logger.info("Опрос сирен alerts.in.ua включён (раз в %d сек).", SIRENS_POLL_INTERVAL)
@@ -436,6 +478,19 @@ async def run() -> None:
                 await pre_wave_task
             except asyncio.CancelledError:
                 pass
+        for _task in (district_task, watchdog_task, digest_task, shelter_task):
+            if _task is not None:
+                _task.cancel()
+                try:
+                    await _task
+                except asyncio.CancelledError:
+                    pass
+        if proximity_task is not None:
+            proximity_task.cancel()
+            try:
+                await proximity_task
+            except asyncio.CancelledError:
+                pass
         if sirens_task is not None:
             sirens_task.cancel()
             try:
@@ -464,6 +519,18 @@ async def run() -> None:
         await http_session.close()
         db.close()
         logger.info("AirRadar AI остановлен.")
+
+
+from publish_dedup import PublishDedup
+_DEDUP = PublishDedup()
+
+
+def _impact_sources(settings) -> frozenset[str]:
+    """Ограничение источников наслідків: пусто = все моніторингові канали; IMPACT_SOURCES/OFFICIAL_SOURCES сужают список."""
+    extra = {normalize_source(x) for x in os.getenv("IMPACT_SOURCES", "").replace(";", ",").split(",") if x.strip()}
+    base = {x.lstrip("@").lower() for x in getattr(settings, "official_sources", ()) or ()}
+    # Пустой набор = принимаем все каналы мониторинга (фильтр по тексту делает impact_log).
+    return frozenset(extra and (base | {x.lstrip("@").lower() for x in extra}) or set())
 
 
 async def _process_message(
@@ -496,6 +563,7 @@ async def _process_message(
         )
     if not text:
         return  # медиа без текста и без распознанного — пропускаем
+    _LAST_INGEST[0] = time.time()
 
     # 0) Очистка подписи канала ДО всех проверок — хвост «➡️Підписатись»
     #    засоряет фильтр, дедупликацию и определение региона.
@@ -524,8 +592,39 @@ async def _process_message(
         from analytics import _detect_stage
         from weapon_classes import classify_weapon
         weapon = classify_weapon(text)
-        stage = _detect_stage(text, weapon)
         event_ts = int(getattr(message, "date", None).timestamp()) if getattr(message, "date", None) else int(time.time())
+        # Структурный разбор: новости/цитаты, события на чужой территории,
+        # статистика сбитых и реклама — не живая угроза (раньше попадали на карту).
+        parsed = parse_post(text, source)
+        # Наслідки (жертви, пошкодження) — только из официальных источников и с публикацией с задержкой.
+        try:
+            import impact_log
+            rec = impact_log.record_from_post(db, text, source, event_ts, parsed, _impact_sources(settings))
+            if rec and rec["kind"] == "hit" and os.getenv("PUBLISH_IMPACTS", "1") != "0" and time.time() - event_ts < 3600 \
+                    and (rec["precision"] == "place" or rec["killed"] or rec["injured"] or rec["flags"] or rec["damage"]):
+                await publisher.send(impact_log.impact_post_text(rec))
+        except Exception:  # noqa: BLE001 — журнал наслідків не должен ронять приём постов
+            logger.debug("impact_log не записал пост", exc_info=True)
+        # Початок/кінець повітряної тривоги — окремі пости (стан по областях, без дублів і балаканини).
+        try:
+            import alarm_notices
+
+            async def _notify(regs, msg):
+                if bot_client is not None:
+                    await _notify_subscribers(bot_client, db, regs, msg)
+                import push_fcm
+                await push_fcm.push_regions(db, regs, "🚨 ПОВІТРЯНА ТРИВОГА" if msg.startswith("🚨") else "🟢 Відбій", msg,
+                                            "alarm" if msg.startswith("🚨") else "info")
+            await alarm_notices.handle_post(db, publisher, _notify, text, source, event_ts)
+        except Exception:  # noqa: BLE001 — сповіщення про тривогу не повинні валити конвеєр
+            logger.exception("alarm_notices")
+        if parsed.kind in {"news", "foreign", "stats", "promo"}:
+            logger.info("Не угроза (%s) пропущено: %s", parsed.kind, text[:80])
+            db.record_inference_audit(event_ts=event_ts, source=source, model="threat_parser", raw_output="", decision="rejected", reason=parsed.kind)
+            return
+        if weapon == "unknown" and parsed.kind == "track" and parsed.weapon:
+            weapon = parsed.weapon  # «Чернігів, шахед на місто!» без ключевых слов классификатора
+        stage = _detect_stage(text, weapon)
         if weapon == "unknown":
             logger.info("Неклассифицированный пост пропущен: %s", text[:80])
             db.record_inference_audit(event_ts=event_ts, source=source, model=getattr(summarizer, "_model", "unknown"), raw_output="", decision="rejected", reason="unknown_weapon")
@@ -545,7 +644,11 @@ async def _process_message(
             "fpv": "uav", "recon_drone": "uav", "explosion": "explosion",
             "air_defense": "explosion", "mlrs": "artillery", "artillery": "artillery",
         }.get(weapon, "missile" if weapon not in {"unknown", "alert", "decoy"} else "other")
-        regions = detect_region(text, channel=source)
+        # Сводка по нескольким областям: берём ВСЕ области из парсера, а не
+        # то, что нашла подстрока (раньше «Рух шахедів» по 8 областям = 1 регион).
+        regions = list(parsed.oblasts) if parsed.kind == "track" and parsed.oblasts else detect_region(text, channel=source)
+        if parsed.observations:
+            db.add_observations(event_ts, str(source), parsed.observations, parsed.as_of)
         fact = extract_incident_fact(text, weapon, stage)
         group = source_group(source, getattr(settings, "source_groups", {}))
         # Официальный источник (OFFICIAL_SOURCES) подтверждает инцидент сразу:
@@ -569,7 +672,8 @@ async def _process_message(
         # без глагола движения) пишется в БД/карту, но не публикуется —
         # половина таких постов оказывается рутиной/устаревшей сводкой.
         unknown_ok = not getattr(settings, "in_flight_only", True)
-        publishable = weapon == "stand_down" or (
+        import alarm_notices as _alarm
+        publishable = (weapon == "stand_down" and not _alarm.suppress_old_standdown(text, source)) or (
             (stage == "imminent" or (stage == "unknown" and unknown_ok)) and public_class
         )
         # Непубликуемое (последствия удара, ППО, авиация) НЕ прерывает
@@ -601,14 +705,19 @@ async def _process_message(
                 confirmation=confirmation, track=track
             )
             publication = db.incident_publication(confirmation.get("key", ""))
+            _dup = False
             if publication and confirmation.get("material_update"):
                 published = await publisher.edit(str(publication["published_chat_id"]), int(publication["published_message_id"]), final_text)
+            elif not _DEDUP.allow(weapon, parsed, regions):
+                logger.info("Повтор уже опубликованного — в канал не идёт: %s", text[:80])
+                published = None
+                _dup = True
             else:
                 published = await publisher.send(final_text)
                 if published and confirmation.get("key"):
                     chat = published.get("chat", {})
                     db.save_incident_publication(confirmation["key"], str(chat.get("id", "")), int(published.get("message_id", 0)))
-            if not published:
+            if not published and not _dup:
                 logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
             if bot_client is not None and regions and published:
                 fkey = confirmation.get("key", "")
@@ -686,6 +795,47 @@ async def _process_message(
         db.channel_error(str(source), "military", str(exc))
 
 
+# Время последнего входящего поста с каналов: если лента молчит слишком долго, сессия
+# Telegram, скорее всего, слетела или каналы отвалились, а бот при этом «жив».
+_LAST_INGEST: list[float] = [time.time()]
+INGEST_SILENCE_S = 90 * 60
+
+
+async def _report_session_failure(settings) -> None:
+    """Один раз в час шлёт админу через Bot API: сессия слетела. Файл-маркер переживает рестарты."""
+    import json as _json
+    marker = Path(settings.db_path).with_name(".session_alert")
+    try:
+        if marker.exists() and time.time() - marker.stat().st_mtime < 3600:
+            return
+        import aiohttp
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as http:
+            await http.post(
+                f"https://api.telegram.org/bot{settings.bot_token}/sendMessage",
+                json={"chat_id": settings.admin_id,
+                      "text": "🔴 AirRadar: сессия Telegram не авторизована, бот остановлен. "
+                              "Нужен повторный вход (код из Telegram)."},
+            )
+        marker.write_text(_json.dumps({"ts": int(time.time())}))
+    except Exception:  # noqa: BLE001
+        logger.warning("Не удалось отправить уведомление о слетевшей сессии", exc_info=True)
+
+
+async def _ingest_watchdog(bot_client, admin_id: int, interval: int = 600) -> None:
+    last_alert = 0.0
+    while True:
+        await asyncio.sleep(interval)
+        silent = time.time() - _LAST_INGEST[0]
+        if silent > INGEST_SILENCE_S and time.time() - last_alert > 3 * 3600:
+            last_alert = time.time()
+            try:
+                await bot_client.send_message(
+                    admin_id, f"⚠️ Лента каналов молчит {int(silent // 60)} хв. Проверь сессию Telegram и источники "
+                              "(journalctl -u airradar-bot).")
+            except Exception:  # noqa: BLE001
+                logger.warning("watchdog: не удалось уведомить админа", exc_info=True)
+
+
 async def _publish_items(db: Database, publisher: Publisher, bot_client, items: list) -> None:
     """Опубликовать набор агрегированных сообщений одним постом.
 
@@ -727,6 +877,10 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
         published = await publisher.edit(
             str(publication["published_chat_id"]), int(publication["published_message_id"]), final_text
         )
+    elif not _DEDUP.allow(last.fact.weapon_class, parse_post(last.text, getattr(last, "source", "")),
+                          [slug for item in items for slug in item.regions if slug]):
+        logger.info("Повтор уже опубликованного — в канал не идёт: %s", last.text[:80])
+        return
     else:
         published = await publisher.send(final_text)
         if published:
@@ -891,7 +1045,7 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     feedback_key: ключ поста для кнопок «✅ корисно / ➖ шум / ❌ помилка» (если задан).
     """
     # Ночной режим не глушит отбой: определяем по первой строке рендера.
-    is_stand_down = text.startswith("🟢 ВІДБІЙ")
+    is_stand_down = text.startswith(("🟢 ВІДБІЙ", "🚨 ПОВІТРЯНА ТРИВОГА"))
     night_now = _is_night_time()
     # Критичный класс ночью доставляется всем; некритичный ночью — только
     # подписчикам БЕЗ ночного режима.
@@ -1094,7 +1248,7 @@ async def _pre_wave_loop(bot_client, db: Database, interval: int = PRE_WAVE_CHEC
 
 
 async def _sirens_loop(db: Database, token: str, http_session=None,
-                       interval: int = SIRENS_POLL_INTERVAL) -> None:
+                       interval: int = SIRENS_POLL_INTERVAL, publisher=None, bot_client=None) -> None:
     """Фоновый опрос официальных сирен alerts.in.ua → таблица siren_states.
 
     Данные нужны /status (свежесть) и сверке наших прогнозов с официальными
@@ -1106,20 +1260,41 @@ async def _sirens_loop(db: Database, token: str, http_session=None,
         timeout=aiohttp.ClientTimeout(total=20)
     )
     own_session = http_session is None
+    primed = False
     try:
         while True:
             incoming = await _sirens_fetch(session, token)
             if incoming is not None:
                 try:
-                    current = set(db.siren_states_active())
+                    # Райони («raion:…») — лише для карти: окремо від сповіщень по областях.
+                    raions = {k for k in incoming if k.startswith(("raion", "threat:"))}
+                    incoming = incoming - raions
+                    cur_all = set(db.siren_states_active())
+                    for k in raions:
+                        db.set_siren_state(k, True)
+                    for k in {k for k in cur_all if k.startswith(("raion", "threat:"))} - raions:
+                        db.set_siren_state(k, False)
+                    current = {k for k in cur_all if not k.startswith(("raion", "threat:"))}
+                    async def _notify(regs, msg):
+                        if bot_client is not None:
+                            await _notify_subscribers(bot_client, db, regs, msg)
+                        import push_fcm
+                        await push_fcm.push_regions(db, regs, "🚨 ПОВІТРЯНА ТРИВОГА" if msg.startswith("🚨") else "🟢 Відбій", msg,
+                                                    "alarm" if msg.startswith("🚨") else "info")
+                    import alarm_notices
                     for slug in sorted(incoming - current):
                         db.set_siren_state(slug, True)
                         logger.info("Сирена ВКЛ (официально): %s", slug)
+                        if publisher is not None and primed:   # первый опрос после старта не засыпает канал
+                            await alarm_notices.apply(db, publisher, _notify, "start", [slug], int(time.time()))
                     for slug in sorted(current - incoming):
                         db.set_siren_state(slug, False)
                         logger.info("Сирена ВЫКЛ (официально): %s", slug)
+                        if publisher is not None:
+                            await alarm_notices.apply(db, publisher, _notify, "end", [slug], int(time.time()))
                     for slug in sorted(incoming & current):
                         db.set_siren_state(slug, True)  # обновить updated_ts
+                    primed = True
                 except Exception:  # noqa: BLE001 — БД не роняет цикл
                     logger.exception("Сирены: не удалось сохранить состояния")
             await asyncio.sleep(interval)
@@ -1135,7 +1310,8 @@ async def _sirens_fetch(session, token: str) -> set[str] | None:
     payload = await fetch_active_alerts(session, token)
     if payload is None:
         return None
-    return active_alert_slugs(payload)
+    from sirens import active_extra_keys, active_raion_keys
+    return active_alert_slugs(payload) | active_raion_keys(payload) | active_extra_keys(payload)
 
 
 async def _accuracy_post_loop(db: Database, publisher=None, *,

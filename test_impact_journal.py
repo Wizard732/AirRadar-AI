@@ -111,8 +111,10 @@ class ImpactJournalTests(unittest.TestCase):
         (explosion). Пары пуск→прилёт считает estimate_eta по таблице threats.
         """
         publisher = FakePublisher()
-        base = datetime(2026, 9, 28, 12, 0, tzinfo=timezone.utc)
         from datetime import timedelta
+        # Относительная дата: estimate_eta смотрит только последние HISTORY_DAYS,
+        # фиксированная дата в тесте со временем «протухает».
+        base = datetime.now(timezone.utc) - timedelta(hours=3)
         for i in range(3):
             self._process(
                 f"БпЛА курсом на Київ, кількість невідома {i}",

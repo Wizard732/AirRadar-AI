@@ -10,6 +10,8 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/airradar/.venv/bin/python main.py
 Restart=always
 RestartSec=10
+# Код 2 = сессия Telegram слетела: рестарты не помогут, нужен ручной вход.
+RestartPreventExitStatus=2
 
 [Install]
 WantedBy=multi-user.target

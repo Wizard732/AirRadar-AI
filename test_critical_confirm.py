@@ -111,7 +111,7 @@ class CriticalConfirmPipelineTests(unittest.TestCase):
 
         self.assertEqual(len(self.publisher.sent), 1, "подтверждённый инцидент публикуется")
         text = self.publisher.sent[0]
-        self.assertIn("| Балістика", text)
+        self.assertIn("\nБалістика\n", text)
         self.assertIn("підтверджено 2 незалежними джерелами", text)
         # Обрывок подписи/имя источника в пост не просачиваются.
         self.assertNotIn("channel_a", text)

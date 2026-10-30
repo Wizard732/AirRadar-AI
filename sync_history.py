@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 
 from telethon import TelegramClient
@@ -26,6 +27,7 @@ from database import Database
 from fast_filter import clean_signature, matches_keywords
 from regions import detect_region
 from sticker import classify_threat
+from threat_parser import parse_post
 from weapon_classes import classify_weapon
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s")
@@ -83,8 +85,18 @@ async def sync_channel(client: TelegramClient, db: Database, channel: str, since
             stats["skipped"] += 1
             db.update_history_cursor(source, message.id, event_ts)
             continue
+        # Тот же разбор, что и в живом конвейере: новости/чужая территория/статистика/реклама
+        # не пишутся, сводки раскладываются на все области + наблюдения для треков.
+        parsed = parse_post(text, source)
+        if parsed.kind in ("news", "foreign", "stats", "promo"):
+            stats["skipped"] += 1
+            db.update_history_cursor(source, message.id, event_ts)
+            continue
+        if parsed.observations and event_ts >= time.time() - 24 * 3600:
+            db.add_observations(event_ts, source, parsed.observations, parsed.as_of)
         threat_type, weapon, stage = event_fields(text)
-        regions = detect_region(text, channel=source) or ["unknown"]
+        regions = (list(parsed.oblasts) if parsed.kind == "track" and parsed.oblasts else None) \
+            or detect_region(text, channel=source) or ["unknown"]
         if regions == ["unknown"]:
             stats["unknown"] += 1
         outcome = "impact" if stage == "impact" else "unknown"

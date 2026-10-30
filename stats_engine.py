@@ -88,12 +88,20 @@ def stats_payload(db, now: int | None = None) -> dict[str, Any]:
             hours[kyiv_hour(ts)] += 1
             regions[r] = regions.get(r, 0) + 1
     top = [{"slug": s, "name": region_name(s), "n": n} for s, n in sorted(regions.items(), key=lambda x: -x[1])[:10]]
-    active = sorted({r for _, r, b in sigs if b * BUCKET_S >= now - 1800})
+    # Корзина — [b·B, (b+1)·B): активна, якщо її кінець не старіший за 15 хв (стара перевірка за початком корзини губила свіжі сигнали).
+    active = sorted({r for _, r, b in sigs if (b + 1) * BUCKET_S >= now - 900})
     try:
         import forecast_eval
         acc = forecast_eval.accuracy(db, now)
     except Exception:  # noqa: BLE001 — метрика не ламає статистику
         acc = {"pct": None, "resolved": 0}
-    return {"now": now, "accuracy": acc, "periods": periods, "days": days, "hours": hours, "regions": top,
+    try:
+        with db._lock:  # noqa: SLF001
+            srows = db._conn.execute("SELECT source, MAX(ingested_ts) FROM threat_events WHERE ingested_ts>=? GROUP BY source", (now - 7 * 86400,)).fetchall()  # noqa: SLF001
+        sources = {"active": sum(1 for _, t in srows if t and t >= now - 1800), "total": len(srows),
+                   "last_ts": max((t for _, t in srows if t), default=0)}
+    except Exception:  # noqa: BLE001
+        sources = {"active": 0, "total": 0, "last_ts": 0}
+    return {"now": now, "accuracy": acc, "sources": sources, "periods": periods, "days": days, "hours": hours, "regions": top,
             "active_regions": active, "cats": {k: {"name": v[0], "icon": v[1]} for k, v in CATS.items()},
             "note": "Сигнали = унікальні (вид, область, 30 хв) зі зведень каналів, а не реєстр пусків."}

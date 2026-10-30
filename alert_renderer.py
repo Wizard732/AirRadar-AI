@@ -88,6 +88,105 @@ def _region_title(fact: IncidentFact) -> str:
     return ""
 
 
+_OBLAST_SHORT = {
+    "kyivska": "Київщина", "sumska": "Сумщина", "chernigivska": "Чернігівщина", "poltavska": "Полтавщина",
+    "kharkivska": "Харківщина", "dnipropetrovska": "Дніпропетровщина", "zaporizka": "Запоріжжя",
+    "khersonska": "Херсонщина", "mykolaivska": "Миколаївщина", "odeska": "Одещина",
+    "kirovohradska": "Кіровоградщина", "cherkaska": "Черкащина", "vinnytska": "Вінниччина",
+    "zhytomyrska": "Житомирщина", "rivnenska": "Рівненщина", "volynska": "Волинь",
+    "khmelnytska": "Хмельниччина", "ternopilska": "Тернопільщина", "lvivska": "Львівщина",
+    "zakarpatska": "Закарпаття", "ivano_frankivska": "Прикарпаття", "chernivetska": "Буковина",
+    "donetska": "Донеччина", "luhanska": "Луганщина", "crimea": "Крим",
+}
+_MAX_PLACES_PER_OBLAST = 6
+
+
+def compact_roundup(text: str) -> str:
+    """Сводка по областям → компактный блок без воды; '' если пост не сводка.
+
+    Было: полный текст канала (иногда 1200 знаков с эмодзи-шапками и подписями).
+    Стало: по строке на область — «Сумщина · 2: Боромля, Лебедин». Названия и числа
+    только из распознанных наблюдений, ничего не додумываем.
+    """
+    from threat_parser import parse_post
+    parsed = parse_post(text)
+    obs = [o for o in parsed.observations if o.oblast and o.relation != "from"]
+    if parsed.kind != "track" or len({o.oblast for o in obs}) < 2 and len(obs) < 4:
+        return ""
+    groups: dict[str, list] = {}
+    for o in obs:
+        groups.setdefault(o.oblast, []).append(o)
+    lines = []
+    for slug, items in groups.items():
+        total = next((o.group_count for o in items if o.group_count), None)
+        if total is None:
+            counted = [o.count for o in items if o.count]
+            total = sum(counted) if counted and len(counted) == len(items) else None
+        places = []
+        for o in items:
+            if not o.place:
+                continue
+            name = _disp(o)
+            label = f"{name} ({o.count})" if o.count and o.count > 1 and o.relation != "toward" else name
+            if o.relation == "toward":
+                label = (f"{o.count}× " if o.count and o.count > 1 else "") + f"→ {name}"
+            elif o.relation == "via":
+                label = f"через {name}"
+            if label not in places:
+                places.append(label)
+        shown = places[:_MAX_PLACES_PER_OBLAST]
+        more = len(places) - len(shown)
+        tail = ", ".join(shown) + (f" +{more}" if more > 0 else "")
+        head = _OBLAST_SHORT.get(slug, region_name(slug)) + (f" · {total}" if total else "")
+        lines.append(f"{head}: {tail}" if tail else head)
+    return "\n".join(lines)
+
+
+def _disp(o) -> str:
+    """Название пункта в именительном падеже («Одесу» → «Одеса»), если он есть в справочнике."""
+    from threat_parser import locate
+    if not o.place:
+        return ""
+    geo = locate(o.place, o.oblast) if o.precision in ("place", "approx") else None
+    return geo.name if geo and geo.precision == "place" else o.place
+
+
+def _short(slug: str) -> str:
+    return _OBLAST_SHORT.get(slug, region_name(slug))
+
+
+def _structured_body(parsed) -> tuple[str, list[str]]:
+    """Разбор поста → (регионы для шапки, строки «Зараз / Курс / Звідки») для простого поста.
+
+    Для сводок по нескольким областям строк нет — их рисует compact_roundup."""
+    obs = [o for o in parsed.observations if o.oblast or o.place]
+    regions = " · ".join(_short(x) for x in parsed.oblasts[:2]) + (f" +{len(parsed.oblasts) - 2}" if len(parsed.oblasts) > 2 else "")
+    if len(parsed.oblasts) >= 2 or len(obs) >= 4:
+        return regions, []
+    now = [_disp(o) for o in obs if o.relation in ("at", "near") and o.place]
+    aim = [_disp(o) for o in obs if o.relation == "toward" and o.place]
+    via = [_disp(o) for o in obs if o.relation == "via" and o.place]
+    lines = []
+    if now:
+        lines.append("📍 Зараз: " + ", ".join(dict.fromkeys(now)))
+    if via:
+        lines.append("↪️ Через: " + ", ".join(dict.fromkeys(via)))
+    if aim:
+        lines.append("➡️ Курс на: " + ", ".join(dict.fromkeys(aim)))
+    elif not now and parsed.oblasts:
+        lines.append("📍 Зараз: " + ", ".join(_short(x) for x in parsed.oblasts))
+    origin = _origin_text(parsed)
+    if origin:
+        lines.append("↩️ Звідки: " + origin)
+    return regions, lines
+
+
+def _origin_text(parsed) -> str:
+    places = [_disp(o) for o in parsed.observations if o.relation == "from" and o.place and not o.place.endswith("ька")]
+    names = places or [_short(x) for x in parsed.origins]
+    return ", ".join(dict.fromkeys(names))
+
+
 def render_evidence_alert(
     *, text: str, source: str, event_ts: int, fact: IncidentFact, confirmation: dict,
     sources: list[str] | None = None, track: dict | None = None,
@@ -116,10 +215,25 @@ def render_evidence_alert(
         weapon = f"{weapon} (реактивний)"
     emoji = _SEVERITY_EMOJI.get(weapon_severity(fact.weapon_class), "⚪")
     place = _region_title(fact)
-    head = f"{emoji} {place.upper()} | {weapon}" if place else f"{emoji} {weapon}"
-    lines = [head, ""]
-    lines.append(f"🕒 {when}")
-    if fact.origin_region and fact.destination_region and fact.destination_region != "unknown":
+    from threat_parser import parse_post
+    parsed = parse_post(text)
+    struct: list[str] = []
+    if parsed.kind == "track" and parsed.oblasts:
+        # Шапка: где цель СЕЙЧАС (область «звідки» сюда не попадает); тип оружия — отдельной строкой ниже.
+        regions, struct = _structured_body(parsed)
+        lines = [f"{emoji} {regions.upper()}", weapon, "", f"🕒 {when}"]
+        lines.extend(struct)
+        if not struct:
+            origin = _origin_text(parsed)
+            if origin:
+                lines.append("↩️ Звідки: " + origin)
+    else:
+        head = f"{emoji} {place.upper()} | {weapon}" if place else f"{emoji} {weapon}"
+        lines = [head, ""]
+        lines.append(f"🕒 {when}")
+    if parsed.kind == "track" and parsed.oblasts:
+        pass  # «Звідки/Курс» уже выведены из наблюдений
+    elif fact.origin_region and fact.destination_region and fact.destination_region != "unknown":
         lines.append(
             f"📍 Рух: цілі прямують з {region_name(fact.origin_region)} "
             f"на {region_name(fact.destination_region)}"
@@ -141,7 +255,8 @@ def render_evidence_alert(
         eta = weapon_eta(fact.weapon_class, getattr(fact, "speed_profile", ""))
         if eta and eta != "—":
             lines.append(f"⏱ Типовий підліт: {eta} (орієнтовно)")
-    lines.append("")
+    if lines[-1] != "":
+        lines.append("")
     status_line = _status(confirmation)
     if status_line:
         lines.append(f"⚠️ Статус: {status_line}")
@@ -150,9 +265,14 @@ def render_evidence_alert(
     # схлопывать в одну строку нечитаемо). Лимит 1200: полные сводки
     # мониторинга со списком направлений не режутся на полуслове, а лимит
     # поста Telegram (4096) всё равно страхует сверху.
-    body = "\n".join(line.strip() for line in text.splitlines() if line.strip())
-    lines.append("")
-    lines.append(body[:1200])
-    lines.append("")
+    if struct:
+        body = ""   # весь смысл уже в строках «Зараз / Курс»; пересказ источника не нужен
+    else:
+        body = compact_roundup(text) or "\n".join(line.strip() for line in text.splitlines() if line.strip())
+    if body:
+        lines.append("")
+        lines.append(body[:1200])
+    if lines[-1] != "":
+        lines.append("")
     lines.append(SOURCE_BRAND_LINE)
     return "\n".join(lines)[:4000]

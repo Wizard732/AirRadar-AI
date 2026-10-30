@@ -1,0 +1,8 @@
+[Unit]
+Description=AirRadar daily database backup
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/airradar
+ExecStart=/opt/airradar/.venv/bin/python /opt/airradar/backup_db.py
+Nice=10

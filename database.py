@@ -451,6 +451,69 @@ class Database:
             )
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ent_ts ON threat_entities(ts)")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_ent_region ON threat_entities(region)")
+            # Структурные наблюдения из threat_parser: одна строка = один объект/
+            # группа в конкретном месте. Из них карта строит треки (вектор,
+            # скорость), поэтому храним координаты и время самого наблюдения.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS track_observations (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_ts    INTEGER NOT NULL,        -- время сообщения
+                    as_of       TEXT    NOT NULL DEFAULT '',  -- «станом на HH:MM»
+                    source      TEXT    NOT NULL DEFAULT '',
+                    weapon      TEXT    NOT NULL,
+                    profile     TEXT    NOT NULL DEFAULT '',
+                    count       INTEGER,
+                    group_count INTEGER,
+                    oblast      TEXT    NOT NULL DEFAULT '',
+                    place       TEXT    NOT NULL DEFAULT '',
+                    relation    TEXT    NOT NULL DEFAULT 'at',
+                    lat         REAL,
+                    lon         REAL,
+                    precision   TEXT    NOT NULL DEFAULT 'none',
+                    heading_from TEXT   NOT NULL DEFAULT ''
+                )
+                """
+            )
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_obs_ts ON track_observations(event_ts)")
+            # «Гео-сторож»: точка пользователя (live-локация или фиксированная) для
+            # персональных предупреждений о приближении цели. Точные координаты
+            # хранятся только пока сторож включён и удаляются при выключении.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guard_points (
+                    user_id    INTEGER PRIMARY KEY,
+                    enabled    INTEGER NOT NULL DEFAULT 0,
+                    radius_km  REAL    NOT NULL DEFAULT 10,
+                    lat        REAL,
+                    lon        REAL,
+                    live       INTEGER NOT NULL DEFAULT 0,
+                    updated_ts INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS district_warn_state (
+                    track_key TEXT NOT NULL,
+                    region    TEXT NOT NULL,
+                    sent_ts   INTEGER NOT NULL,
+                    PRIMARY KEY (track_key, region)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guard_state (
+                    user_id   INTEGER NOT NULL,
+                    track_key TEXT    NOT NULL,
+                    level     TEXT    NOT NULL,
+                    distance  REAL    NOT NULL DEFAULT 0,
+                    sent_ts   INTEGER NOT NULL,
+                    PRIMARY KEY (user_id, track_key)
+                )
+                """
+            )
             # Журнал отправленных сводок (защита от спама при рестартах).
             cur.execute(
                 """
@@ -494,6 +557,141 @@ class Database:
                     self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось записать угрозу в БД: %s", exc)
+
+    def add_observations(self, event_ts: int, source: str, observations, as_of: str = "") -> int:
+        """Записать наблюдения threat_parser; возвращает число вставленных строк."""
+        rows = [
+            (event_ts, as_of, source, o.weapon, o.profile, o.count, o.group_count, o.oblast, o.place,
+             o.relation, o.lat, o.lon, o.precision, o.heading_from)
+            for o in observations
+        ]
+        if not rows:
+            return 0
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.executemany(
+                    "INSERT INTO track_observations (event_ts, as_of, source, weapon, profile, count, group_count, "
+                    "oblast, place, relation, lat, lon, precision, heading_from) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    rows,
+                )
+                self._conn.commit()
+            return len(rows)
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать наблюдения: %s", exc)
+            return 0
+
+    # --- Гео-сторож -----------------------------------------------------
+    def set_guard(self, user_id: int, enabled: bool, radius_km: float | None = None) -> None:
+        """Включить/выключить сторож. При выключении точка и состояние стираются."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                if enabled:
+                    self._conn.execute(
+                        "INSERT INTO guard_points (user_id, enabled, radius_km) VALUES (?, 1, ?) "
+                        "ON CONFLICT(user_id) DO UPDATE SET enabled = 1, radius_km = COALESCE(?, radius_km)",
+                        (user_id, radius_km or 10.0, radius_km),
+                    )
+                else:
+                    self._conn.execute("DELETE FROM guard_points WHERE user_id = ?", (user_id,))
+                    self._conn.execute("DELETE FROM guard_state WHERE user_id = ?", (user_id,))
+                self._conn.commit()
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось сохранить гео-сторож: %s", exc)
+
+    def get_guard(self, user_id: int) -> dict[str, Any] | None:
+        with self._lock:
+            assert self._conn is not None
+            row = self._conn.execute("SELECT * FROM guard_points WHERE user_id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+
+    def update_guard_location(self, user_id: int, lat: float, lon: float, live: bool, now: int | None = None) -> bool:
+        """Обновить позицию; True, если сторож у пользователя включён."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                cur = self._conn.execute(
+                    "UPDATE guard_points SET lat = ?, lon = ?, live = ?, updated_ts = ? "
+                    "WHERE user_id = ? AND enabled = 1",
+                    (lat, lon, 1 if live else 0, now if now is not None else int(time.time()), user_id),
+                )
+                self._conn.commit()
+                return cur.rowcount > 0
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось обновить позицию сторожа: %s", exc)
+            return False
+
+    def active_guards(self, now: int, live_ttl: int = 600) -> list[dict[str, Any]]:
+        """Сторожа с позицией: live-точка живёт live_ttl секунд без обновлений, фиксированная — всегда."""
+        with self._lock:
+            assert self._conn is not None
+            rows = self._conn.execute(
+                "SELECT * FROM guard_points WHERE enabled = 1 AND lat IS NOT NULL AND "
+                "(live = 0 OR updated_ts >= ?)", (now - live_ttl,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def guard_states(self, user_id: int) -> dict[str, dict[str, Any]]:
+        with self._lock:
+            assert self._conn is not None
+            rows = self._conn.execute("SELECT * FROM guard_state WHERE user_id = ?", (user_id,)).fetchall()
+        return {r["track_key"]: dict(r) for r in rows}
+
+    def set_guard_state(self, user_id: int, track_key: str, level: str, distance: float, now: int) -> None:
+        with self._lock:
+            assert self._conn is not None
+            self._conn.execute(
+                "INSERT INTO guard_state (user_id, track_key, level, distance, sent_ts) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(user_id, track_key) DO UPDATE SET level = ?, distance = ?, sent_ts = ?",
+                (user_id, track_key, level, distance, now, level, distance, now),
+            )
+            self._conn.commit()
+
+    def clear_guard_state(self, user_id: int, track_key: str) -> None:
+        with self._lock:
+            assert self._conn is not None
+            self._conn.execute("DELETE FROM guard_state WHERE user_id = ? AND track_key = ?", (user_id, track_key))
+            self._conn.commit()
+
+    def district_warned(self, track_key: str, region: str) -> int | None:
+        with self._lock:
+            assert self._conn is not None
+            row = self._conn.execute(
+                "SELECT sent_ts FROM district_warn_state WHERE track_key = ? AND region = ?", (track_key, region)
+            ).fetchone()
+        return int(row["sent_ts"]) if row else None
+
+    def district_last_for_region(self, region: str) -> int:
+        with self._lock:
+            assert self._conn is not None
+            row = self._conn.execute(
+                "SELECT MAX(sent_ts) AS ts FROM district_warn_state WHERE region = ?", (region,)
+            ).fetchone()
+        return int(row["ts"] or 0)
+
+    def mark_district_warned(self, track_key: str, region: str, now: int) -> None:
+        with self._lock:
+            assert self._conn is not None
+            self._conn.execute(
+                "INSERT OR REPLACE INTO district_warn_state (track_key, region, sent_ts) VALUES (?, ?, ?)",
+                (track_key, region, now),
+            )
+            self._conn.execute("DELETE FROM district_warn_state WHERE sent_ts < ?", (now - 86400,))
+            self._conn.commit()
+
+    def recent_observations(self, since_ts: int, weapon: str = "") -> list[dict[str, Any]]:
+        """Наблюдения с since_ts (старые → новые) для построения треков карты."""
+        sql = "SELECT * FROM track_observations WHERE event_ts >= ?"
+        args: list[Any] = [since_ts]
+        if weapon:
+            sql += " AND weapon = ?"
+            args.append(weapon)
+        sql += " ORDER BY event_ts, id"
+        with self._lock:
+            assert self._conn is not None
+            return [dict(r) for r in self._conn.execute(sql, args).fetchall()]
 
     def claim_history_message(self, source: str, message_id: int, event_ts: int) -> bool:
         """Пометить Telegram-сообщение обработанным; True только при первом импорте."""

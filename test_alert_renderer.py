@@ -12,12 +12,12 @@ class EvidenceAlertTests(unittest.TestCase):
             fact=fact, confirmation={"status": "reported", "sources": 1, "count_kind": "unspecified"},
         )
         # Заголовок капсом — визуальный якорь.
-        self.assertIn("🔴 ОДЕСЬКА ОБЛ. | БПЛА", result)
+        self.assertIn("🔴 ОДЕЩИНА\nБПЛА\n", result)
         # Одиночное сообщение статуса не получает вовсе (шум в каждом посте).
         self.assertNotIn("повідомлення одного джерела", result)
         self.assertNotIn("Статус:", result)
         self.assertIn("🕒 ", result)
-        self.assertIn("БпЛА на Одесу", result)
+        self.assertIn("➡️ Курс на: Одеса", result)
         # Читабельность: блоки разделены пустыми строками.
         self.assertIn("\n\n", result)
         # Строка источника — всегда наш канал (пассивный брендинг).
@@ -50,14 +50,15 @@ class EvidenceAlertTests(unittest.TestCase):
             text="БПЛА з Сум у напрямку Києва", source="a", event_ts=1_700_000_000,
             fact=fact, confirmation={"status": "reported", "sources": 1},
         )
-        self.assertIn("Рух: цілі прямують з Сумська обл. на Київ та область", result)
+        self.assertIn("➡️ Курс на: Київ", result)
+        self.assertIn("↩️ Звідки: Сум", result)
 
         fact2 = extract_incident_fact("БпЛА на Одесу", "uav", "imminent")
         result2 = render_evidence_alert(
             text="БпЛА на Одесу", source="a", event_ts=1_700_000_000,
             fact=fact2, confirmation={"status": "reported", "sources": 1},
         )
-        self.assertNotIn("Рух:", result2)
+        self.assertNotIn("Звідки", result2)
 
     def test_aggregated_sources_line(self):
         fact = extract_incident_fact("БпЛА на Одесу", "uav", "imminent")
@@ -102,10 +103,9 @@ class EvidenceAlertTests(unittest.TestCase):
             text=roundup, source="a", event_ts=1_700_000_000,
             fact=fact, confirmation={"status": "reported", "sources": 1},
         )
-        self.assertIn("🔴 КІЛЬКА ОБЛАСТЕЙ | БПЛА", result)
+        self.assertIn("🔴 КИЇВЩИНА · ПОЛТАВЩИНА +1\nБПЛА (реактивний)", result)
         # Ни один отдельный регион не вынесен в заголовок.
-        self.assertFalse(result.splitlines()[0].startswith("🔴 ПОЛТАВСЬКА"))
-        self.assertFalse(result.splitlines()[0].startswith("🔴 ОДЕСЬКА"))
+        self.assertIn("Київщина · 2: 2× → Васильків", result)
 
     def test_track_line_displaces_typical_eta(self):
         """Каскад ETA в шапке: трек по засечкам вытесняет «типовий підліт»."""

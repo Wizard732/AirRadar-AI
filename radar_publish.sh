@@ -11,11 +11,11 @@ if [ ! -d "$DIR/.git" ]; then
   git config user.name "AirRadar bot" && git config user.email "bot@airradar.local"
   cd /opt/airradar
 fi
-./.venv/bin/python export_radar.py "$DIR/tracks.json"
+./.venv/bin/python export_radar.py "$DIR"
 rc=$?
 [ "$rc" = 10 ] && exit 0
 [ "$rc" != 0 ] && exit "$rc"
 cd "$DIR"
-git add tracks.json
+git add tracks.json stats.json impacts.json
 git commit -q --amend -m "radar data" 2>/dev/null || git commit -q -m "radar data"
 git push -q -f origin radar-data

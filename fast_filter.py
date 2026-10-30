@@ -104,6 +104,13 @@ _WHOLE_WORD_KEYWORDS = frozenset({
     "шах", "каб", "фаб", "реб", "рэб", "град", "залп", "борт", "борти",
     "авіа", "авиа", "пво", "ппо", "fpv", "uav", "strike", "мiна", "міна",
     "летит", "летить", "летять", "летят", "йде", "йдуть", "іде", "движется",
+    "куб",
+})
+
+# Короткі основи, що мають збігатися лише з ПОЧАТКУ слова (але з будь-яким закінченням):
+# «скат» є в «спускатися», «зала» — в «залаштунки», «уар» — в «квартуар», «упал» — у «наступали».
+_WORD_START_KEYWORDS = frozenset({
+    "скат", "зала", "уар", "упал", "упала", "упало", "упали", "впав", "впала", "впало", "впали",
 })
 
 
@@ -111,6 +118,8 @@ def contains_keyword(text: str, keyword: str) -> bool:
     """Проверить термин, не принимая короткие фрагменты слов за угрозу."""
     if keyword in _WHOLE_WORD_KEYWORDS:
         return re.search(rf"(?<![\w]){re.escape(keyword)}(?![\w])", text) is not None
+    if keyword in _WORD_START_KEYWORDS:
+        return re.search(rf"(?<![\w]){re.escape(keyword)}", text) is not None
     return keyword in text
 
 

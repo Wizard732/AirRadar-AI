@@ -27,6 +27,7 @@ from telethon.errors import MessageNotModifiedError
 from kyiv_time import fmt as kyiv_fmt
 
 from database import Database
+import menu_screens as ms
 from city_coords import region_for_point
 from eta import build_eta_text
 from fast_filter import public_text
@@ -39,18 +40,7 @@ from regions import (
 )
 
 
-def _webapp_button(text: str, url: str):
-    """Кнопка-WebApp, совместимая с telethon 1.36–1.44 и 1.45+.
-
-    В 1.45 схема TL переехала на единый KeyboardInlineButton с
-    InlineButtonTypeWebView, а старый KeyboardButtonWebView исчез.
-    """
-    try:
-        from telethon.tl.types import KeyboardButtonWebView  # telethon < 1.45
-        return KeyboardButtonWebView(text=text, url=url)
-    except ImportError:
-        from telethon.tl.types import InlineButtonTypeWebView, KeyboardInlineButton
-        return KeyboardInlineButton(text, InlineButtonTypeWebView(url))
+_webapp_button = ms.webapp_button
 
 logger = logging.getLogger(__name__)
 
@@ -124,27 +114,39 @@ CB_INTERESTS = "interests"  # переход в Interests-модуль
 
 # Подписи постоянных reply-кнопок (бабушка-режим): всегда под клавиатурой.
 # Хендлер _any_text_menu распознаёт эти строки и выполняет действие сразу.
-RB_REGIONS = "🗺 Области"
-RB_ACTIVE = "🚨 Текущие угрозы"
+RB_REGIONS = "🏙 Області"
+RB_ACTIVE = "🚨 Зараз"
 RB_STATS = "📊 Статистика"
 RB_ZONE = "🎯 Моя зона"
 RB_SHELTER = "🛡 Укриття"
-RB_SUBS = "🔔 Мои подписки"
-RB_HELP = "❓ Как пользоваться"
+RB_SUBS = "🔔 Підписки"
+RB_HELP = "🏠 Меню"
+RB_MAP = "🗺 Карта"
+RB_HIST = "💥 Історія"
+RB_IMP = "🔥 Наслідки"
+RB_GUARD = "🛡 Сторож"
+RB_TRACKS = "🛰 Цілі"
+RB_PLACES = "📍 Місця"
+RB_SHEL = "🏚 Укриття поруч"
+RB_FAMILY = "👪 Родина"
+RB_SAFE = "✅ Я в укритті"
+RB_APP = "📱 Додаток"
+# Старі підписи (клавіатура у вже відкритих чатах) працюють, доки користувач не натисне /start.
+RB_LEGACY = {
+    "🗺 Области": RB_REGIONS, "🚨 Текущие угрозы": RB_ACTIVE, "🔔 Мои подписки": RB_SUBS, "❓ Как пользоваться": RB_HELP,
+}
 
 
 def _persistent_kb() -> list:
-    """Постоянная reply-клавиатура: большие кнопки, всегда на экране.
-
-    Text-кнопки не требуют «ввода текста» — нажатие просто отправляет
-    подпись как сообщение, хендлер ловит и выполняет действие.
-    resize_keyboard=True — компактные кнопки, как в обычных приложениях.
-    """
+    """Постійна reply-клавіатура: великі кнопки, завжди на екрані, вводити текст не потрібно."""
+    t = lambda label: Button.text(label, resize=True)
     return [
-        [Button.text(RB_ACTIVE, resize=True), Button.text(RB_REGIONS, resize=True)],
-        [Button.text(RB_ZONE, resize=True), Button.text(RB_SHELTER, resize=True)],
-        [Button.text(RB_SUBS, resize=True), Button.text(RB_STATS, resize=True)],
-        [Button.text(RB_HELP, resize=True)],
+        [t(RB_MAP), t(RB_TRACKS), t(RB_ACTIVE)],
+        [t(RB_STATS), t(RB_HIST), t(RB_IMP)],
+        [t(RB_GUARD), t(RB_PLACES), t(RB_SHEL)],
+        [t(RB_FAMILY), t(RB_SAFE), t(RB_APP)],
+        [t(RB_ZONE), t(RB_SUBS), t(RB_REGIONS)],
+        [t(RB_HELP)],
     ]
 
 
@@ -168,33 +170,26 @@ def _main_menu_kb():
 
 
 def _main_menu_with_webapp(webapp_url: str, map_webapp_url: str = ""):
-    """Главное меню + кнопка-WebApp (Mini App открывается по URL).
-
-    Рядом с WebApp-кнопкой добавляется обычная URL-кнопка: карта всегда
-    открывается и в браузере, даже если Telegram-клиент не поддерживает
-    WebApp-кнопки или домен не привязан к боту.
-    """
+    """Головне меню: усе керується кнопками. WebApp-кнопки (карта, Mini App) — якщо задано адресу сайту."""
     rows = []
-    if map_webapp_url:
-        rows.append([_webapp_button("🗺 Live threat map", map_webapp_url)])
-        rows.append([Button.url("🌐 Відкрити карту в браузері", map_webapp_url)])
-    if webapp_url:
-        rows.append([_webapp_button("⚙️ Settings (Mini App)", webapp_url)])
-    return rows + [
-        [Button.inline("🪖 Военные алерты", data=CB_REGION_PAGE + "0")],
-        [
-            Button.inline("🎯 Моя зона", data=CB_MY_ZONE),
-            Button.inline("🛡 Укриття", data=CB_SHELTER),
-        ],
-        [Button.inline("📍 Повідомити загрозу", data=CB_REPORT)],
-        [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS)],
+    base = ms.site_base(map_webapp_url)
+    if base:
+        rows.append([_webapp_button("🗺 Карта", base + "/"), _webapp_button("📱 Mini App", ms.app_url(map_webapp_url))])
+    rows += [
+        [Button.inline("🚨 Зараз", data=CB_ACTIVE), Button.inline("🛰 Цілі на карті", data=ms.CB_TRACKS)],
+        [Button.inline("📊 Статистика", data=ms.CB_STATS + "today"), Button.inline("💥 Історія атак", data=ms.CB_HISTORY)],
+        [Button.inline("🔥 Наслідки", data=ms.CB_IMPACTS), Button.inline("🛡 Гео-сторож", data=ms.CB_GUARD)],
+        [Button.inline("🎯 Моя зона", data=CB_MY_ZONE), Button.inline("🛡 Укриття", data=CB_SHELTER)],
+        [Button.inline("🏚 Найближче укриття", data=ms.CB_SHELTER_FIND), Button.inline("📍 Мої місця", data=ms.CB_PLACES)],
+        [Button.inline("📱 Додаток", data=ms.CB_APP)],
+        [Button.inline("👪 Родина", data=ms.CB_FAMILY), Button.inline("✅ Я в укритті", data=f"{ms.CB_FAMILY}:safe")],
+        [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS), Button.inline("🏙 Області", data=CB_REGION_PAGE + "0")],
         [Button.inline("🎯 Типи тривог", data=CB_WEAPONS)],
-        [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
-        [
-            Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
-            Button.inline("⏱ Текущие угрозы", data=CB_ACTIVE),
-        ],
+        [Button.inline("📍 Повідомити загрозу", data=CB_REPORT), Button.inline("📰 Новини", data=CB_INTERESTS)],
     ]
+    if webapp_url:
+        rows.append([_webapp_button("⚙️ Налаштування (Mini App)", webapp_url)])
+    return rows
 
 
 def _regions_kb(page: int):
@@ -271,13 +266,11 @@ def _region_menu_kb(slug: str, subscribed: bool = False, zones: tuple[bool, bool
 
 def _main_text() -> str:
     return (
-        "📍 <b>AirRadar AI — главное меню</b>\n\n"
-        "Выбери раздел кнопками ниже. Здесь доступна статистика угроз, "
-        "ETA (время прилёта) и история ударов по областям Украины.\n\n"
-        "💡 Чтобы получать алерты в ЛС: <b>Военные алерты</b> → область → "
-        "🔔 Подписаться. Или команда <code>/city &lt;город&gt;</code>.\n"
-        "📍 Видишь угрозу рядом — <b>Повідомити загрозу</b> или <code>/report</code>: "
-        "твоя точка появится на живой карте.\n"
+        "📍 <b>AirRadar AI</b>\n\n"
+        "Усе керується кнопками. <b>🗺 Карта</b> — цілі в русі з курсом, швидкістю і прогнозом; "
+        "<b>📱 Mini App</b> — карта, статистика, історія та наслідки в одному вікні.\n\n"
+        "🔔 Тривоги в ЛС: <b>Області</b> → область → «Підписатися» (або <code>/city місто</code>).\n"
+        "🛡 <b>Гео-сторож</b> попередить, коли ціль наближається саме до тебе.\n"
         "🌙 Нічний режим: 23:00–06:00 в ЛС лише критичні (ракети/балістика/КАБ)."
     )
 
@@ -650,13 +643,15 @@ def _city_results_kb(matches: list[str]) -> list:
 
 # Пользовательские команды для «синей кнопки меню» Telegram (0 ввода текста).
 BOT_COMMANDS = [
-    ("start", "Головне меню"),
+    ("start", "Головне меню (кнопки)"),
+    ("map", "Карта загроз"),
+    ("guard", "Гео-сторож"),
     ("city", "Підписка: місто або район"),
     ("report", "Повідомити загрозу"),
 ]
 
 
-async def _register_bot_commands(bot: TelegramClient) -> None:
+async def _register_bot_commands(bot: TelegramClient, app_url: str = "") -> None:
     """Зарегистрировать команды меню бота (best effort, с ожиданием коннекта)."""
     from telethon.tl.functions.bots import SetBotCommandsRequest
     from telethon.tl.types import BotCommand, BotCommandScopeDefault
@@ -671,6 +666,15 @@ async def _register_bot_commands(bot: TelegramClient) -> None:
                 scope=BotCommandScopeDefault(), lang_code="", commands=commands,
             ))
             logger.info("Bot commands зарегистрированы: меню кнопкой, без ввода текста")
+            if app_url:
+                # «Синяя кнопка» сбоку от поля ввода открывает Mini App (карта, статистика, история, наслідки).
+                try:
+                    from telethon.tl.functions.bots import SetBotMenuButtonRequest
+                    from telethon.tl.types import BotMenuButton, InputUserEmpty
+                    await bot(SetBotMenuButtonRequest(user_id=InputUserEmpty(), button=BotMenuButton(text="📱 Карта", url=app_url)))
+                    logger.info("Кнопка меню бота → Mini App: %s", app_url)
+                except Exception as exc:  # noqa: BLE001 — не критично
+                    logger.warning("Не удалось поставить кнопку Mini App в меню бота: %s", exc)
             return
         except Exception as exc:  # noqa: BLE001 — не критично для работы меню
             logger.debug("set_bot_commands повтор: %s", exc)
@@ -695,10 +699,20 @@ def register_handlers(
         return db.is_admin(user_id, admin_id)
 
     def _menu_kb(user_id: int):
-        rows = _main_menu_with_webapp(webapp_url, map_webapp_url) if (webapp_url or map_webapp_url) else _main_menu_kb()
+        rows = _main_menu_with_webapp(webapp_url, map_webapp_url)
         # Персональный ночной режим: 23:00–06:00 в ЛС только критичные классы.
         state = "увімкнено ✅" if db.get_night_mode(user_id) else "вимкнено"
         return rows + [[Button.inline(f"🌙 Нічний режим: {state}", data=CB_NIGHT_MODE)]]
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/map(?:@\w+)?\s*$"))
+    async def _map_cmd(event) -> None:  # noqa: ANN001
+        base = ms.site_base(map_webapp_url)
+        if not base:
+            await event.respond("Карта тимчасово недоступна.")
+            return
+        await event.respond("🗺 <b>Карта загроз</b>", parse_mode="html", buttons=[
+            [_webapp_button("🗺 Відкрити карту", base + "/"), _webapp_button("📱 Mini App", ms.app_url(map_webapp_url))],
+            [Button.url("🌐 У браузері", base + "/")]])
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/start"))
     async def _start(event: events.NewMessage.Event) -> None:  # noqa: ANN001
@@ -715,15 +729,22 @@ def register_handlers(
             )
             return
         # Меню доступно всем пользователям (подписки, статистика, алерты).
+        try:
+            import family
+            sender = await event.get_sender()
+            family.remember_name(db, event.sender_id, getattr(sender, "first_name", "") or getattr(sender, "username", "") or "")
+        except Exception:  # noqa: BLE001 — ім'я не критичне
+            pass
         await event.respond(_main_text(), parse_mode="html", buttons=_menu_kb(event.sender_id))
         # Бабушка-режим: постоянная reply-клавиатура с большими кнопками —
         # всегда на экране, вводить текст не нужно вообще. Отдельным
         # сообщением: reply-кнопки нельзя смешивать с inline.
         try:
+            import family as _fam
+            _fam.set_kb_current(db, event.sender_id)
             await event.respond("⬇️ Кнопки всегда под клавиатурой:", buttons=_persistent_kb())
         except Exception:  # noqa: BLE001 — reply-клавиатура не критична
             pass
-
     # Фулл управление кнопками (0 ввода текста): текстовые reply-кнопки
     # (бабушка-режим) выполняют действие сразу; любой другой обычный текст
     # открывает главное меню. Команды (/…), JSON из Mini App и сообщения
@@ -732,6 +753,57 @@ def register_handlers(
     async def _any_text_menu(event: events.NewMessage.Event) -> None:  # noqa: ANN001
         raw = (getattr(event.message, "text", "") or "").strip()
         if not raw or raw.startswith("/") or raw.startswith('{"action"'):
+            return
+        raw = RB_LEGACY.get(raw, raw)
+        uid = event.sender_id
+        # Нова розкладка нижньої клавіатури: старим користувачам оновлюємо її автоматично при першому натисканні.
+        try:
+            import family
+            if family.kb_outdated(db, uid):
+                family.set_kb_current(db, uid)
+                await event.respond("🔄 Меню оновлено: нові кнопки внизу (Місця, Укриття поруч, Родина, Додаток).", buttons=_persistent_kb())
+        except Exception:  # noqa: BLE001
+            logger.debug("kb refresh", exc_info=True)
+        if raw == RB_MAP:
+            base = ms.site_base(map_webapp_url)
+            if base:
+                await event.respond("🗺 <b>Карта загроз</b>", parse_mode="html", buttons=[
+                    [_webapp_button("🗺 Відкрити карту", base + "/"), _webapp_button("📱 Mini App", ms.app_url(map_webapp_url))],
+                    [Button.url("🌐 У браузері", base + "/")]])
+            else:
+                await event.respond("Карта тимчасово недоступна.", buttons=_menu_kb(uid))
+            return
+        if raw == RB_SAFE:
+            import family
+            family.set_safe(db, uid)
+            n = 0
+            if getattr(bot, "send_message", None) is not None:
+                async def _send(to, msg):
+                    await bot.send_message(to, msg, silent=False)
+                n = await family.notify_members(db, _send, uid, family.safe_text(db, uid))
+            await event.respond("✅ Відмічено: ти в укритті." + (f" Родину сповіщено ({n})." if n else "")
+                                + " Повтори попередження вимкнено на 3 години.")
+            return
+        screen = None
+        if raw == RB_PLACES:
+            screen = ms.places_screen(db, uid)
+        elif raw == RB_SHEL:
+            screen = ms.shelter_pick_screen(db, uid)
+        elif raw == RB_FAMILY:
+            import family
+            screen = ms.family_screen(db, uid)
+        elif raw == RB_APP:
+            screen = ms.app_screen(db, uid, map_webapp_url)
+        elif raw == RB_TRACKS:
+            screen = ms.tracks_screen(db, map_webapp_url)
+        elif raw == RB_HIST:
+            screen = ms.history_screen(db, map_webapp_url)
+        elif raw == RB_IMP:
+            screen = ms.impacts_screen(db, map_webapp_url)
+        elif raw == RB_GUARD:
+            screen = ms.guard_screen(db, uid, map_webapp_url)
+        if screen is not None:
+            await event.respond(screen[0], parse_mode="html", buttons=screen[1])
             return
         # Текстовые reply-кнопки: действие сразу, без меню и без вопросов.
         if raw == RB_ACTIVE:
@@ -745,7 +817,8 @@ def register_handlers(
             )
             return
         if raw == RB_STATS:
-            await event.respond(_stats_all_text(db), parse_mode="html", buttons=_menu_kb(event.sender_id))
+            text, rows = ms.stats_screen(db, "today", map_webapp_url)
+            await event.respond(text, parse_mode="html", buttons=rows)
             return
         if raw == RB_ZONE:
             pending = getattr(bot, "_airradar_zone_pending", None)
@@ -786,7 +859,7 @@ def register_handlers(
     except RuntimeError:
         bot._airradar_commands_task = None
     else:
-        bot._airradar_commands_task = loop.create_task(_register_bot_commands(bot))
+        bot._airradar_commands_task = loop.create_task(_register_bot_commands(bot, ms.app_url(map_webapp_url)))
 
     # Геопозиция в ЛС: если пользователь перед этим нажал «🎯 Моя зона» —
     # сохраняем домашний регион и глотаем событие (events.StopPropagation),
@@ -885,6 +958,168 @@ def register_handlers(
             # Маршрутизация по префиксу callback_data.
             if data == CB_MAIN:
                 await _safe_edit(_main_text(), _menu_kb(event.sender_id))
+
+            elif data == ms.CB_TRACKS:
+                await event.answer()
+                text, rows = ms.tracks_screen(db, map_webapp_url)
+                await _safe_edit(text, rows)
+
+            elif data.startswith(ms.CB_STATS):
+                await event.answer()
+                text, rows = ms.stats_screen(db, data[len(ms.CB_STATS):], map_webapp_url)
+                await _safe_edit(text, rows)
+
+            elif data == ms.CB_HISTORY:
+                await event.answer()
+                text, rows = ms.history_screen(db, map_webapp_url)
+                await _safe_edit(text, rows)
+
+            elif data == ms.CB_IMPACTS:
+                await event.answer()
+                text, rows = ms.impacts_screen(db, map_webapp_url)
+                await _safe_edit(text, rows)
+
+            elif data == ms.CB_FAMILY or data.startswith(ms.CB_FAMILY + ":"):
+                import family
+                parts = data.split(":")
+                notice = ""
+                uid_ = event.sender_id
+                if len(parts) > 1 and parts[1] == "inv":
+                    code = family.create_invite(db, uid_)
+                    try:
+                        uname = (await bot.get_me()).username or ""
+                    except Exception:  # noqa: BLE001
+                        uname = ""
+                    link = f"https://t.me/{uname}?start=fam_{code}" if uname else f"/start fam_{code}"
+                    await event.answer("Запрошення створено")
+                    await event.respond("👪 Надішли це посилання близькій людині (діє 48 годин, одноразове):\n" + link, link_preview=False)
+                elif len(parts) > 2 and parts[1] == "del" and parts[2].lstrip("-").isdigit():
+                    other = int(parts[2])
+                    if family.remove_member(db, uid_, other):
+                        notice = "🗑 Зв'язок видалено."
+                    await event.answer(notice or "Не знайдено")
+                elif len(parts) > 1 and parts[1] == "safe":
+                    family.set_safe(db, uid_)
+                    n = 0
+                    if getattr(bot, "send_message", None) is not None:
+                        async def _send(to, msg):
+                            await bot.send_message(to, msg, silent=False)
+                        n = await family.notify_members(db, _send, uid_, family.safe_text(db, uid_))
+                    await event.answer("✅ Відмічено: ти в укритті" + (f"; родину сповіщено ({n})" if n else ""), alert=False)
+                    notice = "✅ Відмічено, що ти в укритті — повтори сигналу вимкнено на 3 години."
+                else:
+                    await event.answer()
+                if len(parts) == 1 or parts[1] in ("del", "safe"):
+                    text, rows = ms.family_screen(db, uid_, notice)
+                    await _safe_edit(text, rows)
+
+            elif data == ms.CB_APP:
+                await event.answer()
+                text, rows = ms.app_screen(db, event.sender_id, map_webapp_url)
+                await _safe_edit(text, rows)
+
+            elif data.startswith(ms.CB_APP + ":g:"):
+                await event.answer()
+                try:
+                    page = int(data.rsplit(":", 1)[1])
+                except ValueError:
+                    page = 0
+                text, rows = ms.guide_screen(page, map_webapp_url)
+                await _safe_edit(text, rows)
+
+            elif data == ms.CB_PLACES:
+                await event.answer()
+                text, rows = ms.places_screen(db, event.sender_id)
+                await _safe_edit(text, rows)
+
+            elif data.startswith(ms.CB_PLACE_ACT):
+                import guard_places
+                parts = data[len(ms.CB_PLACE_ACT):].split(":")
+                notice = ""
+                if parts[0] == "add":
+                    pend = getattr(bot, "_airradar_pending", None)
+                    if pend is None:
+                        pend = bot._airradar_pending = {}
+                    kind = parts[1] if len(parts) > 1 else "other"
+                    pend[event.sender_id] = ("place", ms.place_label(kind), time.time() + 300)
+                    await event.answer()
+                    await event.respond("📍 Напиши місто (наприклад: Харків) або надішли геопозицію кнопкою нижче. "
+                                        "Для іншої назви: «Мама: Суми».")
+                    try:
+                        await event.respond("📎 Геопозиція:", buttons=_zone_kb())
+                    except Exception:  # noqa: BLE001
+                        pass
+                    continue_edit = False
+                else:
+                    continue_edit = True
+                    if parts[0] == "del" and len(parts) > 1 and parts[1].isdigit():
+                        notice = "🗑 Місце видалено." if guard_places.remove_place(db, event.sender_id, int(parts[1])) else ""
+                        await event.answer(notice or "Не знайдено")
+                    elif parts[0] == "rad" and len(parts) > 1 and parts[1].isdigit() and int(parts[1]) in ms.RADII:
+                        guard_places.set_radius(db, event.sender_id, float(parts[1]))
+                        notice = f"✅ Радіус для всіх місць: {parts[1]} км"
+                        await event.answer(notice)
+                if continue_edit:
+                    text, rows = ms.places_screen(db, event.sender_id, notice)
+                    await _safe_edit(text, rows)
+
+            elif data == ms.CB_SHELTER_FIND:
+                await event.answer()
+                text, rows = ms.shelter_pick_screen(db, event.sender_id)
+                await _safe_edit(text, rows)
+
+            elif data.startswith(ms.CB_SHELTER_FIND + ":"):
+                token = data[len(ms.CB_SHELTER_FIND) + 1:]
+                if token in ("loc", "city"):
+                    pend = getattr(bot, "_airradar_pending", None)
+                    if pend is None:
+                        pend = bot._airradar_pending = {}
+                    pend[event.sender_id] = ("shelter", token, time.time() + 300)
+                    await event.answer()
+                    if token == "loc":
+                        await event.respond("📍 Надішли геопозицію кнопкою нижче — покажу найближчі укриття.")
+                        try:
+                            await event.respond("📎 Геопозиція:", buttons=_zone_kb())
+                        except Exception:  # noqa: BLE001
+                            pass
+                    else:
+                        await event.respond("🏙 Напиши назву міста або села — покажу найближчі укриття.")
+                else:
+                    pt = ms.shelter_point(db, event.sender_id, token)
+                    if pt is None:
+                        await event.answer("Точку не знайдено", alert=True)
+                    else:
+                        await event.answer("Шукаю укриття…")
+                        text, rows = await ms.shelter_reply(pt[0], pt[1], pt[2])
+                        await _safe_edit(text, rows)
+
+            elif data == ms.CB_GUARD:
+                await event.answer()
+                text, rows = ms.guard_screen(db, event.sender_id, map_webapp_url)
+                await _safe_edit(text, rows)
+
+            elif data.startswith(ms.CB_GUARD_ACT):
+                action = data[len(ms.CB_GUARD_ACT):]
+                if action == "city":
+                    pend = getattr(bot, "_airradar_city_pending", None)
+                    if pend is None:
+                        pend = bot._airradar_city_pending = {}
+                    pend[event.sender_id] = time.time() + 300
+                    await event.answer()
+                    await event.respond("🏙 Напиши назву міста або села, за яким стежити (наприклад: Харків).")
+                elif action == "test":
+                    await event.answer("Надсилаю тестове сповіщення")
+                    await event.respond(ms.test_alert_text(map_webapp_url))
+                elif action == "loc":
+                    await event.answer("Надішли геопозицію кнопкою нижче")
+                    try:
+                        await event.respond("📍 Натисни кнопку, щоб надіслати точку (для live: 📎 → Локація → «Транслювати»):", buttons=_zone_kb())
+                    except Exception:  # noqa: BLE001
+                        await event.respond("📎 → Локація → «Транслювати мою геопозицію»")
+                else:
+                    await event.answer(ms.guard_apply(db, event.sender_id, action))
+                    text, rows = ms.guard_screen(db, event.sender_id, map_webapp_url)
+                    await _safe_edit(text, rows)
 
             elif data == CB_NIGHT_MODE:
                 # Toggle персонального ночного режима + перерисовка меню.

@@ -170,7 +170,8 @@ class BotUiTests(unittest.TestCase):
     # --- главное меню и пагинация ---
     def test_main_menu_renders(self):
         event = self._callback("main")
-        self.assertIn("AirRadar AI — главное меню", event.edits[0]["text"])
+        self.assertIn("AirRadar AI", event.edits[0]["text"])
+        self.assertIn("Усе керується кнопками", event.edits[0]["text"])
         datas = _button_datas(event.edits[0]["buttons"])
         self.assertIn("mysubs", datas)
         self.assertTrue(datas)

@@ -60,11 +60,23 @@ ALERTS_IN_UA_REGION_IDS: dict[int, str] = {
     26: "zhytomyrska",
 }
 
+# Реальная схема v1 (проверено живым ответом): location_oblast_uid — официальный uid области.
+LOCATION_OBLAST_UIDS: dict[int, str] = {
+    3: "khmelnytska", 4: "vinnytska", 5: "rivnenska", 8: "volynska", 9: "dnipropetrovska",
+    10: "zhytomyrska", 11: "zakarpatska", 12: "zaporizka", 13: "ivano_frankivska", 14: "kyivska",
+    15: "kirovohradska", 16: "luhanska", 17: "mykolaivska", 18: "odeska", 19: "poltavska",
+    20: "sumska", 21: "ternopilska", 22: "kharkivska", 23: "khersonska", 24: "cherkaska",
+    25: "chernigivska", 26: "chernivetska", 27: "lvivska", 28: "donetska", 29: "crimea",
+    30: "crimea", 31: "kyivska",
+}
+# Тревога региона = на уровне области/города. Районные/громадные — отдельным полем, регион целиком не «включают».
+REGION_LEVEL_TYPES = {"oblast", "city"}
+
 # Типы тревог, считаемые «сиреной». Прочие (восстановление и т.п.) — нет.
 ALERT_TYPES = {"air_raid", "missile_threat"}
 
 _TYPE_KEYS = ("alert_type", "type")
-_NAME_KEYS = ("region_name", "region_title")
+_NAME_KEYS = ("location_oblast", "location_title", "region_name", "region_title")
 
 
 def _norm_name(raw: str) -> str:
@@ -84,7 +96,7 @@ _NAME_TO_SLUG: dict[str, str] = {
         "dnipropetrovska": "Дніпропетровська область", "donetska": "Донецька область",
         "ivano_frankivska": "Івано-Франківська область", "kharkivska": "Харківська область",
         "khersonska": "Херсонська область", "khmelnytska": "Хмельницька область",
-        "kyivska": "Київська область",
+        "kyivska": "Київська область", "volynska": "Волинська область",
         "kirovohradska": "Кіровоградська область", "luhanska": "Луганська область",
         "lvivska": "Львівська область", "mykolaivska": "Миколаївська область",
         "odeska": "Одеська область", "poltavska": "Полтавська область",
@@ -98,8 +110,11 @@ _NAME_TO_SLUG: dict[str, str] = {
 
 def _entry_slug(entry: dict[str, Any]) -> str:
     """Slug региона из одной записи active-alerts ('' — не распознали)."""
+    uid = entry.get("location_oblast_uid")
+    slug = LOCATION_OBLAST_UIDS.get(uid) if isinstance(uid, int) else ""
     region_id = entry.get("region_id")
-    slug = ALERTS_IN_UA_REGION_IDS.get(region_id) if isinstance(region_id, int) else ""
+    if not slug:
+        slug = ALERTS_IN_UA_REGION_IDS.get(region_id) if isinstance(region_id, int) else ""
     if not slug:
         for key in _NAME_KEYS:
             slug = _NAME_TO_SLUG.get(_norm_name(str(entry.get(key) or "")), "")
@@ -126,11 +141,56 @@ def active_alert_slugs(payload: dict[str, Any]) -> set[str]:
                 break
         if alert_type and alert_type not in ALERT_TYPES:
             continue  # не сирена (восстановление/прочее)
+        loc_type = str(entry.get("location_type") or "").lower()
+        if loc_type and loc_type not in REGION_LEVEL_TYPES:
+            continue  # район/громада: область цілком не під тривогою
+        if loc_type == "city" and entry.get("location_oblast_uid") not in (30, 31):
+            continue  # місто в області (не Київ/Севастополь) — це не вся область
         slug = _entry_slug(entry)
         if slug:
             out.add(slug)
         else:
             logger.debug("sirens: нераспознанная запись тревоги: %r", entry)
+    return out
+
+
+def raion_key(entry: dict[str, Any]) -> str:
+    """«Мелітопольський район», «Запорізька область» → 'Мелітопольський|Запорізька' (ключ полігона району на карті)."""
+    raion = str(entry.get("location_title") or "").replace(" район", "").strip()
+    oblast = str(entry.get("location_oblast") or "").split(" ")[0].strip()
+    return f"{raion}|{oblast}" if raion and oblast else ""
+
+
+def active_raion_keys(payload: dict[str, Any]) -> set[str]:
+    """Райони з активною сиреною (location_type=raion). Для підсвітки на карті; регіон цілком не вмикають."""
+    out: set[str] = set()
+    for entry in (payload.get("alerts") if isinstance(payload, dict) else None) or []:
+        if isinstance(entry, dict) and str(entry.get("location_type") or "").lower() == "raion" \
+                and str(entry.get("alert_type") or "air_raid").lower() in ALERT_TYPES:
+            key = raion_key(entry)
+            if key:
+                # red — діє тривога; yellow — попереджувальний рівень (загроза поруч), як жовті райони на мапах
+                out.add(("raionY:" if str(entry.get("alert_level") or "").lower() == "yellow" else "raion:") + key)
+    return out
+
+
+def active_extra_keys(payload: dict[str, Any]) -> set[str]:
+    """Додаткові ключі для карти: громади → «raionP:» (район частково під тривогою), типи загроз → «threat:slug:тип»."""
+    out: set[str] = set()
+    for entry in (payload.get("alerts") if isinstance(payload, dict) else None) or []:
+        if not isinstance(entry, dict):
+            continue
+        loc_type = str(entry.get("location_type") or "").lower()
+        if loc_type == "hromada" and str(entry.get("alert_type") or "air_raid").lower() in ALERT_TYPES:
+            raion = str(entry.get("location_raion") or "").replace(" район", "").strip()
+            oblast = str(entry.get("location_oblast") or "").split(" ")[0].strip()
+            if raion and oblast:
+                out.add(f"raionP:{raion}|{oblast}")
+        slug = _entry_slug(entry)
+        for th in entry.get("threats") or []:
+            kind = str((th or {}).get("threat_type") or "").strip()
+            if slug and kind:
+                out.add(f"threat:{slug}:{kind}")
     return out
 
 

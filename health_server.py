@@ -108,6 +108,92 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
         return web.json_response({"threats": [], "error": "temporarily unavailable"}, status=503)
 
 
+def _track_json(t, now: int) -> dict:
+    from track_engine import compass_ua, forecast_places, position_at
+    lat, lon, est = position_at(t, now)
+    return {
+        "id": t.key, "weapon": t.weapon, "profile": t.profile, "status": t.status,
+        "count": t.count,
+        "speed_kmh": t.speed_kmh, "speed_source": t.speed_source,
+        "heading": None if t.heading is None else round(t.heading),
+        "heading_text": "" if t.heading is None else compass_ua(t.heading),
+        "now": {"lat": round(lat, 4), "lon": round(lon, 4), "estimated": est},
+        "points": [{"ts": p.ts, "lat": round(p.lat, 4), "lon": round(p.lon, 4), "count": p.count,
+                    "place": p.place, "precision": p.precision} for p in t.points],
+        "forecast": [{"name": p.name, "lat": p.lat, "lon": p.lon, "eta_min": p.eta_min, "km": p.km}
+                     for p in forecast_places(t, now)],
+        "dest": None if t.dest is None else {"lat": round(t.dest[0], 4), "lon": round(t.dest[1], 4), "name": t.dest[2]},
+    }
+
+
+def radar_payload(db, minutes: int, now: int) -> dict:
+    """Единый JSON для /api/tracks и статического tracks.json: треки + одиночные события."""
+    from track_engine import build_events, build_tracks
+    rows = db.recent_observations(now - minutes * 60)
+    tracks = build_tracks(rows, now, window_s=minutes * 60)
+    impacts = []
+    try:
+        import impact_log
+        impacts = [i for i in impact_log.impacts_payload(db, now, 0, days=1)["items"] if i["lat"] is not None
+                   and now - i["ts"] <= 6 * 3600]
+    except Exception:  # noqa: BLE001 — наслідки не должны ломать карту
+        pass
+    # Офіційні сирени (alerts.in.ua): None — джерело не підключене, тоді карта показує область за зведеннями.
+    on = bool(os.getenv("ALERTS_IN_UA_TOKEN", "").strip())
+    fresh = db.siren_states_fresh() if on else []
+    sirens = sorted(k for k in fresh if not k.startswith(("raion", "threat:"))) if on else None
+    sirens_raions = sorted(k[6:] for k in fresh if k.startswith("raion:")) if on else None
+    sirens_raions_y = sorted(k[7:] for k in fresh if k.startswith("raionY:")) if on else None
+    sirens_raions_p = sorted(k[7:] for k in fresh if k.startswith("raionP:")) if on else None
+    threats: dict[str, list[str]] = {}
+    for k in fresh if on else []:
+        if k.startswith("threat:"):
+            _, slug, kind = k.split(":", 2)
+            threats.setdefault(slug, []).append(kind)
+    return {"now": now, "window_min": minutes, "tracks": [_track_json(t, now) for t in tracks],
+            "events": build_events(rows, now), "impacts": impacts, "sirens": sirens, "sirens_raions": sirens_raions, "sirens_raions_y": sirens_raions_y,
+            "sirens_raions_p": sirens_raions_p, "siren_threats": threats if on else None}
+
+
+async def _api_tracks(request: web.Request) -> web.Response:  # noqa: ANN001
+    """Треки целей: ?minutes=N (по умолчанию 180, до 720). Позиции — для воспроизведения во времени."""
+    if _app_db is None:
+        return web.json_response({"tracks": [], "error": "db not ready"})
+    try:
+        minutes = max(10, min(720, int(request.query.get("minutes", "180"))))
+    except ValueError:
+        minutes = 180
+    try:
+        return web.json_response(radar_payload(_app_db, minutes, int(time.time())))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("API /api/tracks error: %s", exc)
+        return web.json_response({"tracks": [], "error": "temporarily unavailable"}, status=503)
+
+
+async def _api_risk(request: web.Request) -> web.Response:  # noqa: ANN001
+    """Риск для точки: ?lat=&lon=&radius=10. Координаты не логируются и не сохраняются."""
+    if _app_db is None:
+        return web.json_response({"risks": [], "error": "db not ready"})
+    try:
+        lat, lon = float(request.query["lat"]), float(request.query["lon"])
+        radius = max(2.0, min(50.0, float(request.query.get("radius", "10"))))
+    except (KeyError, ValueError):
+        return web.json_response({"risks": [], "error": "lat/lon required"}, status=400)
+    try:
+        from track_engine import build_tracks, risk_for_point, risk_text
+        now = int(time.time())
+        tracks = build_tracks(_app_db.recent_observations(now - 3 * 3600), now, window_s=3 * 3600)
+        risks = risk_for_point(tracks, (lat, lon), now, imminent_km=radius, watch_km=radius * 3)
+        key = {t.id: t.key for t in tracks}
+        return web.json_response({"now": now, "risks": [
+            {"id": key.get(r.track_id, r.track_id), "level": r.level, "distance_km": r.distance_km,
+             "bearing": r.bearing_from_point, "approaching": r.approaching, "eta_min": r.eta_min,
+             "speed_kmh": r.speed_kmh, "text": risk_text(r)} for r in risks]})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("API /api/risk error: %s", exc)
+        return web.json_response({"risks": [], "error": "temporarily unavailable"}, status=503)
+
+
 async def _api_stats(request: web.Request) -> web.Response:  # noqa: ANN001
     """Сводная статистика по типам за 24 часа."""
     if _app_db is None:
@@ -137,6 +223,12 @@ async def _serve_forever(port: int) -> None:
     app.router.add_get("/health", _health)
     app.router.add_get("/api/threats", _api_threats)
     app.router.add_get("/api/stats", _api_stats)
+    app.router.add_get("/api/tracks", _api_tracks)
+    app.router.add_get("/api/risk", _api_risk)
+    radar_path = Path(__file__).with_name("miniapp") / "radar.html"
+    app.router.add_get("/radar", lambda request: web.FileResponse(radar_path))
+    raions_path = Path(__file__).with_name("miniapp") / "raions.json"
+    app.router.add_get("/raions.json", lambda request: web.FileResponse(raions_path))
     map_path = Path(__file__).with_name("miniapp") / "map.html"
     map_handler = lambda request: web.FileResponse(map_path)  # noqa: E731
     # Корень и /map отдают карту: кнопка бота ведёт на корень URL туннеля

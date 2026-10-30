@@ -1,41 +1,57 @@
 #!/usr/bin/env python3
-"""export_radar.py — выгрузка треков в статический tracks.json для GitHub Pages.
+"""export_radar.py — статичні дані для GitHub Pages: tracks.json, stats.json, impacts.json.
 
-Карта радара на Pages читает этот файл, когда живого API нет. Сервер сам
-отправляет файл наружу (исходящий git push), входящих портов не открывается.
+Mini App і радар на Pages читають ці файли, коли живого API немає. Сервер сам
+відправляє їх назовні (вихідний git push), вхідних портів не відкривається.
 
-    python export_radar.py OUT.json    # пишет файл, код 0 — данные изменились, 10 — без изменений
+    python export_radar.py DIR   # код 0 — щось змінилось, 10 — без змін
 """
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 from config import load_settings
 from database import Database
-from health_server import _track_json
+from health_server import radar_payload
+from impact_log import DEFAULT_DELAY_S, impacts_payload
+from stats_engine import stats_payload
 from track_engine import build_tracks
+import forecast_eval
 
 WINDOW_MIN = 360
 
 
-def main() -> int:
-    out = Path(sys.argv[1] if len(sys.argv) > 1 else "tracks.json")
-    db = Database(load_settings().db_path)
-    now = int(time.time())
-    tracks = build_tracks(db.recent_observations(now - WINDOW_MIN * 60), now, window_s=WINDOW_MIN * 60)
-    body = [_track_json(t, now) for t in tracks]
-    payload = {"now": now, "window_min": WINDOW_MIN, "tracks": body}
-    # Без активных/свежих целей и без изменений состава файл не перевыкладываем.
-    changed = True
-    if out.exists():
+def _write_if_changed(path: Path, payload: dict, volatile: tuple[str, ...], max_age_s: int) -> bool:
+    """Пишемо файл, якщо змінився зміст (без полів-часу) або файл застарів."""
+    now = int(payload.get("now", time.time()))
+    if path.exists():
         try:
-            old = json.loads(out.read_text(encoding="utf-8"))
-            changed = old.get("tracks") != body or now - int(old.get("now", 0)) > 1800
+            old = json.loads(path.read_text(encoding="utf-8"))
+            same = all(old.get(k) == v for k, v in payload.items() if k not in volatile)
+            if same and now - int(old.get("now", 0)) <= max_age_s:
+                return False
         except (ValueError, OSError):
             pass
-    if changed:
-        out.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    return True
+
+
+def main() -> int:
+    out = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
+    out.mkdir(parents=True, exist_ok=True)
+    db = Database(load_settings().db_path)
+    now = int(time.time())
+    delay = int(os.getenv("IMPACT_DELAY_MIN", str(DEFAULT_DELAY_S // 60))) * 60
+    # Самоперевірка прогнозів: записуємо нові, закриваємо дозрілі (на тих самих треках, що йдуть на карту).
+    tracks = build_tracks(db.recent_observations(now - WINDOW_MIN * 60), now, window_s=WINDOW_MIN * 60)
+    forecast_eval.log_forecasts(db, tracks, now)
+    forecast_eval.evaluate(db, tracks, now)
+    changed = False
+    changed |= _write_if_changed(out / "tracks.json", radar_payload(db, WINDOW_MIN, now), ("now",), 1800)
+    changed |= _write_if_changed(out / "stats.json", stats_payload(db, now), ("now",), 900)
+    changed |= _write_if_changed(out / "impacts.json", impacts_payload(db, now, delay), ("now",), 900)
     return 0 if changed else 10
 
 
