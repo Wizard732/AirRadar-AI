@@ -531,9 +531,21 @@ def _parse_line(line: str, oblast: str, group: int | None, weapon: str, profile:
     return obs
 
 
+_CITY_PREFIX_RE = re.compile(r"(?<!\w)м\.\s*(?=[А-ЯІЇЄҐA-Z])")
+_COURSE_RE = re.compile(r"\s+курс\s+(?:північн|південн|східн|західн)\w*(?:[\s-]+(?:північн|південн|східн|західн)\w*)?", re.IGNORECASE)
+_KAB_PHRASE_RE = re.compile(r"керован\w*\s+(?:авіаційн\w*\s+)?(?:авіа)?бомб\w*", re.IGNORECASE)
+
+
+def _normalize_post(raw: str) -> str:
+    """Формати офіційних постів Повітряних сил: «на м. Запоріжжя», «Шарівки курс південний», «керовані авіабомби»."""
+    raw = _CITY_PREFIX_RE.sub("", raw)
+    raw = _COURSE_RE.sub("", raw)
+    return _KAB_PHRASE_RE.sub("КАБ", raw)
+
+
 def parse_post(text: str, source: str = "") -> ParsedPost:
     """Главная функция: сырой текст поста → ParsedPost."""
-    raw = text or ""
+    raw = _normalize_post(text or "")
     low = raw.lower()
     post = ParsedPost(kind="unknown")
     if not raw.strip():

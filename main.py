@@ -231,6 +231,21 @@ async def run() -> None:
         len(settings.source_channels),
         ", ".join(resolved_titles) or "—",
     )
+    # Публічні канали з SOURCE_CHANNELS, на які акаунт ще не підписаний (наприклад, щойно додані), — підписуємось самі.
+    if missed:
+        from telethon.tl.functions.channels import JoinChannelRequest
+        for ch in list(missed):
+            if not ch.startswith("@"):
+                continue
+            try:
+                ent = await client.get_entity(ch)
+                await client(JoinChannelRequest(ent))
+                resolved_chats.append(ent)
+                resolved_titles.append(getattr(ent, "title", None) or ch)
+                missed.remove(ch)
+                logger.info("Підписався на канал %s", ch)
+            except Exception as exc:  # noqa: BLE001 — недоступний канал не повинен валити старт
+                logger.warning("Не вдалося підписатись на %s: %s", ch, exc)
     if missed:
         logger.warning("Недоступные каналы: %s", ", ".join(missed))
 

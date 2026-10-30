@@ -173,5 +173,33 @@ class AllClearTests(unittest.TestCase):
         self.assertEqual(parse_post("Тривога в Києві").kind, "alert")
 
 
+class NewsNotAlertTests(unittest.TestCase):
+    def test_celebrity_shelter_story_is_news_not_fpv(self):
+        text = ("Зірка «Гри престолів» Ніколай Костер-Вальдау відвідав Київ та спустився в укриття під час повітряної тривоги. "
+                "Через загрозу російських ударів йому довелося спускатися в укриття.")
+        self.assertEqual(parse_post(text, "x").kind, "news")
+
+    def test_short_keywords_do_not_match_inside_words(self):
+        from weapon_classes import classify_weapon
+        self.assertNotEqual(classify_weapon("Йому довелося спускатися в укриття"), "fpv")
+        self.assertEqual(classify_weapon("Скат на Київ"), "fpv")
+
+
+class AirForcePostFormatTests(unittest.TestCase):
+    def test_city_with_prefix_is_resolved(self):
+        p = parse_post('Баражуючий боєприпас "Бандероль" на м. Запоріжжя з півночі.')
+        self.assertEqual(p.kind, "track")
+        self.assertTrue(any(o.place == "Запоріжжя" and o.precision == "place" for o in p.observations))
+
+    def test_course_suffix_not_in_place(self):
+        p = parse_post('Баражуючий боєприпас "Бандероль" на Харківщині в районі Шарівки курс південний.')
+        self.assertFalse(any("курс" in o.place for o in p.observations))
+
+    def test_guided_bomb_launches_are_kab(self):
+        p = parse_post("Пуски керованих авіаційних бомб ворожою тактичною авіацією на Дніпропетровщину.")
+        self.assertEqual(p.kind, "track")
+        self.assertTrue(any(o.weapon == "kab" for o in p.observations))
+
+
 if __name__ == "__main__":
     unittest.main()
