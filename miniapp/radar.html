@@ -133,7 +133,7 @@
   #nav button.on { color:#ff6b6b; } #nav svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
   #nav .badge { position:absolute; top:6px; left:50%; margin-left:6px; min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:#c0392b; color:#fff; font:700 10px/17px sans-serif; text-align:center; }
   #timebar { bottom:66px !important; }
-  #list { bottom:66px; } .nolbl .oblbl { display:none; } #sheet { bottom:70px !important; } #rsheet { bottom:56px !important; }
+  #list { bottom:66px; } .nolbl .oblbl { display:none; } .leaflet-bottom { bottom:60px !important; } @media (min-width:800px) { .leaflet-bottom { bottom:68px !important; } } #sheet { bottom:70px !important; } #rsheet { bottom:56px !important; }
   @media (min-width:800px) { #rsheet { bottom:68px !important; } #list { bottom:68px !important; } }
   .view { position:fixed; left:0; right:0; top:0; bottom:56px; z-index:1400; overflow:auto; background:#15171d; color:#eef1f6; display:none; padding:14px 14px 24px; -webkit-overflow-scrolling:touch; }
   .view h2 { font-size:19px; margin-bottom:2px; } .view .sub { color:#8b95a8; font-size:12.5px; margin-bottom:10px; }
@@ -668,7 +668,7 @@ async function load() {
     sirensRaionsP = new Set(Array.isArray(data.sirens_raions_p) ? data.sirens_raions_p : []);
     sirenThreats = data.siren_threats || {}; alertsDetail = Array.isArray(data.alerts) ? data.alerts : [];
     feedData = Array.isArray(data.feed) ? data.feed : [];
-    { const nb = document.getElementById('nav-badge'); if (nb) nb.textContent = alertsDetail.length || ''; } restyleRaions(); listSig = '';
+    { const nb = document.getElementById('nav-badge'); if (nb) nb.textContent = alertsDetail.filter(a => a.type !== 'hromada').length || ''; } restyleRaions(); listSig = '';
     if (sirens) { oblastActive = new Set(sirens); restyleOblasts(); }
     else if (useStatic && !DEMO) {
       try { const st = await (await fetch(new URL('stats.json', DATA_BASE).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' })).json(); oblastActive = new Set(st.active_regions || []); restyleOblasts(); } catch (e) {}
@@ -796,7 +796,7 @@ function frame(nowMs) {
 load().then(() => {
   const live = tracks.map(t => t.points[t.points.length - 1]).concat(events.map(e => ({ lat: e.lat, lon: e.lon })));
   if (params.has('lat') && params.has('lon')) map.setView([+params.get('lat'), +params.get('lon')], +params.get('z') || 9, { animate: false });
-  else map.setView([48.7, 31.5], innerWidth < 800 ? 5.6 : 6, { animate: false });   // вся Україна, як у «Мапі тривог»
+  else map.fitBounds([[44.0, 22.0], [52.6, 40.4]], { animate: false, paddingTopLeft: [4, 60], paddingBottomRight: [4, 70] });   // вся Україна, як у «Мапі тривог»
   requestAnimationFrame(frame);
 });
 let loadTimer = setInterval(load, 10000);
@@ -823,7 +823,7 @@ const when = ts => { const d = new Date(ts * 1000), t = hhmm(ts); return ts >= d
 const durTxt = s => { s = Math.max(0, Math.floor(s)); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60), c = s % 60;
   return d ? `${d} д. ${h} год. ${m} хв.` : (h ? `${h} год. ${m} хв.` : (m >= 5 ? `${m} хв.` : `${m} хв. ${c} с.`)); };
 const hm = s => { s = Math.max(0, Math.round(s / 60)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
-const oblName = slug => SLUG_NAME[slug] || slug;
+const oblName = slug => SLUG_NAME[slug] || (slug && slug !== 'unknown' ? slug : '');
 const place = a => (a.type === 'oblast' ? 'Область' : (a.raion ? a.raion + ', ' : '') + oblName(a.slug));
 const isoTs = a => a.since ? Math.floor(new Date(a.since) / 1000) : 0;
 async function loadHist(force) {
@@ -874,7 +874,7 @@ function fillList() {
       return `<div class="vrow"><div><b>${esc(dir)}</b><small>${esc(trackName(t))}</small><small>${t.status === 'loitering' ? 'Кружляє' : 'Рухається'} · ${l.ts >= now - 60 ? 'щойно' : ago(now - l.ts)}</small><small>Виявлено ${hhmm(f.ts)} · відстежується ${Math.max(1, Math.round((now - f.ts) / 60))} хв</small></div><div class="ai" style="width:34px;height:34px;border-radius:50%;background:#fff;color:#222;display:grid;place-items:center;flex:none"><span style="width:20px;height:20px;display:block">${isMissile(t.weapon) ? ICO.missile : ICO.drone}</span></div></div>`; }).join('')
       || '<div class="fx"><div class="a1">Зараз немає цілей з відомою позицією за зведеннями каналів.</div><div class="a2">Офіційні тривоги дивіться у вкладці «Активні».</div></div>';
   } else if (lsub === 'threats') {
-    h = (feedData || []).filter(f => q(f.text)).map(f => `<div class="fx"><div class="a1">${esc(f.text)}</div><div class="a2">${when(f.ts)} · ${esc(oblName(f.region))} · зведення каналів</div></div>`).join('') || '<div class="fx"><div class="a1">Свіжих повідомлень немає.</div></div>';
+    h = (feedData || []).filter(f => q(f.text)).map(f => `<div class="fx"><div class="a1">${esc(f.text)}</div><div class="a2">${when(f.ts)}${oblName(f.region) ? ' · ' + esc(oblName(f.region)) : ''} · зведення каналів</div></div>`).join('') || '<div class="fx"><div class="a1">Свіжих повідомлень немає.</div></div>';
   } else if (lsub === 'boom') {
     const BW = ['explosion', 'impact', 'heard', 'air_defense'];
     h = events.filter(e => BW.includes(e.weapon) && q((e.place || '') + ' ' + WNAME[e.weapon])).sort((a, b) => b.ts - a.ts).slice(0, 80)
