@@ -102,7 +102,8 @@
   .row-it .tt { color:#16181d; font-size:14px; } .row-it .st { color:#555; } .row-it .ag { color:#666; }
   .row-it .ic { border-radius:10px; width:34px; height:34px; }
   .empty { color:#444; }
-  .sh { width:30px; height:30px; } .sh svg { width:28px; height:28px; filter:drop-shadow(0 0 2px rgba(0,0,0,.9)); }
+  .ev svg { width:19px; height:19px; color:var(--ec); } .row-it .ic svg { width:20px; height:20px; } .cat i svg { width:14px; height:14px; vertical-align:-2px; }
+  .sh { width:34px; height:34px; } .sh svg { width:32px; height:32px; filter:drop-shadow(0 0 2px rgba(0,0,0,.9)); }
   .sh .cnt { right:-8px; top:-8px; }
 
   /* ---- стиль «Мапи тривог»: плоска темна мапа, кольорові області, нижній лист області ---- */
@@ -123,7 +124,8 @@
   #rsheet h4 { margin:14px 0 6px; font-size:14px; color:#cfd4de; }
   .acard { display:flex; gap:10px; align-items:center; padding:10px 12px; border-radius:12px; margin-bottom:8px; background:#7a2230; }
   .acard.y { background:#6b5320; } .acard.t { background:#2a2e38; }
-  .acard .ai { width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,.9); display:grid; place-items:center; font-size:16px; flex:none; }
+  .acard .ai { width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,.92); color:#222; display:grid; place-items:center; flex:none; }
+  .acard .ai svg { width:19px; height:19px; }
   .acard .a1 { font-weight:700; font-size:14px; } .acard .a2 { font-size:12px; opacity:.85; margin-top:2px; }
 </style>
 <script src="native.js"></script>
@@ -188,21 +190,33 @@ const COMPASS = ['північ','північний схід','схід','пів
 const compass = d => COMPASS[Math.floor(((d % 360) + 22.5) / 45) % 8];
 
 // ---------- виды вооружения ----------
+const SVG = inner => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${inner}</svg>`;
+const ICO = {
+  drone:   SVG('<path d="M12 2L14 9L22 15V17.5L14 14.5L13 20L16 22V23L12 22L8 23V22L11 20L10 14.5L2 17.5V15L10 9Z"/>'),
+  missile: SVG('<path d="M12 1C13.5 4 14 7 14 10V17L17 20V22L14 20.5V22H10V20.5L7 22V20L10 17V10C10 7 10.5 4 12 1Z"/>'),
+  kab:     SVG('<path d="M12 1C15 1 16.5 5 16.5 9V16H7.5V9C7.5 5 9 1 12 1Z"/><path d="M7.5 14L4 21H8L9.5 17H14.5L16 21H20L16.5 14Z"/><rect x="7.5" y="9" width="9" height="1.6" fill="#0b0e14" opacity=".45"/>'),
+  air:     SVG('<path d="M12 1L13.5 8L23 13V15.5L13.5 13L13 19L16 21V22.5L12 21.5L8 22.5V21L11 19L10.5 13L1 15.5V13L10.5 8Z"/>'),
+  fpv:     SVG('<circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="3"/><circle cx="19" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/>'),
+  arty:    SVG('<path d="M12 1L14 8L21 5L16 11L23 14L15 15L17 22L12 17L7 22L9 15L1 14L8 11L3 5L10 8Z"/>'),
+  impact:  SVG('<path d="M12 1L14 8L21 5L16 11L23 14L15 15L17 22L12 17L7 22L9 15L1 14L8 11L3 5L10 8Z"/>'),
+  blast:   SVG('<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="3"/>'),
+};
 const CATS = {
-  drone:   { n: 'БпЛА',        c: '#ff3b30', i: '▲',  w: ['shahed', 'uav', 'recon_drone'] },
-  missile: { n: 'Ракети',      c: '#c77dff', i: '🚀', w: ['cruise_missile', 'ballistic', 'missile', 'air_missile', 'coastal_missile'] },
-  kab:     { n: 'КАБ',         c: '#ffd60a', i: '💣', w: ['kab'] },
-  air:     { n: 'Авіація',     c: '#5ac8fa', i: '✈',  w: ['aviation', 'tac_aviation', 'strat_aviation'] },
-  fpv:     { n: 'FPV',         c: '#30d158', i: '✦',  w: ['fpv'] },
-  arty:    { n: 'РСЗО / арт.', c: '#ff9f0a', i: '💥', w: ['mlrs', 'artillery'] },
-  impact:  { n: 'Влучання',     c: '#ff453a', i: '💥', w: ['impact'] },
-  blast:   { n: 'Вибухи / ППО', c: '#9aa3b5', i: '◉', w: ['explosion', 'air_defense', 'heard'] },
+  drone:   { n: 'БпЛА',        c: '#ff3b30', i: ICO.drone, w: ['shahed', 'uav', 'recon_drone'] },
+  missile: { n: 'Ракети',      c: '#c77dff', i: ICO.missile, w: ['cruise_missile', 'ballistic', 'missile', 'air_missile', 'coastal_missile'] },
+  kab:     { n: 'КАБ',         c: '#ffd60a', i: ICO.kab, w: ['kab'] },
+  air:     { n: 'Авіація',     c: '#5ac8fa', i: ICO.air, w: ['aviation', 'tac_aviation', 'strat_aviation'] },
+  fpv:     { n: 'FPV',         c: '#30d158', i: ICO.fpv, w: ['fpv'] },
+  arty:    { n: 'РСЗО / арт.', c: '#ff9f0a', i: ICO.arty, w: ['mlrs', 'artillery'] },
+  impact:  { n: 'Влучання',     c: '#ff453a', i: ICO.impact, w: ['impact'] },
+  blast:   { n: 'Вибухи / ППО', c: '#9aa3b5', i: ICO.blast, w: ['explosion', 'air_defense', 'heard'] },
 };
 const WNAME = { shahed: 'Шахед', uav: 'БпЛА', recon_drone: 'Розвідувальний дрон', cruise_missile: 'Крилата ракета', ballistic: 'Балістика',
   missile: 'Ракета', air_missile: 'Ракета', coastal_missile: 'Ракета', kab: 'КАБ', aviation: 'Авіація', tac_aviation: 'Тактична авіація',
   strat_aviation: 'Стратегічна авіація', fpv: 'FPV-дрон', mlrs: 'РСЗО', artillery: 'Артилерія', explosion: 'Вибух', air_defense: 'Робота ППО', impact: 'Влучання', heard: 'Вибухи (чутно)' };
 const catOf = w => Object.keys(CATS).find(k => CATS[k].w.includes(w)) || 'drone';
-const trackColor = t => t.weapon === 'cruise_missile' ? CATS.missile.c : (t.profile === 'reactive' ? '#ff6b1a' : '#ff3b30');
+const isMissile = w => ['cruise_missile', 'ballistic', 'missile', 'air_missile', 'coastal_missile'].includes(w);
+const trackColor = t => isMissile(t.weapon) ? '#ff3b30' : (t.profile === 'reactive' ? '#ff9f0a' : '#ffd60a');
 const trackName = t => (WNAME[t.weapon] || 'БпЛА') + (t.profile === 'reactive' ? ' · реактивний' : '') + (t.count > 1 ? ' ×' + t.count : '');
 let hiddenCats = new Set(); try { hiddenCats = new Set(JSON.parse(localStorage.getItem('rd_hidden') || '[]')); } catch (e) {}
 const EVENT_KEEP_S = 90 * 60;
@@ -261,7 +275,8 @@ const ISO2SLUG = { 'UA-05': 'vinnytska', 'UA-07': 'volynska', 'UA-09': 'luhanska
   'UA-21': 'zakarpatska', 'UA-23': 'zaporizka', 'UA-26': 'ivano_frankivska', 'UA-30': 'kyivska', 'UA-32': 'kyivska', 'UA-35': 'kirovohradska', 'UA-40': 'crimea',
   'UA-43': 'crimea', 'UA-46': 'lvivska', 'UA-48': 'mykolaivska', 'UA-51': 'odeska', 'UA-53': 'poltavska', 'UA-56': 'rivnenska', 'UA-59': 'sumska',
   'UA-61': 'ternopilska', 'UA-63': 'kharkivska', 'UA-65': 'khersonska', 'UA-68': 'khmelnytska', 'UA-71': 'cherkaska', 'UA-74': 'chernigivska', 'UA-77': 'chernivetska' };
-let alertsDetail = [], lastItems = [], raionLayer = null, sirensRaions = new Set(), sirensRaionsY = new Set(), sirensRaionsP = new Set(), sirenThreats = {}, oblastLayer = null, oblastActive = new Set(), sirens = null, threatSlugs = new Set();
+let alertsDetail = [], lastItems = [], raionLayer = null, sirensRaions = new Set(), sirensRaionsY = new Set(), sirensRaionsP = new Set(), sirenThreats = {}, oblastLayer = null, oblastActive = new Set(), sirens = null, threatSlugs = new Set(), regionKind = {};
+const OB_SIREN = { color: '#7a2a38', weight: 1, opacity: .9, fillColor: '#4a1f2b', fillOpacity: .95 };
 const OB_ON = { color: '#c4485a', weight: 1.2, opacity: .9, fillColor: '#7a2230', fillOpacity: .95 }, OB_WARN = { color: '#e0b04a', weight: 1.2, opacity: .9, fillColor: '#d9a63a', fillOpacity: .95 }, OB_OFF = { color: '#33405e', weight: .9, opacity: .9, fillColor: '#1b2338', fillOpacity: .95 };
 const SLUG_NAME = { vinnytska:'Вінницька область', volynska:'Волинська область', luhanska:'Луганська область', dnipropetrovska:'Дніпропетровська область', donetska:'Донецька область', zhytomyrska:'Житомирська область', zakarpatska:'Закарпатська область', zaporizka:'Запорізька область', ivano_frankivska:'Івано-Франківська область', kyivska:'Київська область', kirovohradska:'Кіровоградська область', crimea:'Крим', lvivska:'Львівська область', mykolaivska:'Миколаївська область', odeska:'Одеська область', poltavska:'Полтавська область', rivnenska:'Рівненська область', sumska:'Сумська область', ternopilska:'Тернопільська область', kharkivska:'Харківська область', khersonska:'Херсонська область', khmelnytska:'Хмельницька область', cherkaska:'Черкаська область', chernigivska:'Чернігівська область', chernivetska:'Чернівецька область' };
 function inRing(r, x, y) { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; } return c; }
@@ -282,7 +297,7 @@ function openRegion(slug, raion) {
   const now = new Date(), months = ['січня','лютого','березня','квітня','травня','червня','липня','серпня','вересня','жовтня','листопада','грудня'];
   const card = a => {
     const since = a.since ? new Date(a.since) : null, today = since && since.toDateString() === now.toDateString();
-    const ic = (a.threats || []).map(t => TH_ICON[t]).find(Boolean) || (a.kind === 'air_raid' ? '🔔' : '💥');
+    const ic = (a.threats || []).some(t => /missile|bomb|kab/.test(t)) ? ICO.missile : ((a.threats || []).includes('drones') ? ICO.drone : ICO.blast);
     const hl = raion && (a.title || '').startsWith(raion) ? 'outline:2px solid #fff;' : '';
     return `<div class="acard ${a.level === 'yellow' ? 'y' : ''}" style="${hl}"><div class="ai">${ic}</div><div><div class="a1">${a.title || a.raion}</div><div class="a2">${since ? (today ? 'Сьогодні' : since.toLocaleDateString('uk-UA')) + ', ' + since.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : ''}${since ? ' · ⏱ ' + fmtDur(now - since) : ''}${a.kind && a.kind !== 'air_raid' ? ' · ' + (KIND_NAME[a.kind] || a.kind) : ''}</div></div></div>`;
   };
@@ -295,7 +310,7 @@ function openRegion(slug, raion) {
     <div class="chips2">${chips}${cities}</div>
     ${yel.length ? `<h4>Потенційні загрози</h4>${yel.map(card).join('')}` : ''}
     ${red.length ? `<h4>Активні</h4>${red.map(card).join('')}` : (yel.length ? '' : '<h4>Тривог немає</h4>')}
-    ${mine.length ? `<h4>Цілі за зведеннями каналів · ${mine.length}</h4>` + mine.map(i => `<div class="acard t"><div class="ai">${i.kind === 't' ? '🛸' : '💥'}</div><div><div class="a1">${i.kind === 't' ? trackName(i.t) : (WNAME[i.e.weapon] || i.e.weapon)}</div><div class="a2">${i.kind === 't' ? (i.t.dest ? 'у напрямку ' + i.t.dest.name : (i.t.heading !== null ? compass(i.t.heading) : '')) : (i.e.place || '')} · ${ago(curTs() - i.ts)}</div></div></div>`).join('') : ''}`;
+    ${mine.length ? `<h4>Цілі за зведеннями каналів · ${mine.length}</h4>` + mine.map(i => `<div class="acard t"><div class="ai" style="color:#222">${i.kind === 't' ? (isMissile(i.t.weapon) ? ICO.missile : ICO.drone) : CATS[i.cat].i}</div><div><div class="a1">${i.kind === 't' ? trackName(i.t) : (WNAME[i.e.weapon] || i.e.weapon)}</div><div class="a2">${i.kind === 't' ? (i.t.dest ? 'у напрямку ' + i.t.dest.name : (i.t.heading !== null ? compass(i.t.heading) : '')) : (i.e.place || '')} · ${ago(curTs() - i.ts)}</div></div></div>`).join('') : ''}`;
   rs.style.display = 'block'; rs.scrollTop = 0;
   document.getElementById('rs-x').onclick = () => { rs.style.display = 'none'; };
 }
@@ -309,7 +324,7 @@ async function loadRaions() {
   } catch (e) { /* без районів — лише області */ }
 }
 loadRaions();
-function restyleOblasts() { if (oblastLayer) oblastLayer.eachLayer(l => l.setStyle(oblastActive.has(l._slug) ? OB_ON : (threatSlugs.has(l._slug) ? OB_WARN : OB_OFF))); }
+function restyleOblasts() { if (oblastLayer) oblastLayer.eachLayer(l => l.setStyle(regionKind[l._slug] === 'm' ? OB_ON : (regionKind[l._slug] === 'd' ? OB_WARN : (oblastActive.has(l._slug) ? OB_SIREN : OB_OFF)))); }
 async function loadOblasts() {
   try {
     const g = await (await fetch('https://cdn.jsdelivr.net/gh/EugeneBorshch/ukraine_geojson@master/UA_FULL_Ukraine.geojson')).json();
@@ -326,13 +341,11 @@ function shahedIcon(t) {
   const reactive = t.profile === 'reactive';
   const color = trackColor(t);
   const known = t.heading !== null;
-  const svg = `
-    <svg viewBox="0 0 64 64" class="body">
-      <path d="M32 3 L36 22 L60 44 L60 51 L36 43 L34 55 L41 60 L41 62 L32 60 L23 62 L23 60 L30 55 L28 43 L4 51 L4 44 L28 22 Z" fill="#fff" stroke="#111" stroke-width="3" stroke-linejoin="round"/>
-    </svg>`;
+  const g = isMissile(t.weapon) ? ICO.missile : ICO.drone;
+  const svg = g.replace('<svg ', `<svg class="body" style="color:${color}" stroke="#0b0e14" stroke-width="1.3" paint-order="stroke" `);
   const count = t.count > 1 ? `<span class="cnt">${t.count}</span>` : '';
   const unk = '';
-  return L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: `<div class="sh">${svg}${unk}${count}</div>` });
+  return L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17], html: `<div class="sh">${svg}${unk}${count}</div>` });
 }
 
 // Сміття на карті: ціль без курсу, що має лише приблизні точки («?»), і цілі, яких не бачили понад 30 хв.
@@ -659,8 +672,13 @@ function renderList(ts, force) {
   lastItems = items;
   const gcount = {}; for (const it of items) gcount[it.slug || ''] = (gcount[it.slug || ''] || 0) + 1;
   items.sort(me ? (a, b) => a.km - b.km : (a, b) => (gcount[b.slug || ''] - gcount[a.slug || '']) || ((a.slug || 'я') < (b.slug || 'я') ? -1 : 1) || (b.ts - a.ts));
-  const ts2 = new Set(items.map(i => i.slug).filter(Boolean));
-  if ([...ts2].sort().join() !== [...threatSlugs].sort().join()) { threatSlugs = ts2; restyleOblasts(); }
+  const kinds = {};
+  const MISSILE_W = ['cruise_missile', 'ballistic', 'missile', 'air_missile', 'coastal_missile', 'kab'];
+  const mark = (slug, k) => { if (slug && kinds[slug] !== 'm') kinds[slug] = k; };
+  for (const it of items) mark(it.slug, MISSILE_W.includes(it.kind === 't' ? it.t.weapon : it.e.weapon) ? 'm' : (it.cat === 'drone' ? 'd' : null));
+  for (const [slug, arr] of Object.entries(sirenThreats || {})) { if (arr.some(x => /missile|kab|bomb/.test(x))) kinds[slug] = 'm'; else if (arr.includes('drones') && kinds[slug] !== 'm') kinds[slug] = 'd'; }
+  for (const k of Object.keys(kinds)) if (!kinds[k]) delete kinds[k];
+  if (JSON.stringify(kinds) !== JSON.stringify(regionKind)) { regionKind = kinds; restyleOblasts(); }
   // Счётчики по всем видам (без учёта фильтра), чтобы чипы показывали, что скрыто.
   const counts = {};
   for (const t of tracks) { const m = markers.get(t.id); const c = catOf(t.weapon); if (!hiddenCats.has(c) && m && m.pos && !m.pos.stale) counts[c] = (counts[c] || 0) + 1; }
@@ -684,7 +702,7 @@ function renderList(ts, force) {
     if (it.kind === 't') {
       const t = it.t, where = t.dest ? 'у напрямку ' + t.dest.name : (t.heading !== null ? compass(t.heading) + (t.speed_kmh ? ' · ~' + Math.round(t.speed_kmh) + ' км/год' : '') : (t.points[t.points.length - 1].place || '—'));
       const rk = risks && risks.get(t.id), mine = rk ? (rk.level === 'over' ? ' · 🔴 над вами' : (rk.eta !== null ? ` · ⚠️ до вас ~${rk.eta} хв` : '')) : '';
-      return `<div class="row-it ${age < 300 ? 'fresh' : ''}" data-i="${n}"><div class="ic" style="background:${trackColor(t)}">${c.i}</div><div class="tx"><div class="tt">${trackName(t)}</div><div class="st">${where}${me ? ' · ' + Math.round(it.km) + ' км від вас' : ''}${mine}</div></div><div class="ag">${ago(age)}</div></div>`;
+      return `<div class="row-it ${age < 300 ? 'fresh' : ''}" data-i="${n}"><div class="ic" style="background:${trackColor(t)};color:${isMissile(t.weapon) ? '#fff' : '#1a1200'}">${c.i}</div><div class="tx"><div class="tt">${trackName(t)}</div><div class="st">${where}${me ? ' · ' + Math.round(it.km) + ' км від вас' : ''}${mine}</div></div><div class="ag">${ago(age)}</div></div>`;
     }
     const e = it.e;
     return `<div class="row-it ${age < 300 ? 'fresh' : ''}" data-i="${n}"><div class="ic" style="background:${c.c}">${c.i}</div><div class="tx"><div class="tt">${WNAME[e.weapon] || e.weapon}${e.count > 1 ? ' ×' + e.count : ''}</div><div class="st">${e.toward ? 'у напрямку ' : ''}${e.place || 'область'}${me ? ' · ' + Math.round(it.km) + ' км від вас' : ''}</div></div><div class="ag">${ago(age)}</div></div>`;
