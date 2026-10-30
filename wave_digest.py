@@ -66,12 +66,14 @@ def compose(tracks, events, now: int) -> tuple[str, int, int]:
                 counts[c] = counts.get(c, 0) + e["count"]
     cnt = " · ".join(f"{CATS[k][1]} {CATS[k][0]} {counts[k]}" for k in CATS if counts.get(k))
     where = " · ".join(f"{_short_region(r)} {n}" for r, n in sorted(regions.items(), key=lambda x: -x[1])[:5])
-    toward = " · ".join(f"{n} ~{m}–{round(m * 1.4)} хв" for n, m in sorted(etas.items(), key=lambda x: x[1])[:5])
+    # Перевірка власних прогнозів (forecast_eval): час підльоту до конкретного міста збувається рідко (≈11% за 30 днів),
+    # тому у зведенні лише напрямок — міста на курсі цілей, без хвилин. Хвилини лишаються в персональних сповіщеннях «до вашої точки».
+    toward = " · ".join(n for n, _ in sorted(etas.items(), key=lambda x: x[1])[:5])
     lines = [f"🌊 ХВИЛЯ · {kyiv_fmt(now)}", cnt]
     if where:
         lines.append(f"📍 Де зараз: {where}")
     if toward:
-        lines.append(f"➡️ Можливо до: {toward}")
+        lines.append(f"➡️ Напрямок (без часу): {toward}")
     lines += ["", "Орієнтовно: позиції зі зведень каналів. Оновлюється в цьому повідомленні.", "📡 Джерело: AirRadar AI"]
     return "\n".join(lines), len(act), sum(counts.values())
 

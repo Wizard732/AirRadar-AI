@@ -44,7 +44,7 @@ def warning_text(t: Track, place, region: str) -> str:
     icon = "🟠" if t.weapon in ("cruise_missile", "ballistic") else "🟡"
     return (f"{icon} Можливо до {place.name} ({region_name(region)}): {n}{_what(t)}, "
             f"курс {compass_ua(t.heading)}, ~{t.speed_kmh:g} км/год{typical}, орієнтовно через {eta} хв.\n"
-            "Це прогноз за зведеннями каналів, не підтверджений підліт.")
+            "Це прогноз за зведеннями каналів, не підтверджений підліт; такі прогнози збуваються рідко — орієнтуйтесь на офіційну тривогу.")
 
 
 def plan(tracks: list[Track], now: int, db) -> list[tuple[str, str, str]]:
