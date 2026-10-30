@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "shahed", "region": "multi", "text": "Звіт про рух БпЛА (шахедів): • 1 на Чернігівщині – Славутич (1). • 1 на Сумщині – Кириківка (1). • 1 на Дніпропетровщині – Петропавлівка (1). • 2 на Кіровоградщині – Олександрія (1), Кропивницький…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 0}, {"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Славутич Сумщина: Реактивний БпЛА курсом на Кириківку Дніпропетровщина: Реактивний БпЛА курсом на Петропавлівку з Донеччини Кіровоградщина: Реактивний БпЛА…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 1}, {"type": "uav", "region": "kyivska", "text": "🛵 1 БпЛА в області на Бориспіль / Бровари", "sources": 1, "origin": "", "destination": "kyivska", "track": {"from": [50.353, 30.955], "to": [51.498, 31.289], "from_name": "Бориспіль", "to_name": "Чернігів", "speed_kmh": 130.0, "course_deg": 10, "minutes": 74, "points": 5}, "age_min": 25}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Чернігівщина: Реактивний БпЛА курсом на Городню Житомирщина: Реактивний БпЛА курсом на Овруч Дніпропетровщина: Реактивний БпЛА курсом на Чаплине Кіровоградщина: Реактивний БпЛА курсом на Новомиргород…", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 0}, {"type": "stand_down", "region": "unknown", "text": "✅ Ну штош, відбій тривоги шановні.", "sources": 3, "origin": "", "destination": "unknown", "track": null, "age_min": 5}, {"type": "shahed", "region": "multi", "text": "Звіт про рух БпЛА (шахедів): • 1 на Чернігівщині – Славутич (1). • 1 на Сумщині – Кириківка (1). • 1 на Дніпропетровщині – Петропавлівка (1). • 2 на Кіровоградщині – Олександрія (1), Кропивницький…", "sources": 1, "origin": "", "destination": "multi", "track": null, "age_min": 10}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 19, "standdown_hits": 4, "standdown_total": 8}};
+const EMBEDDED_FORECAST = {};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
