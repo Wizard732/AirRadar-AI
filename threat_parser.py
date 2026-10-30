@@ -536,8 +536,15 @@ _COURSE_RE = re.compile(r"\s+курс\s+(?:північн|південн|схі�
 _KAB_PHRASE_RE = re.compile(r"керован\w*\s+(?:авіаційн\w*\s+)?(?:авіа)?бомб\w*", re.IGNORECASE)
 
 
+_RAION_ABBR_RE = re.compile(r"(?<!\w)р-ні(?!\w)", re.IGNORECASE)
+_RAION_ADJ_RE = re.compile(r"(?<!\w)(?:в|у|по)\s+([А-ЯІЇЄҐ][а-яіїєґ'’ʼ]+?)ськ(?:ому|ім)\s+районі", re.IGNORECASE)
+
+
 def _normalize_post(raw: str) -> str:
-    """Формати офіційних постів Повітряних сил: «на м. Запоріжжя», «Шарівки курс південний», «керовані авіабомби»."""
+    """Формати офіційних постів Повітряних сил: «на м. Запоріжжя», «Шарівки курс південний», «керовані авіабомби»,
+    «в р-ні Синельникове», «в Ізюмському районі» (→ «в районі Ізюм»)."""
+    raw = _RAION_ABBR_RE.sub("районі", raw)
+    raw = _RAION_ADJ_RE.sub(lambda m: f"в районі {m.group(1)}", raw)
     raw = _CITY_PREFIX_RE.sub("", raw)
     raw = _COURSE_RE.sub("", raw)
     return _KAB_PHRASE_RE.sub("КАБ", raw)

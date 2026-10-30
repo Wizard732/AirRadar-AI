@@ -195,6 +195,12 @@ class AirForcePostFormatTests(unittest.TestCase):
         p = parse_post('Баражуючий боєприпас "Бандероль" на Харківщині в районі Шарівки курс південний.')
         self.assertFalse(any("курс" in o.place for o in p.observations))
 
+    def test_raion_abbreviation_and_adjective(self):
+        p = parse_post("🏍 Реактивні БпЛА в р-ні Синельникове (Дніпропетровщина) курс південно-західний.")
+        self.assertTrue(any(o.place == "Синельникове" and o.precision == "place" for o in p.observations))
+        p = parse_post('🚀Баражуючі боєприпаси "Бандероль"  в Ізюмському р-ні курс західний.')
+        self.assertTrue(any(o.place == "Ізюм" for o in p.observations))
+
     def test_guided_bomb_launches_are_kab(self):
         p = parse_post("Пуски керованих авіаційних бомб ворожою тактичною авіацією на Дніпропетровщину.")
         self.assertEqual(p.kind, "track")
