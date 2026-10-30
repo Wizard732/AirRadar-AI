@@ -325,6 +325,7 @@ useTiles(0);
 map.getPane('tilePane').style.display = 'none';   // плоска темна мапа, як у «Мапи тривог»
 // Контури областей (OSM-межі з jsDelivr; без них карта працює як раніше). Активні області підсвічуються.
 map.createPane('oblasts').style.zIndex = 250;
+map.createPane('raions').style.zIndex = 255;
 const ISO2SLUG = { 'UA-05': 'vinnytska', 'UA-07': 'volynska', 'UA-09': 'luhanska', 'UA-12': 'dnipropetrovska', 'UA-14': 'donetska', 'UA-18': 'zhytomyrska',
   'UA-21': 'zakarpatska', 'UA-23': 'zaporizka', 'UA-26': 'ivano_frankivska', 'UA-30': 'kyivska', 'UA-32': 'kyivska', 'UA-35': 'kirovohradska', 'UA-40': 'crimea',
   'UA-43': 'crimea', 'UA-46': 'lvivska', 'UA-48': 'mykolaivska', 'UA-51': 'odeska', 'UA-53': 'poltavska', 'UA-56': 'rivnenska', 'UA-59': 'sumska',
@@ -357,7 +358,7 @@ function openRegion(slug, raion) {
   };
   const red = list.filter(a => a.level !== 'yellow'), yel = list.filter(a => a.level === 'yellow');
   const chips = list.some(a => a.type === 'oblast') ? '<span class="red">Область</span>' : '';
-  const cities = list.filter(a => a.type === 'city').map(a => `<span>${a.title.replace(/^м\. ?/, 'м. ')}</span>`).join('');
+  const cities = list.filter(a => a.type === 'city' || a.type === 'hromada').slice(0, 14).map(a => `<span>${esc(a.title.replace(' територіальна громада', ' тергромада'))}</span>`).join('');
   const mine = lastItems.filter(i => i.slug === slug);
   const th = (sirenThreats[slug] || []).map(k => THREAT_NAME[k] || k).join(' · ');
   rs.innerHTML = `<div class="hd"><div><h3>${SLUG_NAME[slug] || slug}</h3><div class="tm">${now.getDate()} ${months[now.getMonth()]} о ${now.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}${th ? ' · ' + th : ''}</div></div><span class="x" id="rs-x">×</span></div>
@@ -368,12 +369,21 @@ function openRegion(slug, raion) {
   rs.style.display = 'block'; rs.scrollTop = 0;
   document.getElementById('rs-x').onclick = () => { rs.style.display = 'none'; };
 }
+function raionAt(ll) {
+  if (!raionLayer) return null; let hit = null;
+  raionLayer.eachLayer(l => { if (!hit && l.getBounds().contains(ll) && inGeo(l.feature.geometry, ll[1], ll[0])) hit = l.feature.properties.r; });
+  return hit;
+}
+map.on('click', e => {
+  const ll = [e.latlng.lat, e.latlng.lng], slug = slugAt(ll);
+  if (slug) openRegion(slug, raionAt(ll));
+});
 function restyleRaions() { if (raionLayer) raionLayer.eachLayer(l => l.setStyle(sirensRaions.has(l._key) ? RA_ON : (sirensRaionsY.has(l._key) ? RA_WARN : (sirensRaionsP.has(l._key) ? RA_PART : RA_OFF)))); }
 async function loadRaions() {
   try {
     const g = await (await fetch(new URL('raions.json', document.baseURI).href)).json();
-    raionLayer = L.geoJSON(g, { pane: 'oblasts', interactive: true, style: () => RA_OFF }).addTo(map);
-    raionLayer.eachLayer(l => { l._key = l.feature.properties.r + '|' + l.feature.properties.o.split(' ')[0]; l.on('click', () => openRegion(O2SLUG[l.feature.properties.o.split(' ')[0]] || (l.feature.properties.o.startsWith('Автон') ? 'crimea' : null), l.feature.properties.r)); });
+    raionLayer = L.geoJSON(g, { pane: 'raions', interactive: false, style: () => RA_OFF }).addTo(map);
+    raionLayer.eachLayer(l => { l._key = l.feature.properties.r + '|' + l.feature.properties.o.split(' ')[0]; });
     restyleRaions();
   } catch (e) { /* без районів — лише області */ }
 }
@@ -382,8 +392,8 @@ function restyleOblasts() { if (oblastLayer) oblastLayer.eachLayer(l => l.setSty
 async function loadOblasts() {
   try {
     const g = await (await fetch('https://cdn.jsdelivr.net/gh/EugeneBorshch/ukraine_geojson@master/UA_FULL_Ukraine.geojson')).json();
-    oblastLayer = L.geoJSON(g, { pane: 'oblasts', interactive: true, style: () => OB_OFF }).addTo(map);
-    oblastLayer.eachLayer(l => { l._slug = ISO2SLUG[l.feature.properties['iso3166-2']]; const nm = (l.feature.properties.name || '').replace(' область', '').replace('Автономна Республіка ', 'АР '); l.bindTooltip(nm, { permanent: true, direction: 'center', className: 'oblbl' }); l.on('click', () => openRegion(l._slug)); });
+    oblastLayer = L.geoJSON(g, { pane: 'oblasts', interactive: false, style: () => OB_OFF }).addTo(map);
+    oblastLayer.eachLayer(l => { l._slug = ISO2SLUG[l.feature.properties['iso3166-2']]; const nm = (l.feature.properties.name || '').replace(' область', '').replace('Автономна Республіка ', 'АР '); l.bindTooltip(nm, { permanent: true, direction: 'center', className: 'oblbl' }); });
     restyleOblasts(); listSig = ''; try { renderList(curTs(), true); } catch (e) {}
   } catch (e) { /* без контурів */ }
 }
