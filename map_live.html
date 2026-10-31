@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [];
+const EMBEDDED_THREATS = [{"type": "stand_down", "region": "sumska", "text": "🟢 Сумський район — відбій повітряної тривоги", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 10}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 102, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
@@ -1609,6 +1609,5 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') fetchData();
 });
 </script>
-<div id="ar-disclaimer" style="position:fixed;left:0;right:0;bottom:0;z-index:9999;background:rgba(20,20,20,.88);color:#ddd;font:11px/1.35 system-ui,sans-serif;padding:5px 10px;text-align:center;pointer-events:none">AirRadar AI — інформаційно-аналітична система. Не замінює офіційні повідомлення про повітряну тривогу та рекомендації ДСНС. У разі тривоги негайно прямуйте до укриття.</div>
 </body>
 </html>
