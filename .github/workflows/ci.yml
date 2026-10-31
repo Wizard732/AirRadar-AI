@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
   pull_request:
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -12,7 +14,76 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -r requirements.txt pytest
-      - run: python -m pytest -q -p no:cacheprovider
+      - run: pip install -r requirements.txt pytest ruff
+      - name: Lint (синтаксис, невизначені імена — реальні баги)
+        run: ruff check --select E9,F63,F7,F82 --exclude app,.venv .
+      - name: Lint нових модулів (повний набір F)
+        run: ruff check --select F airradar scripts test_ops_reliability.py test_ops_dashboard.py test_integration_pipeline.py test_ai_providers.py test_geo_quality.py
+      - name: Аудит залежностей (CVE)
+        run: pip install pip-audit && pip-audit -r requirements.txt --progress-spinner off
+      - name: Перевірка гео-даних (укриття/газетир)
+        run: python scripts/check_geo_data.py
+      - name: Secrets scan
+        run: python secrets_check.py
+      - name: Unit + integration tests
+        run: python -m pytest -q -p no:cacheprovider
+      - name: Міграції на копії БД (порожня схема)
+        run: |
+          python - <<'PY'
+          import tempfile, pathlib
+          from database import Database
+          from airradar.ops import migrations
+          p = pathlib.Path(tempfile.mkdtemp()) / "ci.db"
+          Database(str(p)).close()
+          r = migrations.check_on_copy(p)
+          print(r); assert r["ok"], r
+          PY
+      - name: Smoke - backup + restore-test на тимчасовій БД
+        run: |
+          python - <<'PY'
+          import tempfile, pathlib
+          from database import Database
+          from airradar.ops import backup
+          d = pathlib.Path(tempfile.mkdtemp()); Database(str(d / "airradar.db")).close()
+          res = backup.create_backup(d, d / "airradar.db", d / "bk", passphrase="ci-pass")
+          assert backup.verify_backup(pathlib.Path(res["path"]), "ci-pass")["ok"]
+          assert backup.restore_test(pathlib.Path(res["path"]), "ci-pass")["ok"]
+          print("backup/restore smoke OK")
+          PY
+      - name: Frontend sanity (JS-синтаксис карт)
+        run: |
+          python - <<'PY'
+          import re, pathlib, subprocess, tempfile
+          for name in ("map_live.html", "miniapp/radar.html", "miniapp/app.html", "miniapp/webpush.html"):
+              html = pathlib.Path(name).read_text(encoding="utf-8")
+              js = "\n".join(re.findall(r"<script(?![^>]*src)[^>]*>(.*?)</script>", html, re.S))
+              f = pathlib.Path(tempfile.mkdtemp()) / "m.js"; f.write_text(js, encoding="utf-8")
+              subprocess.run(["node", "--check", str(f)], check=True)
+              print(name, "inline JS: syntax OK")
+          PY
       - name: Benchmark (informational, якщо є набір даних)
         run: test -f tests_data/ar_sample.jsonl.gz && python benchmark.py --json || echo "dataset not published"
+
+  android:
+    # Debug-збірка без keystore (підписаний release збирається локально власником). Перевіряє, що проєкт компілюється.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Web-ресурси та синхронізація Capacitor
+        working-directory: app
+        run: npm ci && npm run sync
+      - name: Audit npm (лише високі/критичні)
+        working-directory: app
+        run: npm audit --audit-level=high
+      - name: assembleDebug
+        working-directory: app/android
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon

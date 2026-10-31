@@ -188,7 +188,8 @@ def load_settings() -> Settings:
         groq_url=os.getenv("GROQ_URL", "https://api.groq.com/openai"),
         groq_model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
         groq_vision_model=os.getenv("GROQ_VISION_MODEL", ""),
-        llm_backend=os.getenv("LLM_BACKEND", "ollama").strip().lower(),
+        # Основний ІІ: CheapVibeCode (cvc), щойно задано CVC_API_KEY; інакше локальна Ollama. LLM_BACKEND має пріоритет.
+        llm_backend=(os.getenv("LLM_BACKEND") or ("cvc" if os.getenv("CVC_API_KEY", "").strip() else "ollama")).strip().lower(),
         log_level=os.getenv("LOG_LEVEL", "INFO").upper(),
         dedup_ttl=int(os.getenv("DEDUP_TTL", "60")),
         http_timeout=int(os.getenv("HTTP_TIMEOUT", "30")),

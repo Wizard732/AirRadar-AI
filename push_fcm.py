@@ -212,8 +212,21 @@ async def push_regions(db, regions: list[str], title: str, body: str, level: str
             if uid in seen:
                 continue
             seen.add(uid)
-            sent = await push_user(db, uid, title, body, level, {"ack": ack_key} if ack_key else None)
+            if not topics_of(db, uid):
+                continue   # немає прив'язаного пристрою — у чергу не ставимо
+            from airradar.delivery import push_queue
+            sent = await push_queue.deliver(db, "fcm", ack_key or "", uid, {"title": title, "body": body, "level": level,
+                                                                           "data": {"ack": ack_key} if ack_key else None})
             n += sent
             if ack_key:   # sent ≠ delivered: фіксуємо лише відправку; підтвердження прийде з кнопки «Отримав»
                 db.record_delivery(ack_key, f"ntfy:{uid}", "critical", "sent" if sent else "failed")
     return n
+
+
+async def _queue_sender(db, uid: int, payload: dict) -> int:
+    return await push_user(db, uid, payload["title"], payload["body"], payload.get("level", "info"), payload.get("data"))
+
+
+from airradar.delivery import push_queue as _pq  # noqa: E402
+
+_pq.register("fcm", _queue_sender)

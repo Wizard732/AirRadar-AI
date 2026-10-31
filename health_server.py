@@ -205,10 +205,96 @@ async def _api_tracks(request: web.Request) -> web.Response:  # noqa: ANN001
     except ValueError:
         minutes = 180
     try:
-        return web.json_response(radar_payload(_app_db, minutes, int(time.time())))
+        # Той самий TRACKS_PUBLIC_DELAY_MIN, що й для статичного tracks.json: пряме звернення до API не обходить затримку.
+        pub_delay = max(0, int(os.getenv("TRACKS_PUBLIC_DELAY_MIN", "0"))) * 60
+        return web.json_response(radar_payload(_app_db, minutes, int(time.time()) - pub_delay))
     except Exception as exc:  # noqa: BLE001
         logger.warning("API /api/tracks error: %s", exc)
         return web.json_response({"tracks": [], "error": "temporarily unavailable"}, status=503)
+
+
+_sse_clients = [0]
+_SSE_MAX = 200
+_stream_rev = {"rev": "", "ts": 0.0}
+
+
+def _compute_rev() -> str:
+    """Короткий відбиток публічного стану (без поля now): змінився — клієнтам шлемо сигнал."""
+    import hashlib
+    import json
+    if _app_db is None:
+        return ""
+    pub_delay = max(0, int(os.getenv("TRACKS_PUBLIC_DELAY_MIN", "0"))) * 60
+    p = radar_payload(_app_db, 180, int(time.time()) - pub_delay)
+    p.pop("now", None)
+    return hashlib.sha1(json.dumps(p, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
+
+async def _api_stream(request: web.Request) -> web.StreamResponse:  # noqa: ANN001
+    """SSE: події 'rev' при зміні даних + heartbeat. Дані НЕ передаються (клієнт бере /api/tracks, де діє публічна затримка)."""
+    if _sse_clients[0] >= _SSE_MAX:
+        return web.Response(status=503, text="busy")
+    resp = web.StreamResponse(headers={"Content-Type": "text/event-stream", "Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    await resp.prepare(request)
+    _sse_clients[0] += 1
+    last, idle = None, 0
+    try:
+        while True:
+            if time.time() - _stream_rev["ts"] > 8:        # спільне обчислення для всіх клієнтів
+                try:
+                    _stream_rev["rev"] = await asyncio.get_running_loop().run_in_executor(None, _compute_rev)
+                except Exception:  # noqa: BLE001
+                    pass
+                _stream_rev["ts"] = time.time()
+            if _stream_rev["rev"] != last:
+                last = _stream_rev["rev"]
+                await resp.write(f"event: rev\ndata: {last}\n\n".encode()); idle = 0
+            elif idle >= 25:
+                await resp.write(b": hb\n\n"); idle = 0
+            await asyncio.sleep(2); idle += 2
+    except (asyncio.CancelledError, ConnectionResetError):
+        pass
+    finally:
+        _sse_clients[0] -= 1
+    return resp
+
+
+def _admin_guard(request: web.Request) -> web.Response | None:  # noqa: ANN001
+    """None = доступ дозволено. Токен лише в заголовку (не в URL, щоб не потрапляв у логи)."""
+    from airradar.monitoring import dashboard
+    if not os.getenv("ADMIN_DASH_TOKEN"):
+        return web.Response(status=404)
+    if not dashboard.token_ok(request.headers.get("X-Admin-Token", "")):
+        return web.Response(status=401, text="unauthorized")
+    return None
+
+
+async def _admin_health(request: web.Request) -> web.Response:  # noqa: ANN001
+    denied = _admin_guard(request)
+    if denied is not None:
+        return denied
+    if _app_db is None:
+        return web.json_response({"error": "db not ready"}, status=503)
+    from airradar.monitoring import dashboard
+    period = request.query.get("period", "24h")
+    data = dashboard.collect(_app_db, period if period in dashboard.PERIODS else "24h")
+    if request.query.get("format") == "html":
+        return web.Response(text=dashboard.render_html(data), content_type="text/html")
+    return web.json_response(data)
+
+
+async def _admin_trace(request: web.Request) -> web.Response:  # noqa: ANN001
+    denied = _admin_guard(request)
+    if denied is not None:
+        return denied
+    if _app_db is None:
+        return web.json_response({"error": "db not ready"}, status=503)
+    from airradar.monitoring import incident_trace
+    key = request.query.get("event", "")
+    if key:
+        return web.json_response({"timeline": incident_trace.timeline(_app_db, key),
+                                  "replay": incident_trace.replay(_app_db, key) if request.query.get("replay") == "1" else None})
+    return web.json_response({"events": incident_trace.search(_app_db, source=request.query.get("source", ""), text=request.query.get("q", ""))})
 
 
 async def _api_risk(request: web.Request) -> web.Response:  # noqa: ANN001
@@ -256,7 +342,7 @@ async def _serve_forever(port: int) -> None:
             resp = web.Response()
         else:
             resp = await handler(request)
-        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Origin"] = "*" if not request.path.startswith("/admin/") else "null"
         resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
         return resp
 
@@ -267,8 +353,13 @@ async def _serve_forever(port: int) -> None:
     app.router.add_get("/api/tracks", _api_tracks)
     app.router.add_get("/api/alerts-history", _api_alerts_history)
     app.router.add_get("/api/risk", _api_risk)
+    app.router.add_get("/api/stream", _api_stream)
+    app.router.add_get("/admin/health", _admin_health)   # лише з X-Admin-Token (ADMIN_DASH_TOKEN), інакше 404/401
+    app.router.add_get("/admin/trace", _admin_trace)
     radar_path = Path(__file__).with_name("miniapp") / "radar.html"
     app.router.add_get("/radar", lambda request: web.FileResponse(radar_path))
+    native_path = Path(__file__).with_name("miniapp") / "native.js"
+    app.router.add_get("/native.js", lambda request: web.FileResponse(native_path))
     raions_path = Path(__file__).with_name("miniapp") / "raions.json"
     app.router.add_get("/raions.json", lambda request: web.FileResponse(raions_path))
     map_path = Path(__file__).with_name("miniapp") / "map.html"

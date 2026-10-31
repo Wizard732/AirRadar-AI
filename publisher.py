@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import logging
 
@@ -75,6 +76,8 @@ class Publisher:
         self._session = session
         self._owns_session = session is None
         self.promo_url = promo_url.strip()
+        self.outbox_db = None          # Database для черги дошліх постів (виставляє main)
+        self._last_transient = False
 
     async def _get_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -86,27 +89,34 @@ class Publisher:
         if self._owns_session and self._session is not None and not self._session.closed:
             await self._session.close()
 
-    async def _deliver(self, endpoint: str, payload: dict) -> dict | bool:
-        """POST к Bot API. Result-объект при успехе, False при ошибке (с логом)."""
-        try:
-            session = await self._get_session()
-            url = f"{self._api_url.rsplit('/', 1)[0]}/{endpoint}"
-            async with session.post(url, json=payload) as resp:
-                data = await resp.json()
-                if resp.status == 200 and data.get("ok"):
-                    return data.get("result") or {"chat": {"id": self._target}, "message_id": 0}
-                logger.error(
-                    "Ошибка публикации [HTTP %s]: %s",
-                    resp.status,
-                    data.get("description", data),
-                )
+    async def _deliver(self, endpoint: str, payload: dict, attempts: int = 3) -> dict | bool:
+        """POST к Bot API з повторами лише для тимчасових збоїв (мережа, 5xx, 429 із Retry-After).
+        Result-объект при успехе, False при ошибке (з логом). Постійні помилки (400 тощо) не повторюються."""
+        self._last_transient = False
+        for attempt in range(attempts):
+            delay = 1.0 * (2 ** attempt)
+            try:
+                session = await self._get_session()
+                url = f"{self._api_url.rsplit('/', 1)[0]}/{endpoint}"
+                async with session.post(url, json=payload) as resp:
+                    data = await resp.json()
+                    if resp.status == 200 and data.get("ok"):
+                        return data.get("result") or {"chat": {"id": self._target}, "message_id": 0}
+                    logger.error("Ошибка публикации [HTTP %s]: %s", resp.status, data.get("description", data))
+                    if resp.status == 429:
+                        delay = min(float((data.get("parameters") or {}).get("retry_after", delay)), 15.0)
+                    elif resp.status < 500:
+                        return False   # постійна помилка (400/403/…): повтор не допоможе
+                    self._last_transient = True
+            except aiohttp.ClientError as exc:
+                logger.error("Сетевая ошибка публикации: %s", exc)
+                self._last_transient = True
+            except Exception as exc:  # pragma: no cover
+                logger.exception("Неожиданная ошибка публикации: %s", exc)
                 return False
-        except aiohttp.ClientError as exc:
-            logger.error("Сетевая ошибка публикации: %s", exc)
-            return False
-        except Exception as exc:  # pragma: no cover
-            logger.exception("Неожиданная ошибка публикации: %s", exc)
-            return False
+            if attempt < attempts - 1:
+                await asyncio.sleep(delay)
+        return False
 
     async def send(self, text: str) -> dict | None:
         """Отправить текст в целевой канал.
@@ -155,7 +165,42 @@ class Publisher:
         sent = await self._deliver("sendMessage", payload)
         if sent:
             logger.info("Опубликовано в %s (%d символов).", self._target, len(text))
+        elif self._last_transient and self.outbox_db is not None:
+            self._enqueue_outbox("sendMessage", payload)   # тимчасовий збій: дошлемо воркером (TTL 10 хв), без дублювання
         return sent or False
+
+    def _enqueue_outbox(self, endpoint: str, payload: dict) -> None:
+        import hashlib
+        import json
+        import time
+
+        from airradar.delivery import notify_queue as nq
+        try:
+            key = hashlib.sha1(f"{endpoint}|{payload.get('text', '')}|{int(time.time() // 600)}".encode()).hexdigest()[:24]
+            nq.enqueue(self.outbox_db, key, 0, "channel", kind="post", ttl_s=600,
+                       payload=json.dumps({"endpoint": endpoint, "payload": payload}, ensure_ascii=False))
+        except Exception:  # noqa: BLE001
+            logger.warning("outbox: не вдалося поставити в чергу", exc_info=True)
+
+    async def outbox_worker(self, interval_s: int = 15) -> None:
+        """Дошле пости в канал, що не пішли через тимчасовий збій."""
+        import json
+
+        from airradar.delivery import notify_queue as nq
+        while True:
+            try:
+                for job in nq.claim_due(self.outbox_db, 20, channel="channel"):
+                    data = json.loads(job.get("payload") or "{}")
+                    ok = await self._deliver(data.get("endpoint", "sendMessage"), data.get("payload", {}), attempts=1)
+                    if ok:
+                        nq.mark_sent(self.outbox_db, job["id"], str((ok or {}).get("message_id", "")) if isinstance(ok, dict) else "")
+                    else:
+                        nq.mark_failed(self.outbox_db, job["id"], "channel_send_failed")
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.exception("outbox_worker")
+            await asyncio.sleep(interval_s)
 
     async def send_photo(self, png: bytes, caption: str) -> bool:
         """Фото (безпечне превʼю карти) у канал; підпис проходить safety_policy так само, як текст."""

@@ -49,8 +49,8 @@ def register_admin_handlers(
         if not _is_admin(event.sender_id):
             return
         from digest import _send_evening_forecasts
-        from main import _get_publisher
-        publisher = _get_publisher()
+        from airradar.app_ref import main_module
+        publisher = main_module()._get_publisher()
         n = await _send_evening_forecasts(bot, db, publisher)
         await event.respond(f"✅ Сводка отправлена: {n} получателям + канал.", parse_mode="html")
 
@@ -75,12 +75,41 @@ def register_admin_handlers(
             await event.respond("⛔ Не знайшов користувача. Дай числовий ID або @username "
                                 "(за юзернеймом людина має хоч раз написати боту).")
             return
-        db.add_admin(target, event.sender_id)
-        await event.respond(f"✅ Користувач <code>{target}</code> тепер адмін: усі звіти приходитимуть і йому.", parse_mode="html")
+        from airradar.security import admin_access
+        token = admin_access.request_grant(db, event.sender_id, admin_id, target)
+        if token is None:
+            await event.respond("⛔ Неможливо видати права цьому ID.")
+            return
+        # Права даються лише за числовим ID після явного підтвердження одноразовим токеном (TTL 2 хв).
+        await event.respond(
+            f"⚠️ Видати адмін-права користувачу з ID <code>{target}</code>?\n"
+            f"Перевір ID (ім'я ≠ ідентифікатор). Підтвердь: <code>/confirm_admin {token}</code> "
+            f"(діє {admin_access.TOKEN_TTL_S // 60} хв, одноразово).", parse_mode="html")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/confirm_admin\s+(\S+)"))
+    async def _confirm_admin(event) -> None:  # noqa: ANN001
+        from airradar.security import admin_access
+        target = admin_access.confirm_grant(db, event.sender_id, admin_id, event.pattern_match.group(1))
+        if target is None:
+            await event.respond("⛔ Токен недійсний, прострочений або вже використаний.")
+            return
+        await event.respond(f"✅ Користувач <code>{target}</code> тепер адмін.", parse_mode="html")
         try:
             await bot.send_message(target, "👑 Тебе призначено адміністратором AirRadar. Тобі приходитимуть службові звіти.")
         except Exception:  # noqa: BLE001 — людина ще не відкривала бота
             pass
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/audit"))
+    async def _audit(event) -> None:  # noqa: ANN001
+        if not _is_super(event.sender_id):
+            return
+        from airradar.security import admin_access
+        rows = admin_access.recent_audit(db, 15)
+        lines = ["🧾 <b>Журнал адмін-дій</b> (останні 15)"]
+        for r in rows:
+            t = time.strftime("%d.%m %H:%M", time.localtime(r["ts"]))
+            lines.append(f"{t} {'✅' if r['ok'] else '⛔'} <code>{r['actor_id']}</code> {r['action']} → {r['target_id']} {r['detail'] or ''}")
+        await event.respond("\n".join(lines) if rows else "Журнал порожній.", parse_mode="html")
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/reports"))
     async def _reports(event) -> None:  # noqa: ANN001
@@ -106,6 +135,8 @@ def register_admin_handlers(
         import moderation
         ok, msg = moderation.apply_fix(db, event.sender_id, event.pattern_match.group(1),
                                        event.pattern_match.group(2), event.pattern_match.group(3))
+        from airradar.security import admin_access
+        admin_access.log_action(db, event.sender_id, "fix", None, ok, event.pattern_match.group(1)[:60])
         await event.respond(msg)
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/stale\s+(\S+)"))
@@ -164,8 +195,8 @@ def register_admin_handlers(
             return
         from ai_analyzer import analyze
         try:
-            from main import _get_summarizer
-            summarizer = _get_summarizer()
+            from airradar.app_ref import main_module
+            summarizer = main_module()._get_summarizer()
         except Exception:  # noqa: BLE001
             summarizer = None
         await event.respond("🧠 Аналізую систему…")
@@ -180,7 +211,8 @@ def register_admin_handlers(
         if target == admin_id:
             await event.respond("⛔ Супер-админа нельзя удалить.")
             return
-        db.remove_admin(target)
+        from airradar.security import admin_access
+        admin_access.revoke(db, event.sender_id, admin_id, target)
         await event.respond(f"🚫 У пользователя <code>{target}</code> забрана админка.", parse_mode="html")
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/admins"))

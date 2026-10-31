@@ -49,7 +49,7 @@ def diagnose_source(row: dict, counters: collections.Counter | None, now: float)
 
 
 def source_report(db, now: float | None = None) -> list[tuple[str, str, str]]:
-    now = now or time.time()
+    now = (time.time() if now is None else now)
     return [(r["channel"], *diagnose_source(r, _COUNTERS.get(r["channel"]), now)) for r in db.all_channel_health()]
 
 

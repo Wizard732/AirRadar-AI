@@ -208,6 +208,10 @@ class AISummarizer:
         text = text.strip()
         if not text:
             return text
+        from airradar.security.ai_guard import sanitize_input
+        text, _guard_flags = sanitize_input(text)  # ліміт розміру + захист від prompt injection
+        if _guard_flags:
+            logger.warning("AI guard: %s", ",".join(_guard_flags))
 
         payload: dict[str, Any] = {
             "model": self._model,
@@ -418,6 +422,10 @@ class GroqSummarizer(SummarizerProtocol):
         text = text.strip()
         if not text:
             return text
+        from airradar.security.ai_guard import sanitize_input
+        text, _guard_flags = sanitize_input(text)  # ліміт розміру + захист від prompt injection
+        if _guard_flags:
+            logger.warning("AI guard: %s", ",".join(_guard_flags))
 
         result, degraded = await self._summarize_once(text, self._model)
         if degraded and self._strong_model and self._strong_model != self._model:
@@ -693,7 +701,7 @@ async def ocr_image(
         return ""
 
 
-def make_summarizer(backend: str, settings: Any, session: aiohttp.ClientSession) -> SummarizerProtocol:
+def _build_inner(backend: str, settings: Any, session: aiohttp.ClientSession) -> SummarizerProtocol:
     """Фабрика summarizer-а по настройкам.
 
     backend == 'ollama' → локальная Ollama (тяжёлая, нужна RAM под модель).
@@ -726,11 +734,50 @@ def make_summarizer(backend: str, settings: Any, session: aiohttp.ClientSession)
             session=session,
             strong_model=getattr(settings, "groq_model_strong", ""),
         )
+    elif backend == "cvc":
+        # CheapVibeCode — OpenAI-сумісний шлюз (/v1/chat/completions); той самий клієнт, що й для Groq.
+        import os
+        key = os.getenv("CVC_API_KEY", "").strip()
+        if not key:
+            raise RuntimeError("LLM_BACKEND=cvc, але CVC_API_KEY порожній. Додай ключ у .env на сервері (не в git).")
+        inner = GroqSummarizer(
+            api_key=key,
+            model=os.getenv("CVC_MODEL", "deepseek-v4.1-flash").strip(),
+            timeout=settings.http_timeout,
+            base_url=os.getenv("CVC_URL", "https://ru.cheapvibecode.ru").strip(),
+            session=session,
+            strong_model="",
+        )
     else:
         raise RuntimeError(
-            f"Неизвестный LLM_BACKEND={backend!r}. Допустимо: 'ollama' или 'groq'."
+            f"Неизвестный LLM_BACKEND={backend!r}. Допустимо: 'cvc', 'ollama' или 'groq'."
         )
+    return inner
 
+
+def make_summarizer(backend: str, settings: Any, session: aiohttp.ClientSession) -> SummarizerProtocol:
+    """Фабрика summarizer-а: бекенд + ResilientSummarizer + кеш (див. _build_inner)."""
+    backend = (backend or "").strip().lower()
+    inner = _build_inner(backend, settings, session)
+    # Єдина обгортка: таймаут, retry, breaker, денний бюджет, опційний fallback-провайдер (AI_FALLBACK_BACKEND=groq|ollama).
+    import os
+    from airradar.intelligence.providers import ResilientSummarizer
+    # Основний провайдер cvc: за замовчуванням запасний — локальна Ollama (якщо шлюз недоступний/вичерпано ліміт).
+    fb_name = os.getenv("AI_FALLBACK_BACKEND", "ollama" if backend == "cvc" else "").strip().lower()
+    fallback = None
+    if fb_name and fb_name != backend:
+        try:
+            fallback = _build_inner(fb_name, settings, session)
+        except Exception as exc:  # noqa: BLE001 — немає ключа/налаштувань: працюємо без fallback
+            logger.warning("AI fallback %s недоступний: %s", fb_name, type(exc).__name__)
+    # За замовчуванням вимкнено (поведінка не змінюється); вмикається AI_RESILIENT=1, fallback-ом або денним лімітом.
+    _opt_in = backend == "cvc" or os.getenv("AI_RESILIENT", "0") == "1" or fallback is not None or int(os.getenv("AI_DAILY_LIMIT_PRIMARY", "0")) > 0
+    if _opt_in:
+      inner = ResilientSummarizer(
+        inner, fallback, names=(backend, fb_name or "none"),
+        retries=int(os.getenv("AI_RETRIES", "0")), timeout_s=float(os.getenv("AI_TIMEOUT_S", "45")),
+        primary_daily_limit=int(os.getenv("AI_DAILY_LIMIT_PRIMARY", "0")),
+        fallback_daily_limit=int(os.getenv("AI_DAILY_LIMIT_FALLBACK", "0")))
     ttl = int(getattr(settings, "summary_cache_ttl", 0) or 0)
     if ttl <= 0:
         return inner

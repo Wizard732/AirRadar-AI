@@ -106,8 +106,20 @@ async def push_regions(db, regions: list[str], title: str, body: str) -> int:
         for uid in db.get_subscribers(slug):
             if uid not in seen:
                 seen.add(uid)
+                if not subs_of(db, uid):
+                    continue
                 try:
-                    n += await push_user(db, uid, title, body)
+                    from airradar.delivery import push_queue
+                    n += await push_queue.deliver(db, "webpush", "", uid, {"title": title, "body": body})
                 except Exception:  # noqa: BLE001
                     logger.warning("webpush: збій для %s", uid, exc_info=True)
     return n
+
+
+async def _queue_sender(db, uid: int, payload: dict) -> int:
+    return await push_user(db, uid, payload["title"], payload["body"])
+
+
+from airradar.delivery import push_queue as _pq  # noqa: E402
+
+_pq.register("webpush", _queue_sender)

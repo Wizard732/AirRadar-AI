@@ -36,7 +36,7 @@ def make_llm(fallback=None, session=None):
 
 
 def collect_metrics(db: Database, now: int | None = None, hours: int = 24) -> dict:
-    now = int(now or time.time())
+    now = int((time.time() if now is None else now))
     since = now - hours * 3600
     m: dict = {"hours": hours}
     try:

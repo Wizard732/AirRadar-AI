@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 
 CATEGORY_UK = {
     "wrong_city": "не те місто", "wrong_type": "не той тип", "stale": "застаріло",

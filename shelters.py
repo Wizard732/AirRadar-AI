@@ -51,6 +51,9 @@ def _load_local() -> list[tuple]:
         from pathlib import Path
         rows = []
         p = Path(__file__).parent / "data" / "shelters_ua.tsv.gz"
+        clean = p.with_name("shelters_ua.clean.tsv.gz")   # без точок поза Україною (scripts/check_geo_data.py --write-clean); оригінал не змінюється
+        if clean.exists():
+            p = clean
         if p.exists():
             with gzip.open(p, "rt", encoding="utf-8") as f:
                 for line in f:
