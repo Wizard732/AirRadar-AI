@@ -36,7 +36,8 @@ jobs:
           mkdir -p site/radar
           cp miniapp/radar.html site/index.html
           cp miniapp/raions.json site/
-          cp miniapp/app.html miniapp/native.js miniapp/manifest.webmanifest miniapp/sw.js miniapp/icon-192.png miniapp/icon-512.png site/
+          cp miniapp/app.html miniapp/native.js miniapp/manifest.webmanifest miniapp/sw.js miniapp/icon-192.png miniapp/icon-512.png miniapp/webpush.html site/
+          cp miniapp/vapid.json site/ 2>/dev/null || echo '{"public_key": ""}' > site/vapid.json
           cp miniapp/downloads/AirRadar.apk site/AirRadar.apk
           cp map_live.html site/snapshot.html
           # /radar -> корень (ссылки вида <url>/radar из уведомлений)
