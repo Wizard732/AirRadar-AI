@@ -275,7 +275,9 @@ class OldClientCompatTests(unittest.TestCase):
         node = shutil.which("node")
         if not node:
             self.skipTest("node не встановлено")
-        src = (Path(__file__).parent / "app/www/radar.html").read_text(encoding="utf-8")
+        # app/www — генерований (не в git) клиент APK; в CI проверяем те же функции из miniapp/radar.html.
+        apk_copy = Path(__file__).parent / "app/www/radar.html"
+        src = (apk_copy if apk_copy.exists() else Path(__file__).parent / "miniapp/radar.html").read_text(encoding="utf-8")
         m_pos = re.search(r"function positionAt\(t, ts\) \{.*?\n\}\n", src, re.S)
         m_noise = re.search(r"function isNoise\(t, ts\) \{.*?\n\}\n", src, re.S)
         assert m_pos and m_noise
