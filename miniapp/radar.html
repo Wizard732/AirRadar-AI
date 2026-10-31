@@ -256,8 +256,9 @@ const compass = d => COMPASS[Math.floor(((d % 360) + 22.5) / 45) % 8];
 // ---------- виды вооружения ----------
 const SVG = inner => `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${inner}</svg>`;
 const ICO = {
-  drone:   SVG('<path d="M12 2L14 9L22 15V17.5L14 14.5L13 20L16 22V23L12 22L8 23V22L11 20L10 14.5L2 17.5V15L10 9Z"/>'),
-  missile: SVG('<path d="M12 1C13.5 4 14 7 14 10V17L17 20V22L14 20.5V22H10V20.5L7 22V20L10 17V10C10 7 10.5 4 12 1Z"/>'),
+  // Силуэты как на miniapp/map.html: Shahed-136 (дельтакрыло с килем) и ракета.
+  drone:   SVG('<path d="M12 1.5 L22.5 19.5 L16.4 17.4 L16.4 20.6 L13.1 18.9 L13.1 22.5 L10.9 22.5 L10.9 18.9 L7.6 20.6 L7.6 17.4 L1.5 19.5 Z"/>'),
+  missile: SVG('<path d="M12 0.8 C14.2 2.9 15.2 5.9 15.2 9 L15.2 13.4 L17.8 17 L14.2 16.2 L14.2 19.6 L12 23.2 L9.8 19.6 L9.8 16.2 L6.2 17 L8.8 13.4 L8.8 9 C8.8 5.9 9.8 2.9 12 0.8 Z"/>'),
   kab:     SVG('<path d="M12 1C15 1 16.5 5 16.5 9V16H7.5V9C7.5 5 9 1 12 1Z"/><path d="M7.5 14L4 21H8L9.5 17H14.5L16 21H20L16.5 14Z"/><rect x="7.5" y="9" width="9" height="1.6" fill="#0b0e14" opacity=".45"/>'),
   air:     SVG('<path d="M12 1L13.5 8L23 13V15.5L13.5 13L13 19L16 21V22.5L12 21.5L8 22.5V21L11 19L10.5 13L1 15.5V13L10.5 8Z"/>'),
   fpv:     SVG('<path d="M12 2V22M2 12H22M5 5L19 19M19 5L5 19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>'),
@@ -282,7 +283,7 @@ const WNAME = { shahed: 'Шахед', uav: 'БпЛА', recon_drone: 'Розві�
 const catOf = w => Object.keys(CATS).find(k => CATS[k].w.includes(w)) || 'drone';
 const isMissile = w => ['cruise_missile', 'ballistic', 'missile', 'air_missile', 'coastal_missile'].includes(w);
 const trackColor = t => isMissile(t.weapon) ? '#ff3b30' : '#ffd60a';   // колір групи в списку: ракети — червоний, шахеди — жовтий
-const markerColor = t => t.profile === 'reactive' ? '#b57bff' : '#fff';
+const markerColor = t => trackColor(t);   // модель фарбується за типом: дрон — жовтий, ракета — червоний
 const trackName = t => (WNAME[t.weapon] || 'БпЛА') + (t.profile === 'reactive' ? ' · реактивний' : '') + (t.count > 1 ? ' ×' + t.count : '');
 let hiddenCats = new Set(); try { hiddenCats = new Set(JSON.parse(localStorage.getItem('rd_hidden') || '[]')); } catch (e) {}
 const EVENT_KEEP_S = 90 * 60;
@@ -352,7 +353,7 @@ const ISO2SLUG = { 'UA-05': 'vinnytska', 'UA-07': 'volynska', 'UA-09': 'luhanska
   'UA-21': 'zakarpatska', 'UA-23': 'zaporizka', 'UA-26': 'ivano_frankivska', 'UA-30': 'kyivska', 'UA-32': 'kyivska', 'UA-35': 'kirovohradska', 'UA-40': 'crimea',
   'UA-43': 'crimea', 'UA-46': 'lvivska', 'UA-48': 'mykolaivska', 'UA-51': 'odeska', 'UA-53': 'poltavska', 'UA-56': 'rivnenska', 'UA-59': 'sumska',
   'UA-61': 'ternopilska', 'UA-63': 'kharkivska', 'UA-65': 'khersonska', 'UA-68': 'khmelnytska', 'UA-71': 'cherkaska', 'UA-74': 'chernigivska', 'UA-77': 'chernivetska' };
-let alertsDetail = [], lastItems = [], raionLayer = null, sirensRaions = new Set(), sirensRaionsY = new Set(), sirensRaionsP = new Set(), sirenThreats = {}, oblastLayer = null, oblastActive = new Set(), sirens = null, threatSlugs = new Set(), regionKind = {};
+let alertsDetail = [], lastItems = [], raionLayer = null, sirensRaions = new Set(), sirensRaionsY = new Set(), sirensRaionsP = new Set(), sirenThreats = {}, oblastLayer = null, oblastActive = new Set(), sirens = null, threatSlugs = new Set(), regionKind = {}, targetRaion = {};
 const OB_SIREN = { color: '#5a2a33', weight: 1, opacity: .9, fillColor: '#3a1f27', fillOpacity: .95 };
 const OB_ON = { color: '#8e3b42', weight: 1.2, opacity: .9, fillColor: '#6b2a2f', fillOpacity: .97 }, OB_WARN = { color: '#e0bd5a', weight: 1.2, opacity: .9, fillColor: '#c9a23c', fillOpacity: .97 }, OB_OFF = { color: '#33405e', weight: .9, opacity: .9, fillColor: '#1b2338', fillOpacity: .95 };
 const SLUG_NAME = { vinnytska:'Вінницька область', volynska:'Волинська область', luhanska:'Луганська область', dnipropetrovska:'Дніпропетровська область', donetska:'Донецька область', zhytomyrska:'Житомирська область', zakarpatska:'Закарпатська область', zaporizka:'Запорізька область', ivano_frankivska:'Івано-Франківська область', kyivska:'Київська область', kirovohradska:'Кіровоградська область', crimea:'Крим', lvivska:'Львівська область', mykolaivska:'Миколаївська область', odeska:'Одеська область', poltavska:'Полтавська область', rivnenska:'Рівненська область', sumska:'Сумська область', ternopilska:'Тернопільська область', kharkivska:'Харківська область', khersonska:'Херсонська область', khmelnytska:'Хмельницька область', cherkaska:'Черкаська область', chernigivska:'Чернігівська область', chernivetska:'Чернівецька область' };
@@ -424,8 +425,8 @@ map.on('click', e => {
   if (slug) openRegion(slug, raionAt(ll));
 });
 const PAL = {
-  dark:  { bg: '#10131a', lbl: '#9fb4ff', obOff: ['#33405e', '#1b2338'], obOn: ['#8e3b42', '#6b2a2f'], obWarn: ['#e0bd5a', '#c9a23c'], obSiren: ['#5a2a33', '#3a1f27'], raOn: ['#8e3b42', '#6b2a2f'], raWarn: ['#e0bd5a', '#c9a23c'], raPart: ['#8a2432', '#4a2230'], raOffLine: '#2a3550', age: [[150, 42, 50], [78, 30, 40]] },
-  light: { bg: '#efe9dc', lbl: '#5b4a35', obOff: ['#c9b89b', '#e9decb'], obOn: ['#b8493e', '#d96b5c'], obWarn: ['#d7a920', '#f2c63a'], obSiren: ['#c9807a', '#e5a79d'], raOn: ['#b8493e', '#dc6a58'], raWarn: ['#d7a920', '#f2c63a'], raPart: ['#c9807a', '#ecbab0'], raOffLine: '#c9b89b', age: [[232, 124, 104], [170, 62, 54]] },
+  dark:  { bg: '#10131a', lbl: '#9fb4ff', obOff: ['#33405e', '#1b2338'], obOn: ['#ff3b30', '#d92b24'], obWarn: ['#ffd60a', '#e6b800'], obSiren: ['#5a2a33', '#3a1f27'], raOn: ['#ff3b30', '#d92b24'], raWarn: ['#ffd60a', '#e6b800'], raPart: ['#8a2432', '#4a2230'], raOffLine: '#2a3550', age: [[150, 42, 50], [78, 30, 40]] },
+  light: { bg: '#efe9dc', lbl: '#5b4a35', obOff: ['#c9b89b', '#e9decb'], obOn: ['#c62d24', '#e0483e'], obWarn: ['#d7a920', '#f2c63a'], obSiren: ['#c9807a', '#e5a79d'], raOn: ['#c62d24', '#e0483e'], raWarn: ['#d7a920', '#f2c63a'], raPart: ['#c9807a', '#ecbab0'], raOffLine: '#c9b89b', age: [[232, 124, 104], [170, 62, 54]] },
 };
 let palName = 'dark';
 function applyPalette(name) {
@@ -440,14 +441,50 @@ function raionSince() {
   return m;
 }
 function ageRed(age) { const k = Math.min(1, Math.max(0, (age - 1800) / (6 * 3600))), [A, B] = PAL[palName].age; const mix = (a, b) => Math.round(a + (b - a) * k); return `rgb(${mix(A[0], B[0])},${mix(A[1], B[1])},${mix(A[2], B[2])})`; }
+// Район, у якому лежить точка (для кінцевої точки треку). Ключ — той самий, що в raionLayer.
+function regionAt(ll) {
+  if (!raionLayer) return null; let hit = null;
+  raionLayer.eachLayer(l => { if (!hit && l.getBounds().contains(ll) && inGeo(l.feature.geometry, ll[1], ll[0])) hit = l; });
+  if (!hit) return null;
+  const first = hit.feature.properties.o.split(' ')[0];
+  return { key: hit._key, slug: O2SLUG[first] || (first === 'Київ' ? 'kyivska' : null) };
+}
+// Тип загрози для областей (офіційні siren_threats) і районів/областей, куди летить ціль (dest треку).
+// Викликається з циклу оновлення; перемальовує тільки якщо щось змінилось.
+function updateRegionKinds(ts) {
+  const kinds = {};
+  for (const [slug, arr] of Object.entries(sirenThreats || {})) {
+    if (arr.some(x => /missile|kab|bomb/.test(x))) kinds[slug] = 'm';
+    else if (arr.includes('drones')) kinds[slug] = 'd';
+  }
+  const nextRaion = {};
+  for (const t of tracks) {
+    const k = isMissile(t.weapon) ? 'm' : (['shahed', 'uav', 'recon_drone'].includes(t.weapon) ? 'd' : null);
+    const pos = k && t.dest ? positionAt(t, ts) : null;
+    if (!pos || pos.stale) continue;
+    const r = regionAt([t.dest.lat, t.dest.lon]);
+    if (!r) continue;
+    if (nextRaion[r.key] !== 'm') nextRaion[r.key] = k;
+    if (r.slug && kinds[r.slug] !== 'm') kinds[r.slug] = k;
+  }
+  const kindsChanged = JSON.stringify(kinds) !== JSON.stringify(regionKind);
+  const raionsChanged = JSON.stringify(nextRaion) !== JSON.stringify(targetRaion);
+  if (kindsChanged) { regionKind = kinds; restyleOblasts(); }
+  if (kindsChanged || raionsChanged) { targetRaion = nextRaion; restyleRaions(); }
+}
 function restyleRaions() {
   if (!raionLayer) return;
   const since = raionSince(), now = Date.now() / 1000, other = {};
   for (const a of alertsDetail) if (a.type === 'raion' && a.kind && a.kind !== 'air_raid') other[a.title.replace(' район', '') + '|' + (SLUG_NAME[a.slug] || '').split(' ')[0]] = a.kind;
+  // Тип загрози бере область (threat:slug:тип з офіційних даних): райони цієї області фарбуються так само.
+  const kindByKey = {}; for (const a of alertsDetail) if (a.type === 'raion') kindByKey[a.title.replace(' район', '') + '|' + (SLUG_NAME[a.slug] || '').split(' ')[0]] = regionKind[a.slug];
   raionLayer.eachLayer(l => {
     if (other[l._key] === 'artillery_shelling') l.setStyle({ color: '#f0a050', weight: .8, opacity: .9, fillColor: '#e8872a', fillOpacity: 1 });
     else if (other[l._key] === 'urban_fights') l.setStyle({ color: '#8c7bd8', weight: .8, opacity: .9, fillColor: '#5a49b5', fillOpacity: 1 });
+    else if (sirensRaions.has(l._key) && kindByKey[l._key] === 'd') l.setStyle(RA_WARN);   // тривога від дронів — жовтий
     else if (sirensRaions.has(l._key)) l.setStyle(Object.assign({}, RA_ON, { fillColor: since[l._key] ? ageRed(now - since[l._key]) : RA_ON.fillColor }));
+    else if (targetRaion[l._key] === 'd') l.setStyle(RA_WARN);   // ціль летить сюди — жовтий
+    else if (targetRaion[l._key] === 'm') l.setStyle(RA_ON);     // ракетна ціль — червоний
     else l.setStyle(sirensRaionsY.has(l._key) ? RA_WARN : (sirensRaionsP.has(l._key) ? RA_PART : RA_OFF));
   });
 }
@@ -481,7 +518,7 @@ function shahedIcon(t) {
   const svg = g.replace('<svg ', `<svg class="body" style="color:${markerColor(t)}" stroke="#0b0e14" stroke-width="1.3" paint-order="stroke" `);
   const count = t.count > 1 ? `<span class="cnt">${t.count}</span>` : '';
   const unk = '';
-  return L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17], html: `<div class="sh">${svg}${unk}${count}</div>` });
+  return L.divIcon({ className: '', iconSize: [34, 34], iconAnchor: [17, 17], html: `<div class="sh" style="--glow:${color}">${svg}${unk}${count}</div>` });
 }
 
 // Сміття на карті: ціль без курсу, що має лише приблизні точки («?»), і цілі, яких не бачили понад 30 хв.
@@ -923,7 +960,7 @@ function frame(nowMs) {
   }
   const stat = renderTracks();
   // Маркеры двигаются каждый кадр; следы, прогноз и HUD — 4 раза в секунду (иначе мерцают подсказки).
-  if (nowMs - lastSlow > 250) { lastSlow = nowMs; drawTrailsAndForecast(curTs()); renderEvents(curTs()); renderList(curTs()); renderGhosts(); updateHud(stat); }
+  if (nowMs - lastSlow > 250) { lastSlow = nowMs; drawTrailsAndForecast(curTs()); updateRegionKinds(curTs()); renderEvents(curTs()); renderList(curTs()); renderGhosts(); updateHud(stat); }
   requestAnimationFrame(frame);
 }
 load().then(() => {

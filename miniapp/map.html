@@ -563,9 +563,9 @@ function routeOf(t, pin) {
 }
 
 const TYPE_COLORS = {
-  ballistic: '#ff3b30', cruise_missile: '#ff3b30', missile: '#ff3b30',
-  shahed: '#ff9500', uav: '#ff9500', fpv: '#ff9500',
-  kab: '#ffcc00', aviation: '#ffcc00',
+  ballistic: '#ff3b30', cruise_missile: '#ff3b30', missile: '#ff3b30',   // ракети — червоні
+  shahed: '#ffd60a', uav: '#ffd60a', fpv: '#ffd60a',   // дрони — жовті
+  kab: '#ff9f0a', aviation: '#5ac8fa',
   explosion: '#ff2d55',
   alert: '#ffcc00', stand_down: '#34c759',
   mlrs: '#ff3b30', artillery: '#ff3b30',
@@ -650,9 +650,10 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
   const shape = TYPE_ICON_SHAPE[t.type] || 'warn';
   const size = ICON_SIZES[shape] || 24;
   const box = size + 8;
-  const glow = fresh ? `drop-shadow(0 0 5px ${color})` : `drop-shadow(0 0 2px ${color}aa)`;
+  const glow = confirmed ? `drop-shadow(0 0 7px ${color})` : (fresh ? `drop-shadow(0 0 5px ${color})` : `drop-shadow(0 0 2px ${color}aa)`);
   const rot = angle ? `transform:rotate(${angle}deg);` : '';
-  const stroke = confirmed ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.55)';
+  // Обводка тёмная у всех: модель остаётся цветной (жовта/червона), підтвердження — сильніше світіння, не біла заливка.
+  const stroke = '#0b0e14';
   const svg = (WEAPON_SVG[shape] || WEAPON_SVG.warn)
     .replaceAll('{c}', color)
     .replaceAll('{s}', stroke);
