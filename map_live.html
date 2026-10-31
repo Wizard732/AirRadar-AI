@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "stand_down", "region": "sumska", "text": "🟢 Сумський район — відбій повітряної тривоги", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 10}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "sumska", "text": "🟡 Сумський район — повітряна тривога, жовтий рівень: Дронова загроза (жовтий рівень)", "sources": 1, "origin": "", "destination": "sumska", "track": {"from": [49.994, 36.231], "to": [50.907, 34.798], "from_name": "Харків", "to_name": "Суми", "speed_kmh": 220.6, "course_deg": 316, "minutes": null, "points": 4}, "age_min": 7}, {"type": "uav", "region": "kharkivska", "text": "Харківщина: БпЛА на Богодухів", "sources": 1, "origin": "", "destination": "kharkivska", "track": {"from": [49.208, 37.249], "to": [51.498, 31.289], "from_name": "Ізюм", "to_name": "Чернігів", "speed_kmh": 603.7, "course_deg": 303, "minutes": 48, "points": 4}, "age_min": 8}, {"type": "stand_down", "region": "sumska", "text": "🟢 Сумський район — відбій повітряної тривоги", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 21}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 102, "standdown_hits": 4, "standdown_total": 8}};
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 102, "standdown_hits": 4, "standdown_total": 8}, "kharkivska": {"standdown_min": 39, "standdown_live": true, "standdown_hits": 2, "standdown_total": 5, "wave_hours": {"from": 23, "to": 5}}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
