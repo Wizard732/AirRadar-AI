@@ -67,6 +67,11 @@ class PipelineParserTests(unittest.TestCase):
         self.assertEqual([r["place"] for r in rows], ["Чернігів"])
 
 
+from unittest import mock as _mock
+
+
+# Внутрішній (повний) формат API перевіряється з тестовим прапорцем; публічний режим — у test_public_view.py.
+@_mock.patch("health_server._LEGACY_FOR_TESTS", True)
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.file = tempfile.NamedTemporaryFile(delete=False)

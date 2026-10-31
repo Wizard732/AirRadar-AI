@@ -99,9 +99,12 @@ class ApiThreatsPublicTextTests(unittest.TestCase):
         os.unlink(self.file.name)
 
     def test_api_text_is_public(self):
+        """Внутренний формат (тестовый флаг): public_text чистит ссылки и служебные префиксы."""
+        from unittest import mock
         from health_server import _api_threats
 
-        response = asyncio.run(_api_threats(None))
+        with mock.patch("health_server._LEGACY_FOR_TESTS", True):
+            response = asyncio.run(_api_threats(None))
         data = json.loads(response.text)
         self.assertTrue(data["threats"])
         text = data["threats"][0]["text"]
@@ -109,6 +112,21 @@ class ApiThreatsPublicTextTests(unittest.TestCase):
         self.assertNotIn("](", text)
         self.assertNotIn("multi:", text.lower())
         self.assertIn("БПЛА на Терни", text)
+
+    def test_api_text_is_generic_in_public_mode(self):
+        """Публичный режим: только «тип — область», без городов и ссылок из исходного сообщения."""
+        import os
+        from unittest import mock
+        from health_server import _api_threats
+
+        with mock.patch.dict(os.environ, {"PUBLIC_MODE": "region"}):
+            response = asyncio.run(_api_threats(None))
+        data = json.loads(response.text)
+        self.assertTrue(data["threats"])
+        text = data["threats"][0]["text"]
+        self.assertTrue(text.startswith("БпЛА — "), text)
+        for bad in ("Терни", "t.me", "](", "multi"):
+            self.assertNotIn(bad, text)
 
 
 class MergeOfficialTests(unittest.TestCase):

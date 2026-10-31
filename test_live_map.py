@@ -7,6 +7,11 @@ from health_server import _api_threats, set_db
 from incident_fusion import extract_incident_fact
 
 
+from unittest import mock as _mock
+
+
+# Внутрішній (повний) формат API перевіряється з тестовим прапорцем; публічний режим — у test_public_view.py.
+@_mock.patch("health_server._LEGACY_FOR_TESTS", True)
 class LiveMapApiTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.NamedTemporaryFile(delete=False)

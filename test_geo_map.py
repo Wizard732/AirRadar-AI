@@ -143,6 +143,11 @@ class ActiveThreatsRouteTests(unittest.TestCase):
         )
 
 
+from unittest import mock as _mock
+
+
+# Внутрішній (повний) формат API перевіряється з тестовим прапорцем; публічний режим — у test_public_view.py.
+@_mock.patch("health_server._LEGACY_FOR_TESTS", True)
 class ApiThreatsTests(unittest.TestCase):
     """GET /api/threats: маршруты угроз + репорты пользователей в одном JSON."""
 

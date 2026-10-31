@@ -111,13 +111,18 @@ async function renderImp() {
     const d = await fetchJSON('impacts.json');
     const hits = d.items.filter(i => i.kind === 'hit'), blasts = d.items.filter(i => i.kind !== 'hit');
     const head = `<h2>Наслідки</h2><div class="upd">${fmtUpd(d.now)} · за 14 днів</div>`;
+    const rng = (label, v) => v && v !== '0' ? `<span class="k">${label}: ${esc(v)}</span>` : '';
+    const aggCard = i => `<div class="card imp"><div class="t">${i.kind === 'hit' ? '💥' : '◉'} ${esc(i.oblast)}</div>
+        <div class="meta">${esc(i.when)} · ${i.kind === 'hit' ? 'влучань: ' + esc(i.hits_label) : 'вибухи (чутно)'}</div>
+        ${rng('Загинули', i.killed_range) || rng('Поранені', i.injured_range) ? `<div style="margin-top:6px">${rng('Загинули', i.killed_range)}${rng('Загинули', i.killed_range) && rng('Поранені', i.injured_range) ? ' · ' : ''}${rng('Поранені', i.injured_range)}</div>` : ''}
+        ${(i.damage || []).length ? `<div class="chips">${i.damage.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>` : ''}</div>`;
     const card = i => `<div class="card imp"><div class="t">${i.kind === 'hit' ? '💥' : '◉'} ${esc(i.place || i.oblast)}${i.place && i.oblast ? ' · ' + esc(i.oblast) : ''}</div>
         <div class="meta">${esc(i.when)}${i.kind === 'hit' ? '' : ' · вибухи (чутно)'}</div>
         ${(i.killed || i.injured || i.flags || i.children) ? `<div style="margin-top:6px">${i.killed ? `<span class="k">Загинули: ${i.killed}</span>` : (i.flags.includes('k') ? '<span class="k">Є загиблі (уточнюється)</span>' : '')}${(i.killed || i.flags.includes('k')) && (i.injured || i.flags.includes('i')) ? ' · ' : ''}${i.injured ? `Поранені: ${i.injured}` : (i.flags.includes('i') ? 'Є постраждалі (уточнюється)' : '')}${i.children ? ` · 👶 дітей: ${i.children}` : ''}</div>` : ''}
         ${i.damage.length ? `<div class="chips">${i.damage.map(x => `<span class="chip">${esc(x)}</span>`).join('')}</div>` : ''}</div>`;
     const body = d.items.length ? `<div class="grid"><div class="card"><div class="big">${d.totals.hits}</div><div class="lab">влучань</div></div>
         <div class="card"><div class="big">${d.totals.killed}<span style="font-size:15px;color:var(--dim)"> / ${d.totals.injured}</span></div><div class="lab">загиблих / поранених${d.totals.children ? ' · дітей: ' + d.totals.children : ''}</div></div></div>${d.totals.unclear ? `<div class="note" style="margin:-2px 0 10px">У ${d.totals.unclear} повідомленнях кількість уточнюється й у підсумок не входить.</div>` : ''}` +
-      hits.map(card).join('') + (blasts.length ? `<h3>Вибухи (чутно)</h3>` + blasts.slice(0, 15).map(card).join('') : '')
+      hits.map(i => i.hits_label ? aggCard(i) : card(i)).join('') + (blasts.length ? `<h3>Вибухи (чутно)</h3>` + blasts.slice(0, 15).map(i => i.hits_label ? aggCard(i) : card(i)).join('') : '')
       : `<div class="card empty">Повідомлень про влучання поки немає. Вони з’являються тут одразу, як тільки канали про них напишуть, а також на карті (💥).</div>`;
     el.innerHTML = head + body + `<div class="note">${esc(d.note)}</div>`;
   } catch (e) { fail(el, e); }

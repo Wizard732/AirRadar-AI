@@ -478,18 +478,13 @@ function citySlugsOf(text, max = 3) {
 
 // Київские события вешаем на конкретный берег, если источник его назвал.
 function pinSlugOf(t) {
-  if (t.region !== 'kyivska') return t.region;
-  const lower = (t.text || '').toLowerCase();
-  const left = KYIV_BANK.kyiv_left.keys.some(k => lower.includes(k));
-  const right = KYIV_BANK.kyiv_right.keys.some(k => lower.includes(k));
-  if (left && !right) return 'kyiv_left';
-  if (right && !left) return 'kyiv_right';
-  return 'kyivska';
+  // Публічна карта: пін — центр області, без прив'язки до міста чи берега (точні позиції не публікуються).
+  return t.region;
 }
 
 // Пины события: упомянутые в тексте города/районы (до 3) → берег Киева → центр области.
 function pinsOf(t) {
-  const slugs = citySlugsOf(t.text);
+  const slugs = [];   // міста з тексту більше не дають піни: лише область (узагальнене положення)
   if (slugs.length) {
     return slugs
       .filter(s => CITY_COORDS[s])
@@ -1113,7 +1108,8 @@ function renderAll() {
     const marker = L.marker(coords, {
       icon: L.divIcon({
         className: '',
-        html: weaponIconHtml(top, color, fresh, confirmed, angle) +
+        // Силует нейтральний: колір загрози — у зоні/векторі (color), не в самій моделі.
+        html: weaponIconHtml(top, '#e9edf3', fresh, confirmed, angle) +
           (approach ? `<span style="position:absolute;left:26px;top:-8px;background:#ff3b30;` +
             `color:#fff;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:8px;` +
             `border:1px solid rgba(255,255,255,0.75);text-shadow:0 0 3px #000;white-space:nowrap">` +

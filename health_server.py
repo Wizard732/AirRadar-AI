@@ -16,6 +16,8 @@ from typing import Any
 
 from aiohttp import web
 
+from airradar.safety import public_view as _pv
+
 logger = logging.getLogger(__name__)
 
 # Глобальная ссылка на Database — устанавливается из main.py через set_db.
@@ -29,6 +31,57 @@ def set_db(db) -> None:
     """Установить ссылку на Database (вызывается из main.py)."""
     global _app_db
     _app_db = db
+
+
+_LEGACY_FOR_TESTS = False   # тести внутрішнього формату
+
+
+def public_mode() -> str:
+    """legacy (за замовчуванням, рішення власника) — повні дані карти, як раніше: координати, швидкість, курс, прогноз.
+    region — узагальнене подання за районами (PUBLIC_MODE=region), реалізоване в airradar/safety/public_view.py."""
+    if _LEGACY_FOR_TESTS:
+        return "legacy"
+    return "region" if os.getenv("PUBLIC_MODE", "").strip().lower() == "region" else "legacy"
+
+
+def public_delay_s() -> int:
+    """Затримка публічних даних: TRACKS_PUBLIC_DELAY_MIN, якщо задано; інакше 10 хв у режимі region і 0 у legacy."""
+    raw = os.getenv("TRACKS_PUBLIC_DELAY_MIN")
+    if raw is not None and raw.strip() != "":
+        try:
+            return max(0, int(raw)) * 60
+        except ValueError:
+            pass
+    return _pv.DEFAULT_DELAY_MIN * 60 if public_mode() == "region" else 0
+
+
+def public_payload(db, minutes: int, now: int) -> dict:
+    """Публічне подання радара. `now` — реальний час; затримка застосовується тут. У legacy — повний payload."""
+    delay = public_delay_s()
+    private = radar_payload(db, minutes, now - delay)
+    if public_mode() == "legacy":
+        return private
+    return _pv.build_public(private, now - delay, delay // 60)
+
+
+_risk_hits: dict[str, list[float]] = {}
+_RISK_LIMIT, _RISK_WINDOW_S = 20, 60
+
+
+def _risk_allowed(request) -> bool:  # noqa: ANN001
+    """Простий ліміт запитів на IP для /api/risk (захист від підбору позиції серією запитів)."""
+    ip = (getattr(request, "headers", {}) or {}).get("X-Forwarded-For", "") or str(getattr(request, "remote", "") or "")
+    ip = ip.split(",")[0].strip()
+    now = time.time()
+    hits = [t for t in _risk_hits.get(ip, []) if now - t < _RISK_WINDOW_S]
+    if len(hits) >= _RISK_LIMIT:
+        _risk_hits[ip] = hits
+        return False
+    hits.append(now)
+    _risk_hits[ip] = hits
+    if len(_risk_hits) > 5000:
+        _risk_hits.clear()
+    return True
 
 
 async def _health(request: web.Request) -> web.Response:  # noqa: ANN001
@@ -99,6 +152,10 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
                 "track": track,
                 "age_min": max(0, (now - t["ts"]) // 60),
             })
+        if public_mode() == "region":
+            # Публічно без вектора руху (курс, швидкість, from/to) і напрямку; точки репортів — до центроїда району.
+            result = [_pv.strip_threat(x) for x in result]
+            reports = [r for r in (_pv.coarsen_report(x) for x in reports) if r]
         return web.json_response({
             "threats": result, "reports": reports, "forecast": forecast,
             "count": len(result), "window_min": minutes,
@@ -205,12 +262,42 @@ async def _api_tracks(request: web.Request) -> web.Response:  # noqa: ANN001
     except ValueError:
         minutes = 180
     try:
-        # Той самий TRACKS_PUBLIC_DELAY_MIN, що й для статичного tracks.json: пряме звернення до API не обходить затримку.
-        pub_delay = max(0, int(os.getenv("TRACKS_PUBLIC_DELAY_MIN", "0"))) * 60
-        return web.json_response(radar_payload(_app_db, minutes, int(time.time()) - pub_delay))
+        # Публічне подання (район, без live-координат) із тією самою затримкою, що й для статичного tracks.json.
+        return web.json_response(public_payload(_app_db, minutes, int(time.time())))
     except Exception as exc:  # noqa: BLE001
         logger.warning("API /api/tracks error: %s", exc)
         return web.json_response({"tracks": [], "error": "temporarily unavailable"}, status=503)
+
+
+async def _api_public_regions(request: web.Request) -> web.Response:  # noqa: ANN001
+    """Чистий публічний контракт v1: райони/області, категорії, статуси, діапазони. Без координат."""
+    if _app_db is None:
+        return web.json_response({"regions": [], "error": "db not ready"})
+    try:
+        minutes = max(10, min(720, int(request.query.get("minutes", "180"))))
+    except ValueError:
+        minutes = 180
+    try:
+        delay = public_delay_s()
+        private = radar_payload(_app_db, minutes, int(time.time()) - delay)
+        return web.json_response(_pv.regions_contract(_pv.build_public(private, int(time.time()) - delay, delay // 60)))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("API /api/public/v1/regions error: %s", exc)
+        return web.json_response({"regions": [], "error": "temporarily unavailable"}, status=503)
+
+
+async def _admin_tracks(request: web.Request) -> web.Response:  # noqa: ANN001
+    """Повний (закритий) payload треків — лише з X-Admin-Token; без токена в оточенні — 404."""
+    denied = _admin_guard(request)
+    if denied is not None:
+        return denied
+    if _app_db is None:
+        return web.json_response({"tracks": [], "error": "db not ready"}, status=503)
+    try:
+        minutes = max(10, min(720, int(request.query.get("minutes", "180"))))
+    except ValueError:
+        minutes = 180
+    return web.json_response(radar_payload(_app_db, minutes, int(time.time())))
 
 
 _sse_clients = [0]
@@ -224,9 +311,9 @@ def _compute_rev() -> str:
     import json
     if _app_db is None:
         return ""
-    pub_delay = max(0, int(os.getenv("TRACKS_PUBLIC_DELAY_MIN", "0"))) * 60
-    p = radar_payload(_app_db, 180, int(time.time()) - pub_delay)
+    p = public_payload(_app_db, 180, int(time.time()))
     p.pop("now", None)
+    p.pop("updated_at", None)
     return hashlib.sha1(json.dumps(p, sort_keys=True, default=str).encode()).hexdigest()[:12]
 
 
@@ -306,11 +393,20 @@ async def _api_risk(request: web.Request) -> web.Response:  # noqa: ANN001
         radius = max(2.0, min(50.0, float(request.query.get("radius", "10"))))
     except (KeyError, ValueError):
         return web.json_response({"risks": [], "error": "lat/lon required"}, status=400)
+    public = public_mode() == "region"
+    if public:
+        # Публічний режим: обмеження частоти, фіксований радіус (інакше підбір радіуса дає відстань до цілі),
+        # координата — на сітці ~10 км, дані із затримкою.
+        if not _risk_allowed(request):
+            return web.json_response({"risks": [], "error": "rate limit"}, status=429)
+        lat, lon, radius = round(lat, 1), round(lon, 1), 10.0
     try:
         from track_engine import build_tracks, risk_for_point, risk_text
-        now = int(time.time())
+        now = int(time.time()) - (public_delay_s() if public else 0)
         tracks = build_tracks(_app_db.recent_observations(now - 3 * 3600), now, window_s=3 * 3600)
         risks = risk_for_point(tracks, (lat, lon), now, imminent_km=radius, watch_km=radius * 3)
+        if public:
+            return web.json_response({"now": _pv.round_ts(now), "risks": _pv.public_risk([{"level": r.level} for r in risks])})
         key = {t.id: t.key for t in tracks}
         return web.json_response({"now": now, "risks": [
             {"id": key.get(r.track_id, r.track_id), "level": r.level, "distance_km": r.distance_km,
@@ -351,6 +447,8 @@ async def _serve_forever(port: int) -> None:
     app.router.add_get("/api/threats", _api_threats)
     app.router.add_get("/api/stats", _api_stats)
     app.router.add_get("/api/tracks", _api_tracks)
+    app.router.add_get("/api/public/v1/regions", _api_public_regions)
+    app.router.add_get("/admin/tracks", _admin_tracks)   # лише з X-Admin-Token, інакше 404/401
     app.router.add_get("/api/alerts-history", _api_alerts_history)
     app.router.add_get("/api/risk", _api_risk)
     app.router.add_get("/api/stream", _api_stream)

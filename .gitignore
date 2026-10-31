@@ -48,3 +48,4 @@ local.properties
 
 # Web Push: приватний VAPID-ключ
 vapid_private.pem
+pytest-failures.log

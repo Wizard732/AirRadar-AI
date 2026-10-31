@@ -43,7 +43,7 @@ jobs:
           # /radar -> корень (ссылки вида <url>/radar из уведомлений)
           echo '<!doctype html><meta charset=utf-8><meta http-equiv=refresh content="0;url=../"><a href="../">radar</a>' > site/radar/index.html
           if git fetch --depth=1 origin radar-data 2>/dev/null; then
-            for f in tracks stats impacts alerts_hist; do git show FETCH_HEAD:$f.json > site/$f.json 2>/dev/null || true; done
+            for f in tracks public-regions stats impacts alerts_hist; do git show FETCH_HEAD:$f.json > site/$f.json 2>/dev/null || true; done
           fi
           [ -s site/tracks.json ] || echo '{"now":0,"tracks":[],"events":[]}' > site/tracks.json
           [ -s site/alerts_hist.json ] || echo '{"now":0,"alerts":[],"events":[]}' > site/alerts_hist.json

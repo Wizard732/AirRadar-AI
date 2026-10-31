@@ -16,6 +16,6 @@ rc=$?
 [ "$rc" = 10 ] && exit 0
 [ "$rc" != 0 ] && exit "$rc"
 cd "$DIR"
-git add tracks.json stats.json impacts.json alerts_hist.json
+git add -A  # у режимі legacy public-regions.json може не існувати
 git commit -q --amend -m "radar data" 2>/dev/null || git commit -q -m "radar data"
 git push -q -f origin radar-data
