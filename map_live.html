@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Сумщина: 2х БпЛА курсом на Шостку Київщина: Реактивний БпЛА курсом на Димер Полтавщина: Реактивний БпЛА курсом на Лохвицю БпЛА курсом на Миргород", "sources": 3, "origin": "", "destination": "multi", "track": null, "age_min": 4}, {"type": "uav", "region": "kyivska", "text": "🏍 Київщина: реактивний БпЛА курсом на Бородянку", "sources": 4, "origin": "", "destination": "kyivska", "track": null, "age_min": 10}, {"type": "uav", "region": "donetska", "text": "+ Дніпропетровщина: Реактивний БпЛА курсом на Межову з Донеччини", "sources": 1, "origin": "donetska", "destination": "donetska", "track": null, "age_min": 25}, {"type": "uav", "region": "kyivska", "text": "Реактивний БПЛА на Київ", "sources": 2, "origin": "", "destination": "kyivska", "track": null, "age_min": 27}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "zhytomyrska", "text": "🏍 Реактивний БпЛА на півночі Житомирщини у напрямку Овруча", "sources": 1, "origin": "", "destination": "zhytomyrska", "track": null, "age_min": 5}, {"type": "uav", "region": "multi", "text": "Сумщина: 2х БпЛА курсом на Шостку Київщина: Реактивний БпЛА курсом на Димер Полтавщина: Реактивний БпЛА курсом на Лохвицю БпЛА курсом на Миргород", "sources": 3, "origin": "", "destination": "multi", "track": null, "age_min": 15}, {"type": "uav", "region": "kyivska", "text": "🏍 Київщина: реактивний БпЛА курсом на Бородянку", "sources": 4, "origin": "", "destination": "kyivska", "track": null, "age_min": 21}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"kyivska": {"standdown_min": 1, "standdown_live": true, "next_wave_min": 326, "standdown_hits": 5, "standdown_total": 10}};
+const EMBEDDED_FORECAST = {"zhytomyrska": {"standdown_min": 20, "standdown_live": true, "standdown_hits": 2, "standdown_total": 4}, "kyivska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 326, "standdown_hits": 5, "standdown_total": 10}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
