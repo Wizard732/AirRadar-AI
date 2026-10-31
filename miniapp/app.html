@@ -162,5 +162,6 @@ setInterval(() => { if (renderers[current] && current !== 'more') renderers[curr
 let start = params.get('tab') || ''; try { start = start || localStorage.getItem('app_tab') || 'map'; } catch (e) {}
 show(['map', 'stats', 'hist', 'imp', 'more'].includes(start) ? start : 'map');
 </script>
+<div id="ar-disclaimer" style="position:fixed;left:0;right:0;bottom:0;z-index:9999;background:rgba(20,20,20,.88);color:#ddd;font:11px/1.35 system-ui,sans-serif;padding:5px 10px;text-align:center;pointer-events:none">AirRadar AI — інформаційно-аналітична система. Не замінює офіційні повідомлення про повітряну тривогу та рекомендації ДСНС. У разі тривоги негайно прямуйте до укриття.</div>
 </body>
 </html>

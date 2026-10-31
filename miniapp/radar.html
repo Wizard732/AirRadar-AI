@@ -185,6 +185,7 @@
   <button class="btn" id="btn-time" title="Історія за часом">⏱</button>
 </div>
 <div id="banner" class="panel"></div>
+<button id="ar-voice" onclick="speakStatus()" title="Голосова сводка" style="position:fixed;left:10px;bottom:34px;z-index:9998;border:0;border-radius:20px;padding:8px 12px;background:#222;color:#fff;font-size:14px">🔊 Озвучити статус</button>
 <div id="list" class="panel"><div id="list-head"></div><div id="list-body"></div></div>
 <div id="v-list" class="view"><div class="vw"></div></div>
 <div id="v-dur" class="view"><div class="vw"></div></div>
@@ -720,15 +721,42 @@ async function fetchTracks() {
     } catch (e) { /* падаем на статику */ }
     useStatic = true;
   }
-  const r = await fetch(new URL('tracks.json', DATA_BASE).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' });
-  if (!r.ok) throw new Error('tracks.json ' + r.status);
-  return await r.json();
+  try {
+    const r = await fetch(new URL('tracks.json', DATA_BASE).href + '?t=' + Math.floor(Date.now() / 30000), { cache: 'no-store' });
+    if (!r.ok) throw new Error('tracks.json ' + r.status);
+    const data = await r.json();
+    offlineSince = 0;
+    try { localStorage.setItem('ar_last_tracks', JSON.stringify({ saved: Math.floor(Date.now() / 1000), data })); } catch (e) {}
+    return data;
+  } catch (e) {
+    // Офлайн-режим: показуємо останні збережені дані з чесною позначкою часу.
+    try {
+      const c = JSON.parse(localStorage.getItem('ar_last_tracks') || 'null');
+      if (c && c.data) { offlineSince = c.saved; return c.data; }
+    } catch (e2) {}
+    throw e;
+  }
+}
+let offlineSince = 0;
+function offlineNotice() {
+  if (!offlineSince) return '';
+  return `<div class="note" style="color:var(--orange)">📴 Немає зв'язку. Показано збережені дані від ${fmtClock(offlineSince)} — вони можуть бути застарілими. Екстрені служби: 112 · 101 · 102 · 103. Орієнтуйтесь на сирену.</div>`;
+}
+// Голосова сводка: лише ОФІЦІЙНІ дані сирен і фіксований текст — жодної «інтерпретації» небезпеки від ІІ.
+function speakStatus() {
+  if (!('speechSynthesis' in window)) return;
+  const n = sirens ? sirens.length : null;
+  const txt = n === null ? 'Дані офіційних сирен недоступні. Орієнтуйтесь на сирену та офіційні повідомлення.'
+    : n ? `Увага. Офіційна повітряна тривога триває у ${n} областях. Перебувайте в укритті та перевірте офіційні повідомлення.`
+        : 'За даними офіційних сирен тривоги немає. Це інформаційна система, вона не замінює офіційні повідомлення.';
+  const u = new SpeechSynthesisUtterance(txt); u.lang = 'uk-UA'; window.speechSynthesis.cancel(); window.speechSynthesis.speak(u);
 }
 async function load() {
   try {
     const data = DEMO ? demoData() : await fetchTracks();
     tracks = (data.tracks || []).filter(t => t.points && t.points.length);
     dataTs = data.now || 0;
+    { const bn = document.getElementById('banner'); if (bn && offlineSince) { bn.innerHTML = offlineNotice(); bn.style.display = 'block'; } }
     events = (data.events || []).concat((data.impacts || []).map(i => ({ weapon: i.kind === 'hit' ? 'impact' : 'heard', lat: i.lat, lon: i.lon, ts: i.ts, count: 1,
       place: i.place || i.oblast, precision: i.precision, toward: false, killed: i.killed, injured: i.injured, children: i.children, flags: i.flags || '', damage: i.damage })));
     evSig = ''; listSig = '';
@@ -1142,5 +1170,6 @@ document.querySelector('#mtools [data-t=theme]').classList.toggle('on', !!SET.li
 document.querySelector('#mtools [data-t=osm]').classList.toggle('on', !!SET.osm);
 applySettings();
 </script>
+<div id="ar-disclaimer" style="position:fixed;left:0;right:0;bottom:0;z-index:9999;background:rgba(20,20,20,.88);color:#ddd;font:11px/1.35 system-ui,sans-serif;padding:5px 10px;text-align:center;pointer-events:none">AirRadar AI — інформаційно-аналітична система. Не замінює офіційні повідомлення про повітряну тривогу та рекомендації ДСНС. У разі тривоги негайно прямуйте до укриття.</div>
 </body>
 </html>
