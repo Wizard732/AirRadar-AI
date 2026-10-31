@@ -1,0 +1,21 @@
+{
+  "name": "airradar-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AirRadar — мобільний додаток (Android + iOS) на Capacitor",
+  "scripts": {
+    "build:web": "node tools/build-web.mjs",
+    "sync": "npm run build:web && npx cap sync",
+    "ios": "npm run sync && npx cap open ios",
+    "android": "npm run sync && npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "@capacitor/geolocation": "^8.2.4",
+    "@capacitor/ios": "^8.6.0",
+    "@capacitor/preferences": "^8.0.1"
+  }
+}

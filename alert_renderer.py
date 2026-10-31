@@ -189,7 +189,7 @@ def _origin_text(parsed) -> str:
 
 def render_evidence_alert(
     *, text: str, source: str, event_ts: int, fact: IncidentFact, confirmation: dict,
-    sources: list[str] | None = None, track: dict | None = None,
+    sources: list[str] | None = None, track: dict | None = None, lag_s: int = 0,
 ) -> str:
     """Render only explicit source facts and clearly marked unknowns.
 
@@ -260,6 +260,8 @@ def render_evidence_alert(
     status_line = _status(confirmation)
     if status_line:
         lines.append(f"⚠️ Статус: {status_line}")
+    if lag_s > 600:  # пост обробили із запізненням — не видаємо за свіже
+        lines.append(f"⏳ Повідомлення опубліковано {lag_s // 60} хв тому — інформація може бути застарілою.")
     # Текст источника — недоверенные данные: без разметки, но с сохранением
     # авторских переносов строк (сводки вида «Київщина \n 1 БпЛА на Димер»
     # схлопывать в одну строку нечитаемо). Лимит 1200: полные сводки

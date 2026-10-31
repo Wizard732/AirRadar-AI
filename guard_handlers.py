@@ -97,6 +97,28 @@ def register_guard_handlers(bot: TelegramClient, db: Database) -> None:
         await event.respond(reply, parse_mode="html")
         raise events.StopPropagation
 
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/pairweb(?:@\w+)?\s+(\S+)\s*$"))
+    async def _pairweb(event) -> None:  # noqa: ANN001
+        import webpush_push
+        ok, msg = webpush_push.pair(db, event.sender_id, event.pattern_match.group(1))
+        await event.respond(msg)
+        raise events.StopPropagation
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/unpairweb(?:@\w+)?\s*$"))
+    async def _unpairweb(event) -> None:  # noqa: ANN001
+        import webpush_push
+        n = webpush_push.unpair_all(db, event.sender_id)
+        await event.respond(f"Web Push вимкнено ({n} пристроїв)." if n else "Підключених пристроїв немає.")
+        raise events.StopPropagation
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/start(?:@\w+)?\s+ack_(\w+)\s*$"))
+    async def _ack_from_push(event) -> None:  # noqa: ANN001
+        """Кнопка «Отримав» у пуші Android/ntfy веде сюди: фіксуємо підтвердження отримання."""
+        key = event.pattern_match.group(1)
+        db.record_delivery(key, f"ntfy:{event.sender_id}", "critical", "acknowledged")
+        await event.respond("✅ Дякуємо, відмічено, що ви отримали сповіщення. Бережіть себе!")
+        raise events.StopPropagation
+
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/start(?:@\w+)?\s+fam_(\w+)\s*$"))
     async def _family_join(event) -> None:  # noqa: ANN001
         import family

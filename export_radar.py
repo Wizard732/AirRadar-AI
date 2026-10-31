@@ -49,7 +49,9 @@ def main() -> int:
     forecast_eval.log_forecasts(db, tracks, now)
     forecast_eval.evaluate(db, tracks, now)
     changed = False
-    changed |= _write_if_changed(out / "tracks.json", radar_payload(db, WINDOW_MIN, now), ("now",), 1800)
+    # Затримка для публічної карти (чутливі дані): TRACKS_PUBLIC_DELAY_MIN, за замовчуванням 0 — як вирішив власник.
+    pub_delay = max(0, int(os.getenv("TRACKS_PUBLIC_DELAY_MIN", "0"))) * 60
+    changed |= _write_if_changed(out / "tracks.json", radar_payload(db, WINDOW_MIN, now - pub_delay), ("now",), 1800)
     changed |= _write_if_changed(out / "alerts_hist.json", history_payload(db, now, 7), ("now",), 600)
     changed |= _write_if_changed(out / "stats.json", stats_payload(db, now), ("now",), 900)
     changed |= _write_if_changed(out / "impacts.json", impacts_payload(db, now, delay), ("now",), 900)

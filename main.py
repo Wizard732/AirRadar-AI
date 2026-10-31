@@ -108,8 +108,9 @@ async def run() -> None:
     global PROMO_URL
     PROMO_URL = settings.promo_channel_url or PROMO_URL
     # Сохраняем ссылку для /summary (ручной запуск сводки из admin_ui).
-    global _publisher_ref
+    global _publisher_ref, _summarizer_ref
     _publisher_ref = publisher
+    _summarizer_ref = summarizer
 
     # Дедупликация: гибрид in-memory + SQLite. Переживает рестарт и ловит
     # поздние репосты между каналами (окно в БД — до 1 часа).
@@ -147,6 +148,8 @@ async def run() -> None:
         # Админка (5.4): /status, /give_admin, /ban_channel.
         from admin_ui import register_admin_handlers
         register_admin_handlers(bot_client, db, settings.admin_id)
+        from user_commands import register_user_commands
+        register_user_commands(bot_client, db, settings.map_webapp_url, lambda uid: db.is_admin(uid, settings.admin_id))
         # Mini App: приём данных из WebApp (set_topic/add_channel/remove_channel).
         from miniapp_handler import register_miniapp_handlers
         register_miniapp_handlers(bot_client, db, settings.admin_id)
@@ -395,6 +398,8 @@ async def run() -> None:
     # --- предупреждения районам «можливо до вас» по трекам с измеренным курсом ---
     district_task = None
     watchdog_task = None
+    analyzer_task = None
+    reminder_task = None
     # Одна «жива» зведення хвилі в каналі (редагується, а не спамить окремими постами).
     shelter_task = None
     if bot_client is not None:
@@ -405,7 +410,13 @@ async def run() -> None:
     if bot_client is not None:
         from district_warn import district_loop
         district_task = asyncio.create_task(district_loop(db, bot_client), name="district-warn")
-        watchdog_task = asyncio.create_task(_ingest_watchdog(bot_client, settings.admin_id), name="ingest-watchdog")
+        watchdog_task = asyncio.create_task(_ingest_watchdog(bot_client, settings.admin_id, db=db), name="ingest-watchdog")
+        import user_extras
+        reminder_task = asyncio.create_task(user_extras.reminder_loop(db, bot_client), name="checklist-reminder")
+        from ai_analyzer import analyzer_loop, make_llm
+        global _analyzer_ref
+        _analyzer_ref = make_llm(summarizer, http_session)
+        analyzer_task = asyncio.create_task(analyzer_loop(db, bot_client, _analyzer_ref, settings.admin_id), name="ai-analyzer")
 
     # --- официальный учёт сирен alerts.in.ua (опционально, по токену) ---
     sirens_task = None
@@ -493,7 +504,7 @@ async def run() -> None:
                 await pre_wave_task
             except asyncio.CancelledError:
                 pass
-        for _task in (district_task, watchdog_task, digest_task, shelter_task):
+        for _task in (district_task, watchdog_task, analyzer_task, reminder_task, digest_task, shelter_task):
             if _task is not None:
                 _task.cancel()
                 try:
@@ -579,6 +590,9 @@ async def _process_message(
     if not text:
         return  # медиа без текста и без распознанного — пропускаем
     _LAST_INGEST[0] = time.time()
+    import health_checks as _hc
+    _src_early = normalize_source(str(getattr(event.chat, "username", None) or getattr(event.chat, "id", "?")))
+    _hc.record(_src_early, "received")
 
     # 0) Очистка подписи канала ДО всех проверок — хвост «➡️Підписатись»
     #    засоряет фильтр, дедупликацию и определение региона.
@@ -586,20 +600,24 @@ async def _process_message(
 
     # 1) Быстрый фильтр по ключевым словам (до тяжёлого ИИ).
     if not matches_keywords(text):
+        _hc.record(_src_early, "filtered")
         return
 
     # 2) Дедупликация — повторы внутри TTL-окна игнорируем.
     if dedup.is_duplicate(text):
         logger.debug("Дубликат пропущен: %s", text[:60])
+        _hc.record(_src_early, "duplicate")
         return
 
     source = normalize_source(str(getattr(event.chat, "username", None) or getattr(event.chat, "id", "?")))
     if db.is_channel_disabled(source, "military"):
         logger.info("Отключённый источник пропущен: %s", source)
+        _hc.record(source, "disabled")
         return
     logger.info("Новое сообщение от %s: %s", source, text[:80])
     # Отмечаем канал живым (для /status админки).
     db.channel_seen(source, "military")
+    _hc.record(source, "processed")
 
     try:
         # 3) Classify before LLM: ordinary local news must never become a
@@ -676,6 +694,17 @@ async def _process_message(
             confirmation_sources=getattr(settings, "confirmation_sources", 2),
             official=is_official,
         )
+        try:
+            import event_lifecycle as _lc
+            _k = confirmation.get("key", "")
+            if _k:
+                _lc.advance(db, _k, _lc.Stage.CREATED if not confirmation.get("merged") else _lc.Stage.OBSERVED)
+                if confirmation.get("status") in ("corroborated", "officially_confirmed"):
+                    _lc.advance(db, _k, _lc.Stage.VERIFIED)
+                if confirmation.get("merged") and confirmation.get("material_update"):
+                    _lc.advance(db, _k, _lc.Stage.UPDATED)
+        except Exception:  # noqa: BLE001 — життєвий цикл не має ламати конвеєр
+            logger.debug("event_lifecycle: збій", exc_info=True)
         # 5) Publish active recognised threats immediately; a single source is
         # allowed and clearly labelled in the alert. Fast monitoring posts
         # like «3 БпЛА на Путивль» have no motion verb, so stage "unknown"
@@ -824,19 +853,22 @@ async def _report_session_failure(settings) -> None:
         if marker.exists() and time.time() - marker.stat().st_mtime < 3600:
             return
         import aiohttp
+        from admin_notify import admin_recipients
+        recipients = admin_recipients(Database(settings.db_path), settings.admin_id)
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as http:
-            await http.post(
-                f"https://api.telegram.org/bot{settings.bot_token}/sendMessage",
-                json={"chat_id": settings.admin_id,
-                      "text": "🔴 AirRadar: сессия Telegram не авторизована, бот остановлен. "
-                              "Нужен повторный вход (код из Telegram)."},
-            )
+            for chat in recipients:
+                await http.post(
+                    f"https://api.telegram.org/bot{settings.bot_token}/sendMessage",
+                    json={"chat_id": chat,
+                          "text": "🔴 AirRadar: сессия Telegram не авторизована, бот остановлен. "
+                                  "Нужен повторный вход (код из Telegram)."},
+                )
         marker.write_text(_json.dumps({"ts": int(time.time())}))
     except Exception:  # noqa: BLE001
         logger.warning("Не удалось отправить уведомление о слетевшей сессии", exc_info=True)
 
 
-async def _ingest_watchdog(bot_client, admin_id: int, interval: int = 600) -> None:
+async def _ingest_watchdog(bot_client, admin_id: int, interval: int = 600, db: Database | None = None) -> None:
     last_alert = 0.0
     while True:
         await asyncio.sleep(interval)
@@ -844,9 +876,13 @@ async def _ingest_watchdog(bot_client, admin_id: int, interval: int = 600) -> No
         if silent > INGEST_SILENCE_S and time.time() - last_alert > 3 * 3600:
             last_alert = time.time()
             try:
-                await bot_client.send_message(
-                    admin_id, f"⚠️ Лента каналов молчит {int(silent // 60)} хв. Проверь сессию Telegram и источники "
-                              "(journalctl -u airradar-bot).")
+                msg = (f"⚠️ Лента каналов молчит {int(silent // 60)} хв. Проверь сессию Telegram и источники "
+                       "(journalctl -u airradar-bot).")
+                if db is not None:
+                    from admin_notify import notify_admins
+                    await notify_admins(bot_client, db, admin_id, msg)
+                else:
+                    await bot_client.send_message(admin_id, msg)
             except Exception:  # noqa: BLE001
                 logger.warning("watchdog: не удалось уведомить админа", exc_info=True)
 
@@ -878,7 +914,7 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
     final_text = render_evidence_alert(
         text=last.text, source=last.source, sources=sources,
         event_ts=last.event_ts, fact=last.fact, confirmation=last.confirmation,
-        track=track,
+        track=track, lag_s=max(0, int(time.time()) - int(last.event_ts)),
     )
     # Уже публиковали один из инцидентов набора? Перебираем ключи с конца.
     publication = None
@@ -1036,7 +1072,8 @@ def _feedback_kb(message_key: str, text: str = "") -> list:
 
 async def _notify_subscribers(bot_client, db: Database, regions: list[str], text: str,
                               feedback_key: str = "",
-                              weapon_class: str = "") -> None:
+                              weapon_class: str = "",
+                              importance: str = "") -> None:
     """Разослать текст всем подписчикам указанных регионов.
 
     Работает «best effort»: ошибки отправки (пользователь заблокировал бота и
@@ -1065,6 +1102,12 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     # Критичный класс ночью доставляется всем; некритичный ночью — только
     # подписчикам БЕЗ ночного режима.
     critical = is_stand_down or weapon_class in NIGHT_CRITICAL_CLASSES
+    # Важливість для персонального фільтра типів: critical (тривога/відбій) не вимикається ніколи.
+    from notification_rules import Importance as _Imp
+    msg_importance = _Imp.CRITICAL if is_stand_down else _Imp(importance or "info")
+    # Необов'язкова кнопка «Отримав» лише під офіційною тривогою (не під кожним сповіщенням).
+    import hashlib as _hl
+    ack_key = _hl.md5(text.encode()).hexdigest()[:16] if text.startswith("🚨 ПОВІТРЯНА ТРИВОГА") else ""
     # Группа для персонального фильтра ('' = отбой/неизвестно — без фильтра).
     group = weapon_group(weapon_class)
     # Область города из текста алерта: маркер «ваша зона» срабатывает и когда
@@ -1093,6 +1136,8 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
                 if user_id in notified:
                     continue
                 notified.add(user_id)
+                if msg_importance is not _Imp.CRITICAL and msg_importance.value in db.get_notify_levels(user_id):
+                    continue  # користувач вимкнув цей тип сповіщень
                 if night_now and not critical and db.get_night_mode(user_id):
                     # Ночь, пост некритичный, у пользователя включён ночной
                     # режим — пропускаем (дайджест утром).
@@ -1112,17 +1157,28 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
                     # відбій и сообщения, касающиеся своей зоны.
                     continue
                 out_text = f"🎯 Торкнеться вашої зони\n{text}" if zone_hit else text
+                dkey = feedback_key or ack_key
                 try:
                     if feedback_key:
                         await bot_client.send_message(
                             user_id, out_text, link_preview=False,
                             buttons=_feedback_kb(feedback_key, text),
                         )
+                    elif ack_key:
+                        from telethon import Button as _B
+                        await bot_client.send_message(
+                            user_id, out_text, link_preview=False,
+                            buttons=[[_B.inline("✅ Отримав", data=f"ack:{ack_key}")]],
+                        )
                     else:
                         await bot_client.send_message(user_id, out_text, link_preview=False)
                     sent_count += 1
+                    if dkey:  # sent ≠ delivered: пишемо лише факт відправки
+                        db.record_delivery(dkey, f"tg:{user_id}", "critical" if critical else "info", "sent")
                 except Exception as exc:  # noqa: BLE001 — один неудачный не стопит остальных
                     logger.debug("Не удалось отправить подписку %s: %s", user_id, exc)
+                    if dkey:
+                        db.record_delivery(dkey, f"tg:{user_id}", "critical" if critical else "info", "failed")
     if sent_count:
         logger.info("Рассылка по подпискам: отправлено %d получателям (регионы: %s)",
                     sent_count, ", ".join(region_name(s) for s in regions))
@@ -1174,7 +1230,7 @@ async def _check_standdown(bot_client, db: Database, publisher=None) -> int:
             continue
         text = format_standdown_notice(slug, info)
         if bot_client is not None:
-            await _notify_subscribers(bot_client, db, [slug], text, weapon_class="")
+            await _notify_subscribers(bot_client, db, [slug], text, weapon_class="", importance="analytic")
             sent += 1
         await _publish_notice(publisher, text)
         db.record_standdown_notice(
@@ -1210,7 +1266,7 @@ async def _check_pre_wave(bot_client, db: Database, publisher=None) -> int:
             continue
         text = format_pre_wave_notice(slug, info)
         if bot_client is not None:
-            await _notify_subscribers(bot_client, db, [slug], text, weapon_class="")
+            await _notify_subscribers(bot_client, db, [slug], text, weapon_class="", importance="analytic")
             sent += 1
         await _publish_notice(publisher, text)
         db.record_wave_notice(slug, int(info["episode_end_ts"]))
@@ -1297,9 +1353,19 @@ async def _sirens_loop(db: Database, token: str, http_session=None,
                     async def _notify(regs, msg):
                         if bot_client is not None:
                             await _notify_subscribers(bot_client, db, regs, msg)
+                            if msg.startswith("🚨"):
+                                import family_status
+                                await family_status.send_alarm_prompt(db, bot_client, regs)
+                        if not msg.startswith("🚨"):
+                            import event_lifecycle
+                            event_lifecycle.resolve_active(db)   # офіційний відбій закриває активні події
                         import push_fcm
+                        import webpush_push
+                        await webpush_push.push_regions(db, regs, "🚨 ПОВІТРЯНА ТРИВОГА" if msg.startswith("🚨") else "🟢 Відбій", msg)
+                        import hashlib as _h
                         await push_fcm.push_regions(db, regs, "🚨 ПОВІТРЯНА ТРИВОГА" if msg.startswith("🚨") else "🟢 Відбій", msg,
-                                                    "alarm" if msg.startswith("🚨") else "info")
+                                                    "alarm" if msg.startswith("🚨") else "info",
+                                                    ack_key=_h.md5(msg.encode()).hexdigest()[:16] if msg.startswith("🚨") else "")
                     import alarm_notices
                     for slug in sorted(incoming - current):
                         db.set_siren_state(slug, True)
@@ -1398,6 +1464,13 @@ def main() -> None:
 
 # Глобальная ссылка на Publisher — для /summary (ручной запуск сводки).
 _publisher_ref = None
+_summarizer_ref = None
+_analyzer_ref = None
+
+
+def _get_summarizer():
+    """Модель для /analyze: API-посередник, якщо налаштований, інакше модель проєкту."""
+    return _analyzer_ref or _summarizer_ref
 
 
 def _get_publisher():

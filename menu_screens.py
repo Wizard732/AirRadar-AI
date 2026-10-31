@@ -367,6 +367,11 @@ def family_screen(db, uid: int, notice: str = "") -> tuple[str, list]:
              f"коли хтось натискає «Я в укритті». До {family.MAX_MEMBERS} людей. Вийти можна будь-коли — ❌.")
     rows = [[Button.inline("❌ " + family.name_of(db, m), data=f"{CB_FAMILY}:del:{m}")] for m in ms_]
     rows.append([Button.inline("➕ Створити запрошення", data=f"{CB_FAMILY}:inv")])
+    if ms_:
+        import family_status
+        text += "\n\n<b>Статуси</b>\n" + family_status.board_text(db, uid)
+    rows.append([Button.inline("🏚 В укритті", data=f"{CB_FAMILY}:st:shelter"), Button.inline("✅ В безпеці", data=f"{CB_FAMILY}:st:safe")])
+    rows.append([Button.inline("🟢 На зв'язку", data=f"{CB_FAMILY}:st:ok"), Button.inline("🆘 Потрібна допомога", data=f"{CB_FAMILY}:st:help")])
     rows.append([Button.inline("✅ Я в укритті", data=f"{CB_FAMILY}:safe")])
     rows.append([Button.inline("🛡 Гео-сторож", data=CB_GUARD), Button.inline("🏠 Меню", data=CB_MAIN)])
     return text, rows

@@ -566,6 +566,34 @@ class Database:
                 )
                 """
             )
+            # Звіти користувачів про помилки (категорія) — черга модерації та датасет для парсера.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS error_reports (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    ts          INTEGER NOT NULL,
+                    user_id     INTEGER NOT NULL,
+                    message_key TEXT    NOT NULL,
+                    category    TEXT    NOT NULL,
+                    status      TEXT    NOT NULL DEFAULT 'open'
+                )
+                """
+            )
+            # Журнал доставки сповіщень: created→queued→sent→delivered→opened→acknowledged | failed.
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS notification_delivery (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_key   TEXT    NOT NULL,
+                    channel     TEXT    NOT NULL,
+                    importance  TEXT    NOT NULL,
+                    status      TEXT    NOT NULL,
+                    created_ts  INTEGER NOT NULL,
+                    updated_ts  INTEGER NOT NULL,
+                    UNIQUE (event_key, channel)
+                )
+                """
+            )
             self._conn.commit()
         logger.debug("БД инициализирована: %s", self._path)
 
@@ -1583,6 +1611,115 @@ class Database:
                 self._conn.commit()
         except sqlite3.Error as exc:
             logger.warning("Не удалось учесть фидбек: %s", exc)
+
+    ERROR_CATEGORIES = ("wrong_city", "wrong_type", "stale", "duplicate", "unclear")
+
+    def add_error_report(self, user_id: int, message_key: str, category: str) -> bool:
+        """Записати звіт про помилку; невідома категорія відхиляється."""
+        if category not in self.ERROR_CATEGORIES:
+            return False
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute(
+                    "INSERT INTO error_reports (ts, user_id, message_key, category) VALUES (?, ?, ?, ?)",
+                    (int(time.time()), int(user_id), message_key, category),
+                )
+                self._conn.commit()
+            return True
+        except sqlite3.Error as exc:
+            logger.warning("Не удалось записать отчёт об ошибке: %s", exc)
+            return False
+
+    def error_report_counts(self, status: str = "open") -> dict:
+        """Кількість звітів за категоріями (для панелі модерації)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT category, COUNT(*) c FROM error_reports WHERE status = ? GROUP BY category", (status,)
+                ).fetchall()
+            return {r["category"]: r["c"] for r in rows}
+        except sqlite3.Error:
+            return {}
+
+    def record_delivery(self, event_key: str, channel: str, importance: str, status: str) -> bool:
+        """Оновити статус доставки лише вперед (див. notification_rules.can_transition)."""
+        from notification_rules import Delivery, can_transition
+        now = int(time.time())
+        try:
+            with self._lock:
+                assert self._conn is not None
+                row = self._conn.execute(
+                    "SELECT status FROM notification_delivery WHERE event_key = ? AND channel = ?",
+                    (event_key, channel),
+                ).fetchone()
+                if row is None:
+                    self._conn.execute(
+                        "INSERT INTO notification_delivery (event_key, channel, importance, status, created_ts, updated_ts)"
+                        " VALUES (?, ?, ?, ?, ?, ?)", (event_key, channel, importance, status, now, now))
+                elif can_transition(Delivery(row["status"]), Delivery(status)):
+                    self._conn.execute(
+                        "UPDATE notification_delivery SET status = ?, updated_ts = ? WHERE event_key = ? AND channel = ?",
+                        (status, now, event_key, channel))
+                else:
+                    return False
+                self._conn.commit()
+            return True
+        except (sqlite3.Error, ValueError) as exc:
+            logger.warning("Не удалось записать статус доставки: %s", exc)
+            return False
+
+    def delivery_summary(self, since_ts: int = 0) -> dict:
+        """Скільки сповіщень у кожному статусі (для моніторингу)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT status, COUNT(*) c FROM notification_delivery WHERE created_ts >= ? GROUP BY status",
+                    (since_ts,)).fetchall()
+            return {r["status"]: r["c"] for r in rows}
+        except sqlite3.Error:
+            return {}
+
+    def get_notify_levels(self, user_id: int) -> set[str]:
+        """Типи сповіщень, які користувач ВИМКНУВ ({'info','analytic','high'}); critical вимкнути не можна."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute("CREATE TABLE IF NOT EXISTS notify_off (user_id INTEGER NOT NULL, level TEXT NOT NULL, PRIMARY KEY(user_id, level))")
+                rows = self._conn.execute("SELECT level FROM notify_off WHERE user_id = ?", (user_id,)).fetchall()
+            return {r["level"] for r in rows}
+        except sqlite3.Error:
+            return set()
+
+    def toggle_notify_level(self, user_id: int, level: str) -> bool:
+        """Перемкнути рівень; повертає False для critical/невідомого рівня."""
+        if level not in ("high", "info", "analytic"):
+            return False
+        try:
+            with self._lock:
+                assert self._conn is not None
+                self._conn.execute("CREATE TABLE IF NOT EXISTS notify_off (user_id INTEGER NOT NULL, level TEXT NOT NULL, PRIMARY KEY(user_id, level))")
+                cur = self._conn.execute("DELETE FROM notify_off WHERE user_id = ? AND level = ?", (user_id, level))
+                if cur.rowcount == 0:
+                    self._conn.execute("INSERT INTO notify_off (user_id, level) VALUES (?, ?)", (user_id, level))
+                self._conn.commit()
+            return True
+        except sqlite3.Error:
+            return False
+
+    def audit_summary(self, since_ts: int) -> dict:
+        """Рішення LLM-аудиту за період: {decision: n} (для ІІ-аналізатора)."""
+        try:
+            with self._lock:
+                assert self._conn is not None
+                rows = self._conn.execute(
+                    "SELECT decision, COUNT(*) c FROM inference_audit WHERE created_ts >= ? GROUP BY decision",
+                    (since_ts,)).fetchall()
+            return {r["decision"]: r["c"] for r in rows}
+        except sqlite3.Error:
+            return {}
 
     def get_alert_feedback(self, message_key: str) -> dict:
         """Счётчики фидбека поста {useful, noise, error}."""

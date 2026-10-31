@@ -2,7 +2,8 @@
 
 Команды:
   /status          — здоровье каналов: модули, ошибки, активность
-  /give_admin <id> — выдать админку (только супер-админ)
+  /give_admin <id|@username> — выдать админку (только супер-админ)
+  /analyze         — ИИ-анализ всей системы
   /revoke_admin <id> — забрать админку
   /admins          — список админов
   /ban_channel /unban_channel — модерация каналов
@@ -53,14 +54,122 @@ def register_admin_handlers(
         n = await _send_evening_forecasts(bot, db, publisher)
         await event.respond(f"✅ Сводка отправлена: {n} получателям + канал.", parse_mode="html")
 
-    @bot.on(events.NewMessage(incoming=True, pattern=r"^/give_admin\s+(\d+)"))
+    async def _resolve_user(ref: str) -> int | None:
+        """ID або @username → числовий Telegram ID (юзернейм резолвиться через Telegram)."""
+        ref = ref.strip()
+        if ref.lstrip("-").isdigit():
+            return int(ref)
+        try:
+            ent = await bot.get_entity(ref if ref.startswith("@") else "@" + ref)
+            return int(ent.id)
+        except Exception:  # noqa: BLE001
+            return None
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/give_admin\s+(\S+)"))
     async def _give_admin(event) -> None:  # noqa: ANN001
         if not _is_super(event.sender_id):
-            await event.respond("⛔ Только супер-админ может выдавать права.")
+            await event.respond("⛔ Тільки супер-адмін може видавати права.")
             return
-        target = int(event.pattern_match.group(1))
+        target = await _resolve_user(event.pattern_match.group(1))
+        if target is None:
+            await event.respond("⛔ Не знайшов користувача. Дай числовий ID або @username "
+                                "(за юзернеймом людина має хоч раз написати боту).")
+            return
         db.add_admin(target, event.sender_id)
-        await event.respond(f"✅ Пользователь <code>{target}</code> теперь админ.", parse_mode="html")
+        await event.respond(f"✅ Користувач <code>{target}</code> тепер адмін: усі звіти приходитимуть і йому.", parse_mode="html")
+        try:
+            await bot.send_message(target, "👑 Тебе призначено адміністратором AirRadar. Тобі приходитимуть службові звіти.")
+        except Exception:  # noqa: BLE001 — людина ще не відкривала бота
+            pass
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/reports"))
+    async def _reports(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        import moderation
+        await event.respond(moderation.queue_text(db), parse_mode="html")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/report_(ok|no)\s+(\d+)"))
+    async def _report_decide(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        import moderation
+        ok = moderation.resolve(db, int(event.pattern_match.group(2)),
+                                "confirmed" if event.pattern_match.group(1) == "ok" else "dismissed")
+        await event.respond("✅ Збережено." if ok else "⛔ Звіт не знайдено або вже закритий.")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/fix\s+(\S+)\s+(region|type)\s+(\S+)"))
+    async def _fix(event) -> None:  # noqa: ANN001
+        """Виправити область/тип події: /fix <ключ> region|type <значення>. Правка стає прикладом для оцінки."""
+        if not _is_admin(event.sender_id):
+            return
+        import moderation
+        ok, msg = moderation.apply_fix(db, event.sender_id, event.pattern_match.group(1),
+                                       event.pattern_match.group(2), event.pattern_match.group(3))
+        await event.respond(msg)
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/stale\s+(\S+)"))
+    async def _stale(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        import moderation
+        ok = moderation.mark_stale(db, event.pattern_match.group(1))
+        await event.respond("✅ Позначено застарілою." if ok else "⛔ Активної події з таким ключем немає.")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/export_reports"))
+    async def _export_reports(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        import moderation
+        data = moderation.export_confirmed(db)
+        await event.respond(("<pre>" + data[:3500] + "</pre>") if data else "Підтверджених помилок поки немає.", parse_mode="html")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/health"))
+    async def _health(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        import health_checks
+        await event.respond(health_checks.health_text(db), parse_mode="html")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/selftest"))
+    async def _selftest(event) -> None:  # noqa: ANN001
+        """Синтетична перевірка: ізольована, відповідь лише тому, хто запитав (адмін)."""
+        if not _is_admin(event.sender_id):
+            return
+        import health_checks
+        r = health_checks.synthetic_check()
+        ok = r["safety_policy"] and r["isolated"]
+        probe = await health_checks.delivery_probe(db, bot, event.sender_id)
+        android = "не прив'язано" if probe["android"] is None else ("✅" if probe["android"] else "🔴")
+        await event.respond(f"{'✅' if ok else '🔴'} Синтетична перевірка: safety_policy={r['safety_policy']}, "
+                            f"важливість={r['importance']}, ізоляція від підписників={r['isolated']}\n"
+                            f"Доставка (лише вам): Telegram {'✅' if probe['telegram'] else '🔴'}, Android/ntfy {android}\n"
+                            "Тест не потрапляє в канал і до підписників.")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/preview"))
+    async def _preview(event) -> None:  # noqa: ANN001
+        """Статичне превʼю карти (офіційні тривоги) — лише адміну, для перевірки перед публікацією."""
+        if not _is_admin(event.sender_id):
+            return
+        import map_preview
+        from kyiv_time import fmt
+        regs = set(db.siren_states_fresh(900))
+        png = map_preview.render_png(regs)
+        await bot.send_file(event.sender_id, png, caption=map_preview.caption(regs, fmt(int(time.time()))),
+                            file_name="airradar.png", force_document=False)
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/analyze"))
+    async def _analyze(event) -> None:  # noqa: ANN001
+        if not _is_admin(event.sender_id):
+            return
+        from ai_analyzer import analyze
+        try:
+            from main import _get_summarizer
+            summarizer = _get_summarizer()
+        except Exception:  # noqa: BLE001
+            summarizer = None
+        await event.respond("🧠 Аналізую систему…")
+        await event.respond(await analyze(db, summarizer), parse_mode="html")
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/revoke_admin\s+(\d+)"))
     async def _revoke_admin(event) -> None:  # noqa: ANN001
@@ -86,8 +195,9 @@ def register_admin_handlers(
                 lines.append(f"• <code>{uid}</code>")
         else:
             lines.append("\nДобавленных админов нет.")
-        lines.append(f"\n/give_admin <id> — выдать (только супер)")
-        lines.append("/revoke_admin <id> — забрать")
+        lines.append(f"\n/give_admin &lt;id|@username&gt; — выдать (только супер)")
+        lines.append("/revoke_admin &lt;id&gt; — забрать")
+        lines.append("/analyze — ІІ-аналіз системи")
         await event.respond("\n".join(lines), parse_mode="html")
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/review(?:\s+(\d+))?$"))

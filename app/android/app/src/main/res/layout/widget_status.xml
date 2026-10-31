@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:background="#E6181C24">
+    <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textColor="#FFFFFF" android:textStyle="bold" android:textSize="15sp" android:maxLines="1" android:text="AirRadar AI" />
+    <TextView android:id="@+id/widget_text" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:textColor="#DDDDDD" android:textSize="13sp" android:maxLines="4" android:ellipsize="end" />
+    <TextView android:id="@+id/widget_time" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textColor="#8A94A6" android:textSize="10sp" android:maxLines="1" />
+</LinearLayout>

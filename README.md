@@ -145,3 +145,10 @@ systemd-юнит); `sudo bash deploy.sh` обновляет код после `g
 - `data/shelters_ua.tsv.gz` — укриття з OpenStreetMap (© OpenStreetMap contributors, ODbL), збирається `build_shelters.py`.
   Покриття неповне, це не офіційний реєстр; бот не гарантує, що укриття відкрите.
 - Пуші на телефон — безкоштовно через [ntfy](https://ntfy.sh) (Android/iPhone) та власний Android-додаток (`app/`).
+
+### Додатково
+- Android: віджет «Поточна ситуація», кнопка «Отримав» у сповіщенні (ntfy-дія → `/start ack_…` → статус `acknowledged`).
+- Web Push для iPhone-PWA: `miniapp/webpush.html` → `/pairweb КОД`; ключі `python gen_vapid.py`, `webpush_push.py`.
+- Офлайн-режим карти (останні дані + позначка часу), «🔊 Озвучити статус» (лише офіційні сирени).
+- `🔔 Типи сповіщень` (критичні не вимикаються), щоденне нагадування чек-листа, `eval_independence.py`, `secrets_check.py`,
+  `deploy_prod.sh` (SSH-ключ, без паролів), `SECURITY_RUNBOOK.md`, пакет `airradar/` (доменна карта), `TRACKS_PUBLIC_DELAY_MIN`.

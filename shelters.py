@@ -210,6 +210,17 @@ def fmt_distance(m: int) -> str:
     return f"{m} м" if m < 1000 else f"{m / 1000:.1f} км"
 
 
+def data_date() -> str:
+    """Дата останнього оновлення локального набору укриттів (за файлом)."""
+    import os
+    from pathlib import Path
+    p = Path(__file__).with_name("data") / "shelters_ua.tsv.gz"
+    try:
+        return time.strftime("%d.%m.%Y", time.localtime(os.path.getmtime(p)))
+    except OSError:
+        return "невідомо"
+
+
 def format_text(results: list[dict] | None, label: str = "") -> str:
     head = "🏚 <b>Найближчі укриття</b>" + (f" — {label}" if label else "")
     if results is None:
@@ -222,5 +233,6 @@ def format_text(results: list[dict] | None, label: str = "") -> str:
         walk = max(1, round(r["m"] / WALK_M_PER_MIN))
         nm = r["name"] or ("Укриття" if r["kind"] == "укриття" else "Бункер")
         lines.append(f"{i}. <b>{nm}</b> — {fmt_distance(r['m'])} (~{walk} хв пішки)")
-    lines.append("\n<i>Дані OpenStreetMap, покриття неповне; бот не гарантує, що укриття відкрите. Перевіряйте на місці.</i>")
+    lines.append(f"\n<i>Джерело: OpenStreetMap, набір оновлено {data_date()}; покриття неповне. "
+                 "Дані про доступність укриття не підтверджені в реальному часі — бот не гарантує, що воно відкрите. Перевіряйте на місці.</i>")
     return "\n".join(lines)

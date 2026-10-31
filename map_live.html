@@ -663,9 +663,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "sumska", "text": "🛵 БпЛА на Суми з півночі", "sources": 2, "origin": "", "destination": "sumska", "track": {"from": [49.994, 36.231], "to": [50.907, 34.798], "from_name": "Харків", "to_name": "Суми", "speed_kmh": 109.4, "course_deg": 316, "minutes": null, "points": 5}, "age_min": 27}];
+const EMBEDDED_THREATS = [];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 102, "standdown_hits": 4, "standdown_total": 8}};
+const EMBEDDED_FORECAST = {};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
@@ -1609,5 +1609,6 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') fetchData();
 });
 </script>
+<div id="ar-disclaimer" style="position:fixed;left:0;right:0;bottom:0;z-index:9999;background:rgba(20,20,20,.88);color:#ddd;font:11px/1.35 system-ui,sans-serif;padding:5px 10px;text-align:center;pointer-events:none">AirRadar AI — інформаційно-аналітична система. Не замінює офіційні повідомлення про повітряну тривогу та рекомендації ДСНС. У разі тривоги негайно прямуйте до укриття.</div>
 </body>
 </html>

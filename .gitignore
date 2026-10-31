@@ -35,3 +35,16 @@ import_progress.log
 
 # Локально сгенерированные наборы для обучения
 training_data/
+
+# Підпис Android (ніколи не коммітити, не втрачати — зберігати окремо)
+*.jks
+*.keystore
+keystore.properties
+local.properties
+
+# Ключі сервісних акаунтів і службові маркери
+*service-account*.json
+.session_alert
+
+# Web Push: приватний VAPID-ключ
+vapid_private.pem

@@ -62,7 +62,7 @@ def _names(slugs: list[str]) -> str:
 
 
 def start_text(slugs: list[str], ts: int) -> str:
-    return f"🚨 ПОВІТРЯНА ТРИВОГА\n📍 {_names(slugs)}\n🕒 {kyiv_fmt(ts)}\n\nПрямуйте в укриття.\n📡 Джерело: AirRadar AI"
+    return f"🚨 ПОВІТРЯНА ТРИВОГА\n📍 {_names(slugs)}\n🕒 {kyiv_fmt(ts)}\n\nПрямуйте в укриття.\n\nℹ️ AirRadar AI не замінює офіційні повідомлення та рекомендації ДСНС.\n📡 Джерело: AirRadar AI"
 
 
 def end_text(slugs: list[str], ts: int, minutes: int | None) -> str:
@@ -101,6 +101,8 @@ async def apply(db, publisher, notify: Notify | None, kind: str, slugs: list[str
         await publisher.send(text)
     except Exception:  # noqa: BLE001
         logger.exception("alarm_notices: не вдалося опублікувати")
+    if kind == "start":
+        await _maybe_preview(db, publisher, now)
     if notify is not None:
         try:
             await notify(changed, text)
@@ -114,3 +116,27 @@ async def handle_post(db, publisher, notify: Notify | None, text: str, source: s
     if not kind:
         return ""
     return await apply(db, publisher, notify, kind, slugs, event_ts)
+
+
+PREVIEW_COOLDOWN_S = 10 * 60
+
+
+async def _maybe_preview(db, publisher, now: int) -> None:
+    """Картинка зі станом ОФІЦІЙНИХ тривог по областях — не частіше разу на 10 хв (ALARM_MAP_PREVIEW=0 вимикає)."""
+    import os
+    if os.getenv("ALARM_MAP_PREVIEW", "1") == "0" or not hasattr(publisher, "send_photo"):
+        return
+    with db._lock:  # noqa: SLF001
+        db._conn.execute("CREATE TABLE IF NOT EXISTS preview_log (id INTEGER PRIMARY KEY CHECK (id=1), ts INTEGER NOT NULL)")  # noqa: SLF001
+        r = db._conn.execute("SELECT ts FROM preview_log WHERE id=1").fetchone()  # noqa: SLF001
+        if r and now - r[0] < PREVIEW_COOLDOWN_S:
+            return
+        db._conn.execute("INSERT OR REPLACE INTO preview_log(id, ts) VALUES (1, ?)", (now,))  # noqa: SLF001
+        db._conn.commit()  # noqa: SLF001
+    try:
+        import map_preview
+        regs = {s for s in db.siren_states_fresh(900) if not s.startswith(("raion", "threat:"))}
+        if regs:
+            await publisher.send_photo(map_preview.render_png(regs), map_preview.caption(regs, kyiv_fmt(now)))
+    except Exception:  # noqa: BLE001 — превʼю не ламає сповіщення
+        logger.exception("alarm_notices: превʼю карти не опубліковано")

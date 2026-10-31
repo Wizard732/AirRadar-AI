@@ -69,6 +69,22 @@ class DistrictWarnTests(unittest.TestCase):
         self.db.set_weapon_classes(12, "ballistic")
         self.assertEqual(asyncio.run(evaluate_once(self.db, self.send, now=NOW)), 0)
 
+    def test_cruise_missile_warns_even_with_typical_speed(self):
+        for t in self.tracks():
+            t.weapon = "cruise_missile"
+            t.speed_kmh, t.speed_source = 800.0, "typical"
+        items = plan(self.tracks_missile(), NOW, self.db)
+        self.assertTrue(items)
+        self.assertIn("Крилата ракета", items[0][2])
+        self.assertRegex(items[0][2], r"\d+–\d+ хв")
+
+    def tracks_missile(self):
+        ts = self.tracks()
+        for t in ts:
+            t.weapon = "cruise_missile"
+            t.speed_kmh, t.speed_source = 800.0, "typical"
+        return ts
+
 
 if __name__ == "__main__":
     unittest.main()

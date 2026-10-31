@@ -75,5 +75,15 @@ class NtfyTests(unittest.TestCase):
         self.assertIn("rotating_light", sent[0]["tags"])
 
 
+class DangerLevelTests(unittest.TestCase):
+    def test_danger_is_loud_and_tagged_for_its_own_channel(self):
+        n = push_fcm.build_ntfy("ar-x", "t", "b", "danger")
+        self.assertEqual(n["priority"], 5)
+        self.assertIn("danger", n["tags"])
+        self.assertNotIn("danger", push_fcm.build_ntfy("ar-x", "t", "b", "alarm")["tags"])
+        m = push_fcm.build_message("u_x", "t", "b", "danger")["message"]
+        self.assertEqual(m["android"]["notification"]["channel_id"], "airradar_danger")
+
+
 if __name__ == "__main__":
     unittest.main()

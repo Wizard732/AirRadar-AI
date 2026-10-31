@@ -17,6 +17,8 @@ import logging
 
 import aiohttp
 
+from safety_policy import check_publication
+
 from alert_renderer import SOURCE_BRAND_LINE
 
 logger = logging.getLogger(__name__)
@@ -117,6 +119,13 @@ class Publisher:
             logger.debug("Пустой текст — публикация пропущена.")
             return False
 
+        # Обов'язковий детерміновано-безпековий етап (safety_policy) перед будь-якою публікацією.
+        verdict = check_publication(text)
+        if not verdict.allowed:
+            logger.warning("safety_policy заблокувала публікацію: %s", ",".join(verdict.violations))
+            return False
+        text = verdict.text
+
         # Подстраховка от лимита Telegram: режем с конца, заголовок (в начале) важнее.
         if len(text) > TG_TEXT_LIMIT:
             text = text[:TG_TEXT_LIMIT]
@@ -148,11 +157,34 @@ class Publisher:
             logger.info("Опубликовано в %s (%d символов).", self._target, len(text))
         return sent or False
 
+    async def send_photo(self, png: bytes, caption: str) -> bool:
+        """Фото (безпечне превʼю карти) у канал; підпис проходить safety_policy так само, як текст."""
+        verdict = check_publication(caption, llm_generated=False)
+        if not verdict.allowed:
+            return False
+        try:
+            session = await self._get_session()
+            form = aiohttp.FormData()
+            form.add_field("chat_id", str(self._target))
+            form.add_field("caption", caption[:1000])
+            form.add_field("photo", png, filename="airradar.png", content_type="image/png")
+            url = f"{self._api_url.rsplit('/', 1)[0]}/sendPhoto"
+            async with session.post(url, data=form) as resp:
+                data = await resp.json()
+                return resp.status == 200 and bool(data.get("ok"))
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Не вдалося опублікувати превʼю карти: %s", exc)
+            return False
+
     async def edit(self, chat_id: str, message_id: int, text: str) -> bool:
         """Update one already published incident message."""
         if not message_id:
             return False
-        text = text[:TG_TEXT_LIMIT]
+        verdict = check_publication(text)
+        if not verdict.allowed:
+            logger.warning("safety_policy заблокувала оновлення: %s", ",".join(verdict.violations))
+            return False
+        text = verdict.text[:TG_TEXT_LIMIT]
         linked = build_linked_text(text, self.promo_url)
         if linked is not None and len(linked) <= TG_TEXT_LIMIT:
             payload = {

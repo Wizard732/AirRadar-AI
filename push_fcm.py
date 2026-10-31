@@ -145,11 +145,18 @@ async def _post(message: dict) -> tuple[int, str]:
             return r.status, (await r.text())[:300]
 
 
-def build_ntfy(topic: str, title: str, body: str, level: str = "info", click: str = "") -> dict:
+def ack_url(key: str) -> str:
+    """Посилання-підтвердження «Отримав»: відкриває бота, входящих портов не потрібно."""
+    return f"https://t.me/{os.getenv('BOT_USERNAME', 'AirRadar_AI_bot')}?start=ack_{key}"
+
+
+def build_ntfy(topic: str, title: str, body: str, level: str = "info", click: str = "", ack: str = "") -> dict:
     out = {"topic": topic, "title": title[:100], "message": body[:1000], "priority": NTFY_PRIORITY.get(level, 3),
            "tags": NTFY_TAGS.get(level, [])}
     if click:
         out["click"] = click
+    if ack:
+        out["actions"] = [{"action": "view", "label": "Отримав", "url": ack_url(ack), "clear": True}]
     return out
 
 
@@ -165,7 +172,7 @@ async def send_topic(topic: str, title: str, body: str, level: str = "info", dat
         if not ntfy_enabled():
             return False
         try:
-            status, text = await _post_ntfy(build_ntfy(topic, title, body, level, (data or {}).get("click", "")))
+            status, text = await _post_ntfy(build_ntfy(topic, title, body, level, (data or {}).get("click", ""), (data or {}).get("ack", "")))
         except Exception:  # noqa: BLE001
             logger.warning("ntfy: помилка відправки", exc_info=True)
             return False
@@ -194,7 +201,7 @@ async def push_user(db, uid: int, title: str, body: str, level: str = "info", da
     return ok
 
 
-async def push_regions(db, regions: list[str], title: str, body: str, level: str = "info") -> int:
+async def push_regions(db, regions: list[str], title: str, body: str, level: str = "info", ack_key: str = "") -> int:
     """Пуш усім підписникам областей, у кого є прив'язаний додаток (унікально)."""
     if not configured():
         return 0
@@ -205,5 +212,8 @@ async def push_regions(db, regions: list[str], title: str, body: str, level: str
             if uid in seen:
                 continue
             seen.add(uid)
-            n += await push_user(db, uid, title, body, level)
+            sent = await push_user(db, uid, title, body, level, {"ack": ack_key} if ack_key else None)
+            n += sent
+            if ack_key:   # sent ≠ delivered: фіксуємо лише відправку; підтвердження прийде з кнопки «Отримав»
+                db.record_delivery(ack_key, f"ntfy:{uid}", "critical", "sent" if sent else "failed")
     return n

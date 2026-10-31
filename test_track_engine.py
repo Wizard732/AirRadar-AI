@@ -130,6 +130,26 @@ class RiskTests(unittest.TestCase):
         self.assertIn("км", text)
         self.assertIn("орієнтовно", text)
 
+    def test_fast_target_warns_by_time_not_fixed_distance(self):
+        t = build_tracks(northbound_track(), T0 + 1200)[0]
+        t.speed_kmh, t.speed_source = 800.0, "typical"
+        user = destination(self.head, 0, 60)   # 60 км впереди, ~4.5 мин лёта
+        r = risk_for_point([t], user, T0 + 1200)[0]
+        self.assertEqual(r.level, "imminent")
+        self.assertLessEqual(r.eta_range[0], r.eta_min)
+        self.assertGreaterEqual(r.eta_range[1], r.eta_min)
+
+    def test_unknown_course_nearby_is_not_silent(self):
+        t = build_tracks(northbound_track(), T0 + 1200)[0]
+        t.heading = None
+        r = risk_for_point([t], destination(self.head, 90, 15), T0 + 1200)
+        self.assertEqual(r[0].level, "watch")
+        self.assertIn("курс невідомий", risk_text(r[0]))
+
+    def test_eta_text_is_a_range(self):
+        r = risk_for_point(self.tracks, destination(destination(self.head, 0, 20), 90, 6), T0 + 1200)[0]
+        self.assertRegex(risk_text(r), r"\d+–\d+ хв")
+
 
 if __name__ == "__main__":
     unittest.main()

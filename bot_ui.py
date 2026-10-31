@@ -181,6 +181,10 @@ def _main_menu_with_webapp(webapp_url: str, map_webapp_url: str = ""):
         [Button.inline("🔥 Наслідки", data=ms.CB_IMPACTS), Button.inline("🛡 Гео-сторож", data=ms.CB_GUARD)],
         [Button.inline("🎯 Моя зона", data=CB_MY_ZONE), Button.inline("🛡 Укриття", data=CB_SHELTER)],
         [Button.inline("🏚 Найближче укриття", data=ms.CB_SHELTER_FIND), Button.inline("📍 Мої місця", data=ms.CB_PLACES)],
+        [Button.inline("🛡 Мій AirRadar", data="mys"), Button.inline("🎒 Чек-лист", data="chk")],
+        [Button.inline("📊 Моя статистика", data="ins"), Button.inline("📴 Офлайн-пам'ятка", data="off")],
+        [Button.inline("🔔 Типи сповіщень", data="lvl"), Button.inline("🗓 Календар тривог", data="cal")],
+        [Button.inline("🔊 Голосова зведення", data="voi")],
         [Button.inline("📱 Додаток", data=ms.CB_APP)],
         [Button.inline("👪 Родина", data=ms.CB_FAMILY), Button.inline("✅ Я в укритті", data=f"{ms.CB_FAMILY}:safe")],
         [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS), Button.inline("🏙 Області", data=CB_REGION_PAGE + "0")],
@@ -998,6 +1002,16 @@ def register_handlers(
                     if family.remove_member(db, uid_, other):
                         notice = "🗑 Зв'язок видалено."
                     await event.answer(notice or "Не знайдено")
+                elif len(parts) > 2 and parts[1] == "st":
+                    import family_status as fst
+                    if fst.set_status(db, uid_, parts[2]):
+                        async def _send2(to, msg):
+                            await bot.send_message(to, msg, silent=False)
+                        n = await family.notify_members(db, _send2, uid_, fst.status_message(db, uid_, parts[2]))
+                        await event.answer("Статус збережено" + (f"; родину сповіщено ({n})" if n else ""))
+                        notice = "Статус: " + fst.STATUSES[parts[2]]
+                    else:
+                        await event.answer("Невідомий статус")
                 elif len(parts) > 1 and parts[1] == "safe":
                     family.set_safe(db, uid_)
                     n = 0
@@ -1009,9 +1023,70 @@ def register_handlers(
                     notice = "✅ Відмічено, що ти в укритті — повтори сигналу вимкнено на 3 години."
                 else:
                     await event.answer()
-                if len(parts) == 1 or parts[1] in ("del", "safe"):
+                if len(parts) == 1 or parts[1] in ("del", "safe", "st"):
                     text, rows = ms.family_screen(db, uid_, notice)
                     await _safe_edit(text, rows)
+
+            elif data == "mys":
+                await event.answer()
+                import personal_status
+                await _safe_edit(personal_status.render(db, event.sender_id), [[Button.inline("🔄 Оновити", data="mys"), Button.inline("🏠 Меню", data=CB_MAIN)]])
+
+            elif data == "chk" or data.startswith("chk:"):
+                import user_extras
+                if data == "chk:remind":
+                    user_extras.toggle_remind(db, event.sender_id)
+                elif data.startswith("chk:"):
+                    user_extras.toggle(db, event.sender_id, data[4:])
+                await event.answer()
+                done_ = user_extras.done(db, event.sender_id)
+                rows_ = [[Button.inline(("✅ " if k in done_ else "⬜️ ") + label[2:].strip()[:40], data="chk:" + k)] for k, label in user_extras.CHECKLIST]
+                rows_.append([Button.inline(("⏰ Нагадування о 19:00: увімкнено" if user_extras.remind_enabled(db, event.sender_id) else "⏰ Нагадувати щодня о 19:00"), data="chk:remind")])
+                rows_.append([Button.inline("🏠 Меню", data=CB_MAIN)])
+                await _safe_edit(user_extras.checklist_text(db, event.sender_id), rows_)
+
+            elif data.startswith("ack:"):
+                db.record_delivery(data[4:], f"tg:{event.sender_id}", "critical", "acknowledged")
+                await event.answer("Дякуємо, відмічено")
+
+            elif data == "lvl" or data.startswith("lvl:"):
+                if data.startswith("lvl:"):
+                    db.toggle_notify_level(event.sender_id, data[4:])
+                await event.answer()
+                off_ = db.get_notify_levels(event.sender_id)
+                names_ = (("high", "Високий: зміни статусу"), ("info", "Інформаційні: зведення"), ("analytic", "Аналітичні: прогнози"))
+                rows_ = [[Button.inline(("🔕 " if k in off_ else "🔔 ") + t, data="lvl:" + k)] for k, t in names_]
+                rows_.append([Button.inline("🏠 Меню", data=CB_MAIN)])
+                await _safe_edit("🔔 <b>Типи сповіщень</b>\n\n🚨 Критичні (офіційна тривога, відбій) приходять завжди — їх вимкнути не можна.\nНатисни, щоб увімкнути/вимкнути інші:", rows_)
+
+            elif data == "ins":
+                await event.answer()
+                import user_extras
+                await _safe_edit(user_extras.insights_text(db, event.sender_id), [[Button.inline("🏠 Меню", data=CB_MAIN)]])
+
+            elif data == "cal":
+                await event.answer()
+                import user_extras
+                await _safe_edit(user_extras.calendar_text(db, event.sender_id), [[Button.inline("🏠 Меню", data=CB_MAIN)]])
+
+            elif data == "voi":
+                await event.answer("Готую голосову зведення…")
+                import io
+
+                from airradar.product import voice
+                text_ = voice.voice_text(db, event.sender_id)
+                audio_ = await voice.synthesize(text_)
+                if audio_ and getattr(bot, "send_file", None) is not None:
+                    f_ = io.BytesIO(audio_)
+                    f_.name = "airradar_voice.mp3"
+                    await bot.send_file(event.sender_id, f_, caption=text_)
+                else:
+                    await event.respond("🔊 " + text_)
+
+            elif data == "off":
+                await event.answer()
+                import user_extras
+                await _safe_edit(user_extras.OFFLINE_TEXT, [[Button.inline("🏠 Меню", data=CB_MAIN)]])
 
             elif data == ms.CB_APP:
                 await event.answer()
@@ -1235,11 +1310,40 @@ def register_handlers(
                 key = data[4:].strip()
                 if key:
                     db.add_alert_feedback(key, vote)
+                if vote == "error" and key:
+                    # Уточнюємо, що саме не так: категорія → черга модерації та датасет парсера.
+                    await event.answer("Що саме не так?")
+                    await event.respond(
+                        "❌ <b>Що не так у сповіщенні?</b>",
+                        parse_mode="html",
+                        buttons=[
+                            [Button.inline("📍 Не те місто", data=f"fbc:wrong_city:{key}"[:64])],
+                            [Button.inline("🛩 Не той тип загрози", data=f"fbc:wrong_type:{key}"[:64])],
+                            [Button.inline("⏳ Застаріла інформація", data=f"fbc:stale:{key}"[:64])],
+                            [Button.inline("🔁 Дублікат", data=f"fbc:duplicate:{key}"[:64])],
+                            [Button.inline("❓ Незрозуміле сповіщення", data=f"fbc:unclear:{key}"[:64])],
+                        ],
+                    )
+                    return
                 await event.answer(
                     "Дякуємо за відгук!" if vote == "useful"
                     else "Помилку зафіксовано — розберемось." if vote == "error"
                     else "Прийнято — працюємо над точністю."
                 )
+
+            elif data.startswith("fbc:"):
+                _, _, rest = data.partition(":")
+                cat, _, key = rest.partition(":")
+                ok = bool(key) and db.add_error_report(event.sender_id, key, cat)
+                await event.answer("Дякуємо! Звіт передано на перевірку." if ok else "Не вдалося записати звіт")
+                if ok:
+                    await _safe_edit("✅ Дякуємо! Звіт про помилку передано на перевірку.", None)
+                    # Звіти бачать лише адміни.
+                    from admin_notify import notify_admins
+                    await notify_admins(
+                        bot, db, admin_id,
+                        f"📝 <b>Звіт про помилку</b>\nКористувач: <code>{event.sender_id}</code>\n"
+                        f"Категорія: <b>{cat}</b>\nПост: <code>{key}</code>", parse_mode="html")
 
             elif data == CB_STATS_ALL:
                 await _safe_edit(_stats_all_text(db), _menu_kb(event.sender_id))
