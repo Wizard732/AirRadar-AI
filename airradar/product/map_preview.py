@@ -116,8 +116,11 @@ def render_png(alarm_regions: set[str]) -> bytes:
 
 
 def caption(alarm_regions: set[str], updated: str) -> str:
+    """Компактний підпис до карти: що, де, коли — і один короткий рядок застереження (не повна плашка)."""
     from regions import region_name
-    from safety_policy import DISCLAIMER
-    head = ("🚨 Офіційна тривога: " + ", ".join(sorted(region_name(r) for r in alarm_regions))) if alarm_regions \
-        else "🟢 Офіційних тривог за даними сирен немає"
-    return f"{head}\nОновлено: {updated}\n\n{DISCLAIMER}"
+    if alarm_regions:
+        names = sorted(region_name(r) for r in alarm_regions)
+        head = "🚨 Офіційна тривога: " + ", ".join(names)
+    else:
+        head = "🟢 Офіційних тривог за даними сирен немає"
+    return f"{head}\n🕐 {updated} · інформаційно, не замінює офіційні сповіщення"
