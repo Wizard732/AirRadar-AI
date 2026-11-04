@@ -316,3 +316,13 @@ body.has-tgtbar .banner{top:calc(176px + var(--sat))}
 .plc-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0}
 .imp-pin i{display:flex;align-items:center;justify-content:center;width:28px;height:28px;font-style:normal;font-size:18px;background:rgba(20,26,38,.85);border:2px solid #ff6a3d;border-radius:50%}
 .democlock{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--sheet-h,0px) + 12px);z-index:900;background:rgba(255,77,61,.92);color:#fff;font:700 13px system-ui;padding:5px 12px;border-radius:14px;pointer-events:none}
+
+/* мобільний UX: карта в пріоритеті, менше кнопок, нічого не налізає на верхню смугу */
+@media (max-width:899px){
+  #t-in,#t-out{display:none}
+  .tools{max-height:calc(var(--vvh) - var(--sheetH,150px) - 150px - var(--sat));overflow-y:auto;scrollbar-width:none;gap:4px}
+  .tools::-webkit-scrollbar{display:none}
+  .tools button{width:48px;height:48px}
+  .top{right:calc(12px + var(--sar))}
+  .fresh{padding:0 10px}
+}

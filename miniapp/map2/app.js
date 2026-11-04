@@ -637,7 +637,7 @@
 
   // ---------- цілі: слід, швидкість, курс, орієнтовний прогноз; попередження для моєї території ----------
   const TGT_KEY = 'airradar.map2.tgt', TGT_POLL_MS = 15000;
-  let tgtOn = lsGet(TGT_KEY) !== '0', tgtRaw = null, tgt = { tracks: [], ok: false, generalized: false, feedStale: false, rejected: 0 }, tgtErr = false, tgtSel = null, tgtKinds = [], tgtWarned = new Set(), tgtTimer = null, tgtWarnList = [];
+  let tgtStale = lsGet('airradar.map2.tgtstale') === '1', tgtOn = lsGet(TGT_KEY) !== '0', tgtRaw = null, tgt = { tracks: [], ok: false, generalized: false, feedStale: false, rejected: 0 }, tgtErr = false, tgtSel = null, tgtKinds = [], tgtWarned = new Set(), tgtTimer = null, tgtWarnList = [];
   const ATTACK_T0 = window.AIRRADAR_ATTACK_T0 || Date.now();
   async function tgtFetch() {
     if (P.get('demo') === 'attack') { const d = Tracks.demoAttack(nowS(), (Date.now() - ATTACK_T0) / 1000); const c = $('demoClock'); c.hidden = false; c.textContent = 'ДЕМО · ' + d.attack.phase + ' · t+' + d.attack.simMin + ' хв'; return d; }
@@ -750,7 +750,7 @@
   function tgtApply() {
     tgt = Tracks.normalize(tgtRaw, nowS());
     const vis = Tracks.filterKinds(tgt.tracks, tgtKinds);
-    amap.setTargets(vis.filter(t => t.stale || Tracks.hasCourse(t)), t => openTarget(t.id)); amap.showTargets(tgtOn);   // без курсу на карті не малюємо (лише лічильник)
+    amap.setTargets(vis.filter(t => tgtStale ? (t.stale || Tracks.hasCourse(t)) : (!t.stale && Tracks.hasCourse(t))), t => openTarget(t.id)); amap.showTargets(tgtOn);   // без курсу на карті не малюємо (лише лічильник)
     renderTgtBar();
     const fresh = tgt.tracks.filter(t => !t.stale).length;
     $('legTg').hidden = !(tgtOn && tgt.tracks.length); $('disc').hidden = $('discNote').hidden = !(tgtOn && tgt.tracks.length);
@@ -817,9 +817,10 @@
   }
   function renderTargets() {
     const c = $('card'); c.hidden = false; document.body.classList.add('has-card'); cardMode = 'targets';
-    const all = tgt.tracks, vis = Tracks.filterKinds(all, tgtKinds).slice().sort((a, b) => (a.stale - b.stale) || ((a.forecast[0] ? a.forecast[0].etaMin : 999) - (b.forecast[0] ? b.forecast[0].etaMin : 999)));
+    const all = tgt.tracks, oldN = all.filter(t => t.stale).length, vis = Tracks.filterKinds(all, tgtKinds).filter(t => tgtStale || !t.stale).slice().sort((a, b) => (a.stale - b.stale) || ((a.forecast[0] ? a.forecast[0].etaMin : 999) - (b.forecast[0] ? b.forecast[0].etaMin : 999)));
     let h = '<button class="x" aria-label="Закрити панель"><svg class="ic"><use href="#i-close"/></svg></button><h2>Цілі</h2><div class="sub">' + (P.has('demo') ? 'ДЕМО: вигадані цілі, не реальні дані · ' : '') + (all.length ? all.filter(t => !t.stale).length + ' актуальних із ' + all.length : 'немає даних про цілі') + '</div>' +
       '<button class="swrow" role="switch" data-tg-on="1" aria-checked="' + tgtOn + '"><span>Показувати на карті<small>Значок за типом, слід польоту і пунктир орієнтовного напрямку</small></span><i class="knob"></i></button>' +
+      (oldN ? '<button class="swrow" role="switch" data-tg-stale="1" aria-checked="' + tgtStale + '"><span>Старі цілі (' + oldN + ')<small>Без оновлень понад 25 хв: за замовчуванням приховані</small></span><i class="knob"></i></button>' : '') +
       '<div class="chips" style="padding:8px 0">' + Object.keys(Tracks.KINDS).filter(k => k !== 'uav').map(k => '<button class="chip" data-tg-kind="' + k + '" aria-pressed="' + (!tgtKinds.length || tgtKinds.includes(k)) + '">' + esc(Tracks.KINDS[k].short) + '</button>').join('') + '</div>' + tgtWarnHtml(null) + meHtml() + placesHtml();
     if (tgtErr && !all.length) h += '<div class="note">Не вдалося завантажити дані про цілі. Орієнтуйтесь на сирену й офіційні повідомлення.</div>';
     else if (tgt.generalized) h += '<div class="note">Сервер віддає узагальнені дані без точних позицій цілей.</div>';
@@ -830,6 +831,7 @@
     c.innerHTML = h; c.querySelector('.x').onclick = closeCard; setCardH();
   }
   function tgtClick(e) {
+    const so = e.target.closest('[data-tg-stale]'); if (so) { tgtStale = !tgtStale; lsSet('airradar.map2.tgtstale', tgtStale ? '1' : '0'); tgtApply(); return true; }
     const on = e.target.closest('[data-tg-on]'); if (on) { tgtOn = !tgtOn; lsSet(TGT_KEY, tgtOn ? '1' : '0'); tgtApply(); return true; }
     const k = e.target.closest('[data-tg-kind]'); if (k) { const all = Object.keys(Tracks.KINDS).filter(x => x !== 'uav'); let cur = tgtKinds.length ? tgtKinds.slice() : all.slice(); cur = cur.includes(k.dataset.tgKind) ? cur.filter(x => x !== k.dataset.tgKind) : cur.concat(k.dataset.tgKind); tgtKinds = cur.length === all.length || !cur.length ? [] : cur; tgtApply(); return true; }
     const r = e.target.closest('[data-tg-row],[data-tg]'); if (r) { const id = r.dataset.tgRow || r.dataset.tg; openTarget(id); const t = tgt.tracks.find(x => x.id === id); if (t) amap.fitPoints([{ lat: t.lat, lon: t.lon }].concat(t.forecast.slice(0, 2)), Object.assign({}, flyPad(), { maxZoom: 9 })); return true; }
@@ -939,7 +941,7 @@
   // ---------- шторка (mobile): peek / half / full, перетягування, фокус ----------
   const sh = $('sheet'), grab = $('grab');
   const SNAP = ['peek', 'half', 'full'];
-  let sheetState = SNAP.includes(P.get('sheet')) ? P.get('sheet') : 'half';
+  let sheetState = SNAP.includes(P.get('sheet')) ? P.get('sheet') : (innerWidth < 900 ? 'peek' : 'half');
   const snapPx = k => k === 'peek' ? 132 : k === 'full' ? Math.round(innerHeight * 0.84) : Math.round(innerHeight * 0.46);
   const stateNames = { peek: 'згорнуто', half: 'наполовину', full: 'розгорнуто' };
   function setSheet(k) {
