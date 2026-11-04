@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import logging
 import time
 
 STAGE_NAMES = ("ingest", "parse", "geocode", "ai", "notify_build", "delivery", "total")
@@ -33,7 +34,7 @@ def record_stage(db, stage: str, ms: float, now: int | None = None) -> None:
             db._conn.execute("INSERT INTO stage_metrics (ts,stage,ms) VALUES (?,?,?)", ((int(time.time()) if now is None else now), stage, int(ms)))  # noqa: SLF001
             db._conn.commit()  # noqa: SLF001
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'metrics.py', 35, exc_info=True)
 
 
 def percentile(sorted_vals: list[int], p: float) -> int | None:

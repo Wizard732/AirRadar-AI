@@ -234,7 +234,7 @@ async def _build_channel_summary(db: Database, regions: list[str]) -> str:
                 lines.append(f"  {_rname(r['region'])}: {r['c']}")
             lines.append("")
     except Exception:
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'digest.py', 236, exc_info=True)
 
     # Прогноз на ночь по топ-3 регионам (кратко).
     if regions:

@@ -54,3 +54,23 @@ def test_shipped_clean_shelters_have_no_foreign_points(bounds):
 def test_real_gazetteer_is_sane():
     r = g.check_gazetteer()
     assert r["bad_format"] == 0 and r["out_of_bbox"] == 0
+
+
+
+def test_region_word_resolves_to_oblast_not_village():
+    """«на Харківщину» — область, а не село Харківщина (Сумська)."""
+    import threat_parser as tp
+    post = tp.parse_post("Балістика з Курська на Харківщину! Негайно в укриття", "t")
+    assert post.oblasts == ["kharkivska"]
+    target = [o for o in post.observations if o.relation == "toward"][0]
+    assert (target.oblast, target.precision) == ("kharkivska", "oblast")
+    assert target.lon > 35.5  # центроїд Харківщини, не Суми (34.7)
+
+
+def test_foreign_origin_is_not_geocoded_into_ukraine():
+    """«з Курська» не повинно ставати українським селом «Курське» (Крим)."""
+    import threat_parser as tp
+    post = tp.parse_post("Балістика з Курська на Харківщину! Негайно в укриття", "t")
+    origin = [o for o in post.observations if o.relation == "from"][0]
+    assert (origin.oblast, origin.lat, origin.lon) == ("", None, None)
+    assert "crimea" not in post.origins

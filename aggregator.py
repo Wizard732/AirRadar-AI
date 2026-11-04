@@ -39,6 +39,7 @@ class PendingAlert:
     # Wall-clock момент поступления поста из источника (до агрегации).
     # Для метрики задержки конвейера «пост источника → пост в канале».
     received_ts: int = 0
+    pid: int = 0   # id запису в персистентному журналі (AggStore); 0 — не записано
 
 
 class AlertAggregator:
@@ -49,13 +50,14 @@ class AlertAggregator:
     """
 
     def __init__(self, window_sec: float, flush_callback,
-                 critical_needs_confirmation: bool = False) -> None:
+                 critical_needs_confirmation: bool = False, store=None) -> None:
         self._window = max(0.05, float(window_sec))
         self._flush = flush_callback
         self._critical_gate = critical_needs_confirmation
         self._buffers: dict[tuple[str, str], list[PendingAlert]] = {}
         self._timers: dict[tuple[str, str], asyncio.Task] = {}
         self._closed = False
+        self._store = store   # AggStore | None: журнал буфера для відновлення після краху
 
     def _is_bypass(self, alert: PendingAlert) -> bool:
         """Немедленный флаш: подтверждено / отбой / материальное обновление.
@@ -90,6 +92,8 @@ class AlertAggregator:
             # После закрытия не копим — публикуем напрямую, ничего не теряем.
             await self._flush([alert])
             return
+        if self._store is not None and not alert.pid:
+            alert.pid = self._store.save(alert)
         key = (alert.fact.destination_region, alert.fact.weapon_class)
         self._buffers.setdefault(key, []).append(alert)
         if self._is_bypass(alert):
@@ -124,6 +128,14 @@ class AlertAggregator:
             timer.cancel()
         if not items:
             return
+        try:
+            await self._flush_items(key, items)
+        except asyncio.CancelledError:
+            raise   # скасування посеред публікації: записи лишаються для recover() після рестарту
+        if self._store is not None:
+            self._store.delete([it.pid for it in items])
+
+    async def _flush_items(self, key, items) -> None:
         if (
             self._critical_gate
             and weapon_severity(key[1]) == "CRITICAL"
@@ -138,6 +150,22 @@ class AlertAggregator:
             await self._flush(items)
         except Exception:  # noqa: BLE001 — конвейер не должен падать
             logger.exception("Сбой публикации агрегированного поста")
+
+    async def recover(self, max_age_s: int = 600, already_published=None) -> int:
+        """Після старту: опублікувати записи журналу, що не встигли піти (свіжі); застарілі відкидаються.
+
+        already_published(alert) -> bool — пропустити алерт, чий інцидент уже опублікований (уникнути дубля).
+        Повертає кількість відновлених алертів.
+        """
+        if self._store is None:
+            return 0
+        n = 0
+        for a in self._store.load(max_age_s):
+            if already_published is not None and already_published(a):
+                self._store.delete([a.pid]); continue
+            n += 1
+            await self.submit(a)
+        return n
 
     async def aclose(self) -> None:
         """Graceful shutdown: вылить все буферы и снять таймеры."""

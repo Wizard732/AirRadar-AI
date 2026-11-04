@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import logging
 import hashlib
 import hmac
 import secrets
@@ -67,7 +68,7 @@ def log_action(db, actor_id: int, action: str, target_id: int | None = None, ok:
             )
             db._conn.commit()  # noqa: SLF001
     except Exception:  # noqa: BLE001 — аудит не має ламати основний потік
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'admin_access.py', 69, exc_info=True)
 
 
 def recent_audit(db, limit: int = 20) -> list[dict]:

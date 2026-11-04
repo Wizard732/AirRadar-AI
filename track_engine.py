@@ -359,6 +359,7 @@ class Risk:
     sources: int = 1                  # скільки незалежних джерел бачили ціль
     official: bool | None = None      # True — в районі цілі є офіційна тривога; None — офіційних даних немає
     pass_by: bool = False             # ціль пройде повз (MDA більший за похибку курсу), а не «на вас»
+    approx_only: bool = False         # позиція невідома: названо лише ціль «курсом на X» — відстань/ETA не показуємо
 
 
 LEAD_MIN = 20            # предупреждаем не ближе, чем за ~20 мин лёта: быстрая цель видна издалека
@@ -436,7 +437,7 @@ def risk_for_point(tracks: list[Track], point: tuple[float, float], now_ts: int,
         pass_by = bool(approaching and has_course and not approx_only and level == "imminent" and cpa >= margin and cpa >= 3.0)
         risks.append(Risk(t.id, t.weapon, level, round(dist, 1), round(brg), approaching, round(cpa, 1),
                           eta, t.speed_kmh, t.speed_source, t.count, rng, max(1, len(t.sources)),
-                          _is_official(lat, lon, official), pass_by))
+                          _is_official(lat, lon, official), pass_by, approx_only and level != "over"))
     risks.sort(key=lambda r: r.distance_km)
     return risks
 
@@ -468,6 +469,9 @@ def risk_text(r: Risk) -> str:
         what = f"{r.count} цілі"
     if r.level == "over":
         return f"🔴 {what} над вами або поруч (~{r.distance_km:g} км)." + trust_phrase(r)
+    if r.approx_only:   # «курсом на Київ»: де саме ціль зараз — невідомо, тому «0 км / 0–1 хв» було б вигадкою
+        return (f"🟠 {what}: названо вашу територію як ціль — точна позиція невідома, вважайте, що курс на вас "
+                f"({'~' + format(r.speed_kmh, 'g') + ' км/год' + ('' if r.speed_source == 'measured' else ', типова')})." + trust_phrase(r))
     side = compass_ua(r.bearing_from_point)
     speed = f"~{r.speed_kmh:g} км/год" + ("" if r.speed_source == "measured" else ", типова")
     eta = _eta_phrase(r)

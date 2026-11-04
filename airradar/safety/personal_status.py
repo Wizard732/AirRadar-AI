@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 import html
 import time
 
@@ -72,7 +73,7 @@ def render(db, uid: int, now: int | None = None) -> str:
                 risks = risk_for_point(tracks, point, now, imminent_km=radius, watch_km=radius * 3)
                 lines.append(f"📍 {html.escape(name)}: " + (risk_text(risks[0]) if risks else "поруч цілей зі зведень не бачу"))
     except Exception:  # noqa: BLE001 — аналітика не ламає офіційний статус
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'personal_status.py', 74, exc_info=True)
     from kyiv_time import fmt
     lines += ["", f"Оновлено: {fmt(now)}", "", DISCLAIMER]
     return "\n".join(lines)

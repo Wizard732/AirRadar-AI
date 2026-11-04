@@ -146,15 +146,20 @@ def ensure(db) -> None:
         c.commit()
 
 
-def record_from_post(db, text: str, source: str, event_ts: int, parsed, allowed: frozenset[str] | None = None) -> dict | None:
+def record_from_post(db, text: str, source: str, event_ts: int, parsed, allowed: frozenset[str] | None = None,
+                     info: dict | bool | None = None) -> dict | None:
     """Зберегти наслідки з поста. Повертає запис (dict) для нового факту, інакше None.
 
-    allowed — необов'язкове обмеження списком джерел (за замовчуванням приймаємо всі моніторингові канали)."""
+    allowed — необов'язкове обмеження списком джерел (за замовчуванням приймаємо всі моніторингові канали).
+    info — результат нейромережі (impact_ai): dict — факти, False — «не наслідки», None — використати regex-розбір."""
     if allowed and source.lstrip("@").lower() not in allowed:
         return None
     if parsed.kind in ("news", "foreign", "stats", "promo"):
         return None
-    info = extract_impact(text)
+    if info is False:
+        return None
+    if info is None:
+        info = extract_impact(text)
     if not info:
         return None
     oblast, place, lat, lon, prec = _where(text, parsed, source)

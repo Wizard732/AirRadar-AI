@@ -129,7 +129,7 @@ def register_guard_handlers(bot: TelegramClient, db: Database) -> None:
             sender = await event.get_sender()
             family.remember_name(db, uid, getattr(sender, "first_name", "") or getattr(sender, "username", "") or "")
         except Exception:  # noqa: BLE001
-            pass
+            logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'guard_handlers.py', 131, exc_info=True)
         ok, msg, owner = family.accept_invite(db, event.pattern_match.group(1), uid)
         if not ok:
             await event.respond(msg)
@@ -139,7 +139,7 @@ def register_guard_handlers(bot: TelegramClient, db: Database) -> None:
         try:
             await bot.send_message(owner, f"👪 {family.name_of(db, uid)} приєднався(лась) до вашої родини. Тепер ви бачите короткі повідомлення одне про одного.")
         except Exception:  # noqa: BLE001
-            pass
+            logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'guard_handlers.py', 141, exc_info=True)
         raise events.StopPropagation
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/pair(?:@\w+)?(?:\s+(\S+))?\s*$"))
@@ -157,7 +157,7 @@ def register_guard_handlers(bot: TelegramClient, db: Database) -> None:
             try:  # код = ключ до пушів; прибираємо повідомлення з кодом із чату
                 await event.delete()
             except Exception:  # noqa: BLE001
-                pass
+                logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'guard_handlers.py', 159, exc_info=True)
         raise events.StopPropagation
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/unpair(?:@\w+)?\s*$"))
@@ -174,6 +174,80 @@ def register_guard_handlers(bot: TelegramClient, db: Database) -> None:
         if not getattr(event, "is_private", True):
             return
         await event.respond(menu_screens.set_city_guard(db, event.sender_id, event.pattern_match.group(1)), parse_mode="html")
+        raise events.StopPropagation
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/wave(?:@\w+)?\s*$"))
+    async def _wave_cmd(event) -> None:  # noqa: ANN001
+        await _send_wave(event)
+        raise events.StopPropagation
+
+    @bot.on(events.CallbackQuery(pattern=rb"^wave$"))
+    async def _wave_cb(event) -> None:  # noqa: ANN001
+        await event.answer()
+        await _send_wave(event)
+        raise events.StopPropagation
+
+    async def _send_wave(event) -> None:  # noqa: ANN001
+        """Прогноз «коли відбій / коли нова тривога» за статистикою областей користувача (дім + підписки, до 3)."""
+        import wave_forecast
+        from regions import region_name
+        uid = event.sender_id
+        regs = []
+        home = db.get_home_region(uid)
+        if home:
+            regs.append(home)
+        regs += [r for r in db.user_subscriptions(uid) if r not in regs]
+        regs = [r for r in regs if not str(r).startswith(("kyiv_left", "kyiv_right"))][:3]
+        if not regs:
+            await event.respond("⏳ Спершу оберіть область: «🏙 Області» → підписка, або «🛡 Гео-сторож».", parse_mode="html")
+            return
+        text = "\n\n".join(wave_forecast.format_wave_forecast(db, r, region_name(r)) for r in regs)
+        await event.respond(text[:3900], parse_mode="html")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/forecast(?:@\w+)?\s*$"))
+    async def _forecast_cmd(event) -> None:  # noqa: ANN001
+        await _send_forecast(event)
+        raise events.StopPropagation
+
+    @bot.on(events.CallbackQuery(pattern=rb"^fcst$"))
+    async def _forecast_cb(event) -> None:  # noqa: ANN001
+        await event.answer()
+        await _send_forecast(event)
+        raise events.StopPropagation
+
+    async def _send_forecast(event) -> None:  # noqa: ANN001
+        from airradar.app_ref import main_module
+        import ai_forecast
+        try:
+            summ = main_module()._get_summarizer()
+        except Exception:  # noqa: BLE001 — без ШІ теж працює
+            summ = None
+        text = await ai_forecast.forecast_text(db, summ, event.sender_id)
+        await event.respond(text, parse_mode="html")
+
+    @bot.on(events.NewMessage(incoming=True, pattern=r"^/start(?:@\w+)?\s+go_(forecast|guard|subs|regions|active|report|wave)\s*$"))
+    async def _start_go(event) -> None:  # noqa: ANN001
+        """Глибокі посилання з Mini App («Керування ботом»). go_menu іде у звичайний /start (bot_ui)."""
+        if not getattr(event, "is_private", True):
+            return
+        go, uid = event.pattern_match.group(1), event.sender_id
+        from airradar.ui import views
+        if go == "forecast":
+            await _send_forecast(event)
+        elif go == "guard":
+            await event.respond(html.escape(_status(db.get_guard(uid))) + "\n\n" + GUARD_HELP, parse_mode="html")
+        elif go == "subs":
+            subs = db.user_subscriptions(uid)
+            await event.respond(views._my_subs_text(subs), parse_mode="html", buttons=views._my_subs_kb(subs))
+        elif go == "regions":
+            await event.respond("🏙 <b>Оберіть область</b>", parse_mode="html", buttons=views._regions_kb(0))
+        elif go == "active":
+            await event.respond(views._active_text(db), parse_mode="html")
+        elif go == "wave":
+            await _send_wave(event)
+        elif go == "report":
+            from geo_report import REPORT_HINT
+            await event.respond(REPORT_HINT, parse_mode="html")
         raise events.StopPropagation
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/guard(?:@\w+)?(?:\s+(\S+))?\s*$"))

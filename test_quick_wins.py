@@ -50,10 +50,9 @@ class EtaInPostTests(unittest.TestCase):
             fact=fact, confirmation={"status": "reported", "sources": 1},
         )
 
-    def test_uav_post_has_eta_line(self):
+    def test_uav_post_has_no_typical_eta_line(self):
         post = self._render("uav")
-        self.assertIn("Типовий підліт", post)
-        self.assertIn("орієнтовно", post)
+        self.assertNotIn("Типовий підліт", post)
 
     def test_stand_down_has_no_eta(self):
         fact = extract_incident_fact("Відбій тривоги у Києві", "stand_down", "unknown")

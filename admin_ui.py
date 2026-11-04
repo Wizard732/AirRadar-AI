@@ -97,7 +97,7 @@ def register_admin_handlers(
         try:
             await bot.send_message(target, "👑 Тебе призначено адміністратором AirRadar. Тобі приходитимуть службові звіти.")
         except Exception:  # noqa: BLE001 — людина ще не відкривала бота
-            pass
+            logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'admin_ui.py', 99, exc_info=True)
 
     @bot.on(events.NewMessage(incoming=True, pattern=r"^/audit"))
     async def _audit(event) -> None:  # noqa: ANN001
@@ -310,7 +310,7 @@ def _status_text(db: Database) -> str:
         else:
             lines.append("\n⏱ Конвейер (24г): замеров пока нет")
     except Exception:  # noqa: BLE001 — метрика не роняет /status
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'admin_ui.py', 312, exc_info=True)
 
     # Официальные сирены (alerts.in.ua): активные, если данные свежие (≤15 мин).
     try:
@@ -323,7 +323,7 @@ def _status_text(db: Database) -> str:
         elif db.siren_states_active():
             lines.append("🚨 Сирены: данные опроса устарели (>15 мин) — проверь ALERTS_IN_UA_TOKEN")
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'admin_ui.py', 325, exc_info=True)
 
     lines.append("\n/ban_channel @name — заблокировать")
     lines.append("/unban_channel @name — разблокировать")

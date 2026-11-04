@@ -117,6 +117,10 @@ class Settings:
     # Проактивное предупреждение «можлива нова тривога»: после отбоя, когда
     # статистика региона (медіана «відбій → нова тривога») подходит к сроку,
     # подписчики региона получают одно предупреждение на эпизод.
+    # Ядро бота — тревоги и угрозы. Прогнозы, дайджесты, напоминания и карточка
+    # укрытий по умолчанию выключены (EXTRAS=1 возвращает их).
+    extras_enabled: bool = False
+
     pre_wave_notice: bool = True
 
     # Проактивный countdown отбоя: во время тревоги, когда по медиане
@@ -139,7 +143,7 @@ class Settings:
     # Еженедельный пост «🎯 Точність прогнозів» в канал: день недели по Киеву
     # (0=понеділок … 6=неділя) и час публикации. accuracy_post_enabled=0
     # выключает пост.
-    accuracy_post_enabled: bool = True
+    accuracy_post_enabled: bool = False
     accuracy_post_weekday: int = 1
     accuracy_post_hour: int = 9
 
@@ -209,11 +213,12 @@ def load_settings() -> Settings:
         confirmation_sources=max(2, int(os.getenv("CONFIRMATION_SOURCES", "2"))),
         aggregate_window_sec=max(5, int(os.getenv("AGGREGATE_WINDOW_SEC", "35"))),
         in_flight_only=os.getenv("IN_FLIGHT_ONLY", "1").strip() not in ("0", "false", "no"),
+        extras_enabled=os.getenv("EXTRAS", "0").strip() in ("1", "true", "yes"),
         pre_wave_notice=os.getenv("PRE_WAVE_NOTICE", "1").strip() not in ("0", "false", "no"),
         standdown_notice=os.getenv("STANDDOWN_NOTICE", "1").strip() not in ("0", "false", "no"),
         critical_needs_confirmation=os.getenv("CRITICAL_NEEDS_CONFIRMATION", "1").strip() not in ("0", "false", "no"),
         alerts_in_ua_token=os.getenv("ALERTS_IN_UA_TOKEN", "").strip(),
-        accuracy_post_enabled=os.getenv("ACCURACY_POST", "1").strip() not in ("0", "false", "no"),
+        accuracy_post_enabled=os.getenv("ACCURACY_POST", "0").strip() not in ("0", "false", "no"),
         accuracy_post_weekday=min(6, max(0, int(os.getenv("ACCURACY_POST_DAY", "1")))),
         accuracy_post_hour=min(23, max(0, int(os.getenv("ACCURACY_POST_HOUR", "9")))),
         groq_model_strong=os.getenv("GROQ_MODEL_STRONG", "llama-3.3-70b-versatile").strip(),

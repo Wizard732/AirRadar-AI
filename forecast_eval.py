@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import sqlite3
+import logging
 import time
 from typing import Any
 
@@ -25,7 +27,7 @@ def ensure(db) -> None:
             "speed_source TEXT NOT NULL DEFAULT '', outcome TEXT NOT NULL DEFAULT '', UNIQUE(track_key, town))")
         try:
             db._conn.execute("ALTER TABLE forecast_log ADD COLUMN region TEXT NOT NULL DEFAULT ''")  # noqa: SLF001
-        except Exception:  # noqa: BLE001 — колонка вже є
+        except sqlite3.OperationalError:  # колонка вже є
             pass
         db._conn.commit()  # noqa: SLF001
 

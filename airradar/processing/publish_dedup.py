@@ -27,28 +27,57 @@ class PublishDedup:
         self._standdown_ts: float | None = None
 
     def allow(self, weapon: str, parsed, regions: list[str], now: float | None = None) -> bool:
-        """True — публікувати. Побічний ефект: запам'ятовує опубліковане."""
+        """True — публікувати. Побічний ефект: запам'ятовує опубліковане (див. reserve/release)."""
+        return self.reserve(weapon, parsed, regions, now) is not None
+
+    def reserve(self, weapon: str, parsed, regions: list[str], now: float | None = None):
+        """Як allow, але повертає токен скасування (або None, якщо публікувати не треба).
+
+        Запис «опубліковано» робиться до фактичної відправки; якщо відправка не вдалась,
+        викликають release(token) — повтор того ж повідомлення не буде відкинутий як дубль.
+        """
         now = time.time() if now is None else now
         if weapon == "stand_down":
             if self._standdown_ts is not None and now - self._standdown_ts < STANDDOWN_WINDOW_S:
-                return False
+                return None
+            prev = self._standdown_ts
             self._standdown_ts = now
-            return True
+            return ("standdown", prev, now)
         if weapon in STRATEGIC:
-            seen_at, seen = self._strategic.get(weapon, (0.0, set()))
+            prev_entry = self._strategic.get(weapon)
+            seen_at, seen = prev_entry or (0.0, set())
             if now - seen_at > STRATEGIC_WINDOW_S:
                 seen = set()
             regs = {r for r in regions if r and r not in ("unknown", "multi")}
             if seen_at and now - seen_at <= STRATEGIC_WINDOW_S and (not regs or regs <= seen):
-                return False
+                return None
             self._strategic[weapon] = (now, seen | regs)
-            return True
+            return ("strategic", weapon, prev_entry, (now, seen | regs))
+        token = ("none",)
         if parsed is not None and parsed.kind == "track" and parsed.observations:
             sig = frozenset((o.oblast, o.place or "*") for o in parsed.observations if o.relation != "from")
-            self._uav = [(t, s) for t, s in self._uav if now - t <= UAV_WINDOW_S]
+            self._uav = [e for e in self._uav if now - e[0] <= UAV_WINDOW_S]
             if sig:
                 known = set().union(*(s for _, s in self._uav)) if self._uav else set()
                 if known and len(sig - known) / len(sig) < NEW_SHARE:
-                    return False
-                self._uav.append((now, sig))
-        return True
+                    return None
+                entry = (now, sig)
+                self._uav.append(entry)
+                token = ("uav", entry)
+        return token
+
+    def release(self, token) -> None:
+        """Скасувати запис, зроблений reserve(), якщо публікація не відбулась."""
+        if not token:
+            return
+        kind = token[0]
+        if kind == "standdown" and self._standdown_ts == token[2]:
+            self._standdown_ts = token[1]
+        elif kind == "strategic" and self._strategic.get(token[1]) == token[3]:
+            if token[2] is None:
+                self._strategic.pop(token[1], None)
+            else:
+                self._strategic[token[1]] = token[2]
+        elif kind == "uav":
+            if token[1] in self._uav:
+                self._uav.remove(token[1])

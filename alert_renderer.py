@@ -20,7 +20,7 @@ import time
 from incident_fusion import IncidentFact
 from kyiv_time import fmt as kyiv_fmt
 from regions import region_name
-from weapon_classes import weapon_eta, weapon_severity
+from weapon_classes import weapon_severity
 
 # Короткие UA-названия классов оружия для публичных постов (без эмодзи-
 # заголовков weapon_label — эмодзи задаётся отдельно по критичности).
@@ -61,6 +61,34 @@ _SEVERITY_EMOJI: dict[str, str] = {
 SOURCE_BRAND_LINE = "📡 Джерело: AirRadar AI"
 
 
+_WEAPON_EMOJI: dict[str, str] = {
+    "uav": "🛵", "shahed": "🛵", "fpv": "🛵", "recon_drone": "🛵", "decoy": "🛵",
+    "ballistic": "🚀", "cruise_missile": "🚀", "air_missile": "🚀", "coastal_missile": "🚀",
+    "kab": "💣", "tac_aviation": "✈️", "strat_aviation": "✈️", "aviation": "✈️",
+    "explosion": "💥", "air_defense": "🛡", "mlrs": "🔥", "artillery": "🔥",
+}
+
+
+def _motion_phrase(parsed, weapon: str) -> str:
+    """«2х Реактивний БпЛА в районі А через Б курсом на В» — по наблюдениям, без домыслов."""
+    obs = [o for o in parsed.observations if o.oblast or o.place]
+    cnt = next((o.group_count or o.count for o in obs if (o.group_count or o.count) and (o.group_count or o.count) > 1), None)
+    parts = [(f"{cnt}х " if cnt else "") + weapon]
+    now = [_disp(o) for o in obs if o.relation in ("at", "near") and o.place]
+    via = [_disp(o) for o in obs if o.relation == "via" and o.place]
+    aim = [_disp(o) for o in obs if o.relation == "toward" and o.place]
+    if now:
+        parts.append("в районі " + ", ".join(dict.fromkeys(now)))
+    if via:
+        parts.append("через " + ", ".join(dict.fromkeys(via)))
+    if aim:
+        parts.append("курсом на " + ", ".join(dict.fromkeys(aim)))
+    origin = _origin_text(parsed)
+    if origin:
+        parts.append("з " + origin)
+    return " ".join(parts)
+
+
 def _status(confirmation: dict) -> str:
     """Строка статуса; '' = строку не рисуем вовсе.
 
@@ -74,7 +102,7 @@ def _status(confirmation: dict) -> str:
         return "підтверджено офіційним джерелом"
     if status == "corroborated":
         return f"підтверджено {confirmation.get('sources', 2)} незалежними джерелами"
-    return ""
+    return "не підтверджено (одне джерело)"
 
 
 def _region_title(fact: IncidentFact) -> str:
@@ -208,65 +236,47 @@ def render_evidence_alert(
         head = "🟢 ВІДБІЙ" + (f" — {place.upper()}" if place else "") + f" — {when}"
         return "\n\n".join([head, SOURCE_BRAND_LINE])[:4000]
 
-    weapon = WEAPON_SHORT.get(fact.weapon_class, fact.weapon_class)
-    # Реактивный подтип: пометка в шапке объясняет, почему ETA короче
-    # типового для класса (каскад ниже считает по профилю скорости).
+    weapon = WEAPON_SHORT.get(fact.weapon_class, fact.weapon_class).replace("БПЛА", "БпЛА")
+    # Реактивный подтип — в названии цели, как в профильных каналах.
     if getattr(fact, "speed_profile", "") == "reactive":
-        weapon = f"{weapon} (реактивний)"
-    emoji = _SEVERITY_EMOJI.get(weapon_severity(fact.weapon_class), "⚪")
+        weapon = weapon.replace(" (реактивний)", "")
+        weapon = f"Реактивний {weapon}"
+    wemoji = _WEAPON_EMOJI.get(fact.weapon_class, _SEVERITY_EMOJI.get(weapon_severity(fact.weapon_class), "⚪"))
     place = _region_title(fact)
     from threat_parser import parse_post
     parsed = parse_post(text)
     struct: list[str] = []
     if parsed.kind == "track" and parsed.oblasts:
-        # Шапка: где цель СЕЙЧАС (область «звідки» сюда не попадает); тип оружия — отдельной строкой ниже.
         regions, struct = _structured_body(parsed)
-        lines = [f"{emoji} {regions.upper()}", weapon, "", f"🕒 {when}"]
-        lines.extend(struct)
-        if not struct:
-            origin = _origin_text(parsed)
-            if origin:
-                lines.append("↩️ Звідки: " + origin)
+        if struct:
+            # Одна строка в стиле профильных каналов: «🛵 Київщина: Реактивний БпЛА курсом на Бровари».
+            lines = [f"{wemoji} {regions}: {_motion_phrase(parsed, weapon)}"]
+        else:
+            lines = [f"{wemoji} {regions}", weapon]
     else:
-        head = f"{emoji} {place.upper()} | {weapon}" if place else f"{emoji} {weapon}"
-        lines = [head, ""]
-        lines.append(f"🕒 {when}")
-    if parsed.kind == "track" and parsed.oblasts:
-        pass  # «Звідки/Курс» уже выведены из наблюдений
-    elif fact.origin_region and fact.destination_region and fact.destination_region != "unknown":
+        lines = [f"{wemoji} {place}: {weapon}" if place else f"{wemoji} {weapon}"]
+    if not struct and not (parsed.kind == "track" and parsed.oblasts) and fact.origin_region and fact.destination_region and fact.destination_region != "unknown":
         lines.append(
             f"📍 Рух: цілі прямують з {region_name(fact.origin_region)} "
             f"на {region_name(fact.destination_region)}"
         )
-    # ETA-каскад шапки: 1) трек по фактическим засечкам (track_speed),
-    # 2) расчёт по вектору «з X на Y» (конкретное число минут),
-    # 3) типовой диапазон по классу оружия. Правило проекта: ETA можно
-    # публиковать только с пометкой «орієнтовно». «—» (нет данных) не
-    # показываем.
+    # ETA: только измеренный трек (track_speed) или вектор «з X на Y»; типовые
+    # диапазоны по классу не публикуем (ложная точность).
     from eta import vector_eta_text
     from track_speed import track_eta_text
     trk = track_eta_text(track)
-    vec = vector_eta_text(fact)
+    vec = vector_eta_text(fact) if not struct else ""
     if trk:
         lines.append(trk)
     elif vec:
         lines.append(vec)
-    else:
-        eta = weapon_eta(fact.weapon_class, getattr(fact, "speed_profile", ""))
-        if eta and eta != "—":
-            lines.append(f"⏱ Типовий підліт: {eta} (орієнтовно)")
-    if lines[-1] != "":
-        lines.append("")
-    status_line = _status(confirmation)
-    if status_line:
-        lines.append(f"⚠️ Статус: {status_line}")
     if lag_s > 600:  # пост обробили із запізненням — не видаємо за свіже
         lines.append(f"⏳ Повідомлення опубліковано {lag_s // 60} хв тому — інформація може бути застарілою.")
-    # Текст источника — недоверенные данные: без разметки, но с сохранением
-    # авторских переносов строк (сводки вида «Київщина \n 1 БпЛА на Димер»
-    # схлопывать в одну строку нечитаемо). Лимит 1200: полные сводки
-    # мониторинга со списком направлений не режутся на полуслове, а лимит
-    # поста Telegram (4096) всё равно страхует сверху.
+    status_line = _status(confirmation)
+    tag = ("✅ " if status_line.startswith("підтверджено") else "❔ ") + status_line
+    lines.append(f"🕒 {when} · {tag}")
+    # Текст источника — недоверенные данные: без разметки; лимит 1200, чтобы сводки
+    # мониторинга не резались на полуслове (лимит Telegram 4096 страхует сверху).
     if struct:
         body = ""   # весь смысл уже в строках «Зараз / Курс»; пересказ источника не нужен
     else:

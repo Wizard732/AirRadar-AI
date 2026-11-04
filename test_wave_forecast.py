@@ -63,6 +63,7 @@ class WaveForecastTests(unittest.TestCase):
     def test_live_standdown_remaining(self):
         _seed_region(self.db, "sumska")
         now = BASE + 3 * EPISODE_SPACING + 300  # 5 мин после последнего полёта
+        self.db.alert_start("sumska", event_ts=now - 60)   # прогноз відбою — лише поки тривога триває
         live = wave_forecast.live_standdown(self.db, "sumska", now=now)
         self.assertTrue(live["available"])
         self.assertEqual(live["elapsed_minutes"], 5)
@@ -72,10 +73,19 @@ class WaveForecastTests(unittest.TestCase):
     def test_live_standdown_any_minute_now(self):
         _seed_region(self.db, "sumska")
         now = BASE + 3 * EPISODE_SPACING + FLIGHT_TO_END + 60  # медиана исчерпана
+        self.db.alert_start("sumska", event_ts=now - 600)
         live = wave_forecast.live_standdown(self.db, "sumska", now=now)
         self.assertTrue(live["available"])
         self.assertTrue(live["any_minute_now"])
         self.assertEqual(live["remaining_min"], 0)
+
+    def test_live_standdown_silent_after_alert_ended(self):
+        """Після відбою «ціль у повітрі, відбій будь-якої хвилини» — застарілий факт, прогнозу немає."""
+        _seed_region(self.db, "sumska")
+        now = BASE + 3 * EPISODE_SPACING + FLIGHT_TO_END + 60   # усі епізоди завершені, активної тривоги немає
+        live = wave_forecast.live_standdown(self.db, "sumska", now=now)
+        self.assertFalse(live["available"])
+        self.assertTrue(live.get("no_active_alert"))
 
     def test_live_no_active_flight(self):
         _seed_region(self.db, "sumska")

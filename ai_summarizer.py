@@ -322,6 +322,22 @@ class SummarizerProtocol:
         pass
 
 
+def _thinking_budget() -> int:
+    """Запас токенів для моделей з «роздумами» (MiniMax тощо): без нього відповідь порожня, бо ліміт з'їдає reasoning.
+    AI_THINKING_BUDGET=0 (за замовчуванням) — поведінка не змінюється; для reasoning-моделей ставте 400–600."""
+    import os
+    try:
+        return max(0, int(os.getenv("AI_THINKING_BUDGET", "0")))
+    except ValueError:
+        return 0
+
+
+def _thinking_extra() -> dict:
+    """AI_DISABLE_THINKING=1 додає enable_thinking=false (підтримується не всіма провайдерами — тому лише за прапором)."""
+    import os
+    return {"enable_thinking": False} if os.getenv("AI_DISABLE_THINKING", "0") == "1" else {}
+
+
 class GroqSummarizer(SummarizerProtocol):
     """Сжатие через Groq Cloud API (OpenAI-совместимый chat completions).
 
@@ -375,8 +391,9 @@ class GroqSummarizer(SummarizerProtocol):
                 {"role": "user", "content": _untrusted_source(text)},
             ],
             "temperature": 0.0,   # 0 = детерминированность, никаких выдумок
-            "max_tokens": 80,     # жёсткий лимит на короткую выжимку
+            "max_tokens": 80 + _thinking_budget(),     # жёсткий лимит на короткую выжимку (+запас на reasoning-модели)
             "stream": False,
+            **_thinking_extra(),
         }
 
         try:
@@ -469,8 +486,9 @@ class GroqSummarizer(SummarizerProtocol):
                 {"role": "user", "content": _untrusted_source(text)},
             ],
             "temperature": 0.0,   # классификация — детерминизм важнее креатива
-            "max_tokens": max_tokens,
+            "max_tokens": max_tokens + _thinking_budget(),
             "stream": False,
+            **_thinking_extra(),
         }
         try:
             session = await self._get_session()

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import logging
 import json
 import time
 
@@ -54,7 +55,7 @@ def record(db, event_key: str, stage: str, *, source: str = "", ok: bool = True,
                 (event_key, (time.time() if now is None else now), stage, source, 1 if ok else 0, payload, PARSER_VERSION, POLICY_VERSION))
             db._conn.commit()  # noqa: SLF001
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'incident_trace.py', 56, exc_info=True)
 
 
 def timeline(db, event_key: str) -> list[dict]:

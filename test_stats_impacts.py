@@ -29,7 +29,9 @@ class StatsImpactTests(unittest.TestCase):
             self.db._conn.commit()
 
     def test_signals_dedupe_across_sources_and_window(self):
-        now = int(time.time())
+        # now фиксируем в середине 30-мин корзины: иначе события now-60-k (k=0..4) раз в ~6 минут
+        # ложатся по обе стороны границы корзины и drone считается 2, а не 1 (нестабильность теста, не логики)
+        now = int(time.time()) // 1800 * 1800 + 900
         for k in range(5):  # 5 постов про тот же вылет в одно 30-мин окно
             self._event(now - 60 - k, "shahed", "kharkivska")
         self._event(now - 60, "kab", "kharkivska")

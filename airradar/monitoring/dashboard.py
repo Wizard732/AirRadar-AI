@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import logging
 import hmac
 import os
 import shutil
@@ -43,7 +44,7 @@ def _mem_cpu() -> dict:
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         out["mem_rss_mb"] = round(rss / (1024 * 1024 if os.uname().sysname == "Darwin" else 1024), 1)
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'dashboard.py', 45, exc_info=True)
     return out
 
 

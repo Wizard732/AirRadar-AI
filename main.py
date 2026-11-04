@@ -31,8 +31,10 @@ from telethon.tl.custom import Message
 
 import config
 from aggregator import AlertAggregator, PendingAlert
+from airradar.processing.agg_store import AggStore
 from ai_summarizer import SummarizerProtocol, is_ignored_summary, make_summarizer
 from alert_renderer import render_evidence_alert
+from airradar.runtime.background import _healthcheck_loop, _publish_notice, _report_session_failure, expire_alerts_loop, inbox_retry_loop  # noqa: F401 — выделено из main.py
 from bot_ui import register_handlers
 from city_coords import CITIES, detect_city
 from database import Database
@@ -139,6 +141,7 @@ async def run() -> None:
         settings.aggregate_window_sec,
         lambda items: _publish_items(db, publisher, bot_client, items),
         critical_needs_confirmation=getattr(settings, "critical_needs_confirmation", False),
+        store=AggStore(db),
     )
 
     # --- второй клиент: бот @AirRadar_AI_bot (Bot API) для интерактивного меню ---
@@ -290,67 +293,13 @@ async def run() -> None:
     # подтягивающая новые каналы из БД (обход диалогов).
     from interests_handler import process_interests_message
 
-    interests_ids: set[int] = set()        # «голые» id чатов user-каналов
-    interests_resolved_keys: set[str] = set()  # ключи каналов, уже найденные в диалогах
+    from airradar.ingestion.interests_channels import InterestsChannelTracker
 
-    def _channel_key(raw: str) -> str:
-        """Нормализовать '@Name' / 'name' / '-100123' / '123' к ключу сверки."""
-        v = (raw or "").strip().lower().lstrip("@")
-        if v.startswith("-100") and v[4:].isdigit():
-            return v[4:]
-        if v.startswith("-") and v[1:].isdigit():
-            return v[1:]
-        return v
-
-    async def _resolve_new_interests_channels() -> None:
-        """Найти в диалогах user-каналы, добавленные с прошлого обхода."""
-        wanted = {_channel_key(ch) for ch in db.all_interests_channels()}
-        missing = wanted - interests_resolved_keys
-        if not missing:
-            return
-        found: dict[str, int] = {}
-        async for dialog in client.iter_dialogs():
-            if not missing:
-                break
-            ent = dialog.entity
-            uname = (getattr(ent, "username", None) or "").lower()
-            eid = getattr(ent, "id", None)
-            for ch in list(missing):
-                if (uname and uname == ch) or (eid is not None and str(eid) == ch):
-                    found[ch] = int(eid)
-                    missing.discard(ch)
-        for ch, eid in found.items():
-            interests_resolved_keys.add(ch)
-            if eid not in interests_ids:
-                interests_ids.add(eid)
-                logger.info("Interests: подключён user-канал id=%s", eid)
-        if missing:
-            logger.info(
-                "Interests: жду подписки аккаунта на каналы: %s",
-                ", ".join(sorted(missing)),
-            )
-
-    async def _interests_refresh_loop(interval: int = 60) -> None:
-        """Раз в минуту подтягивать новые user-каналы без рестарта."""
-        while True:
-            await asyncio.sleep(interval)
-            try:
-                await _resolve_new_interests_channels()
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001 — фоновая задача не должна падать
-                logger.exception("Сбой обновления user-каналов Interests")
+    interests = InterestsChannelTracker(client, db)
 
     @client.on(events.NewMessage())
     async def interests_handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
-        cid = event.chat_id
-        if cid is None:
-            return
-        if cid < 0:
-            # Маркированный id (-100…) → «голый» id канала для сверки.
-            s = str(cid)
-            cid = int(s[4:]) if s.startswith("-100") else int(s[1:])
-        if cid not in interests_ids:
+        if not interests.is_tracked(event.chat_id):
             return
         await process_interests_message(
             event, summarizer, dedup, db, bot_client,
@@ -358,11 +307,11 @@ async def run() -> None:
         )
 
     # Первичный резолв user-каналов + фоновая синхронизация новых (/add_channel).
-    await _resolve_new_interests_channels()
-    if interests_ids:
-        logger.info("Interests: подключено user-каналов: %d", len(interests_ids))
+    await interests.resolve_new()
+    if interests.ids:
+        logger.info("Interests: подключено user-каналов: %d", len(interests.ids))
     interests_task = asyncio.create_task(
-        _interests_refresh_loop(), name="interests-refresh"
+        interests.refresh_loop(), name="interests-refresh"
     )
 
     # --- фоновый healthcheck Ollama ---
@@ -373,7 +322,7 @@ async def run() -> None:
 
     # --- планировщик дайджестов (утро/вечер) ---
     digest_task = None
-    if bot_client is not None:
+    if bot_client is not None and settings.extras_enabled:
         from digest import digest_scheduler
         digest_task = asyncio.create_task(
             digest_scheduler(bot_client, db,
@@ -414,6 +363,8 @@ async def run() -> None:
     # --- предупреждения районам «можливо до вас» по трекам с измеренным курсом ---
     district_task = None
     watchdog_task = None
+    expire_task = None
+    inbox_task = None
     analyzer_task = None
     alert_task = None
     queue_task = None
@@ -422,7 +373,7 @@ async def run() -> None:
     reminder_task = None
     # Одна «жива» зведення хвилі в каналі (редагується, а не спамить окремими постами).
     shelter_task = None
-    if bot_client is not None:
+    if bot_client is not None and settings.extras_enabled:
         from shelter_card import card_loop
         shelter_task = asyncio.create_task(card_loop(db, bot_client, getattr(settings, "map_webapp_url", "") or ""), name="shelter-card")
     from wave_digest import digest_loop
@@ -430,9 +381,21 @@ async def run() -> None:
     if bot_client is not None:
         from district_warn import district_loop
         district_task = asyncio.create_task(district_loop(db, bot_client), name="district-warn")
+        expire_task = asyncio.create_task(expire_alerts_loop(db), name="expire-alerts")
+
+        async def _reprocess(text, source, event_ts, inbox_id):
+            from datetime import datetime, timezone
+            from types import SimpleNamespace
+            fake = SimpleNamespace(
+                message=SimpleNamespace(text=text, message=text, photo=None, id=0, date=datetime.fromtimestamp(event_ts, timezone.utc)),
+                chat=SimpleNamespace(username=source, id=source))
+            await _process_message(fake, summarizer, publisher, dedup, db, bot_client, http_session,
+                                   settings.groq_api_key, settings.groq_vision_model, settings, aggregator, inbox_id=inbox_id)
+        inbox_task = asyncio.create_task(inbox_retry_loop(db, _reprocess), name="inbox-retry")
         watchdog_task = asyncio.create_task(_ingest_watchdog(bot_client, settings.admin_id, db=db), name="ingest-watchdog")
-        import user_extras
-        reminder_task = asyncio.create_task(user_extras.reminder_loop(db, bot_client), name="checklist-reminder")
+        if settings.extras_enabled:
+            import user_extras
+            reminder_task = asyncio.create_task(user_extras.reminder_loop(db, bot_client), name="checklist-reminder")
         from ai_analyzer import analyzer_loop, make_llm
         global _analyzer_ref
         _analyzer_ref = make_llm(summarizer, http_session)
@@ -509,6 +472,15 @@ async def run() -> None:
         bot_me = await bot_client.get_me()
         logger.info("Бот меню подключён как @%s. Напиши ему /start в личку.", bot_me.username)
 
+    # R1: довантажити з журналу алерти, що не встигли піти до краху/рестарту (старші 10 хв відкидаються).
+    try:
+        restored = await aggregator.recover(
+            600, already_published=lambda a: bool(a.confirmation.get("key") and db.incident_publication(a.confirmation["key"])
+                                                  and not a.confirmation.get("material_update")))
+        if restored:
+            logger.info("Агрегатор: відновлено %d алертів після рестарту", restored)
+    except Exception:  # noqa: BLE001 — відновлення не має блокувати старт
+        logger.exception("Агрегатор: помилка відновлення")
     try:
         await stop_event.wait()
     except KeyboardInterrupt:
@@ -533,7 +505,7 @@ async def run() -> None:
                 await pre_wave_task
             except asyncio.CancelledError:
                 pass
-        for _task in (district_task, watchdog_task, analyzer_task, alert_task, queue_task, push_queue_task, outbox_task, reminder_task, digest_task, shelter_task):
+        for _task in (district_task, watchdog_task, expire_task, inbox_task, analyzer_task, alert_task, queue_task, push_queue_task, outbox_task, reminder_task, digest_task, shelter_task):
             if _task is not None:
                 _task.cancel()
                 try:
@@ -588,6 +560,26 @@ def _impact_sources(settings) -> frozenset[str]:
     return frozenset(extra and (base | {x.lstrip("@").lower() for x in extra}) or set())
 
 
+async def _impact_stage(db: Database, publisher, summarizer, text: str, source: str, event_ts: int, settings) -> None:
+    """Наслідки (влучання, жертви, пошкодження) — окремий потік ДО загрозового фільтра.
+
+    Пост про вже сталий приліт майже не містить слів загрози й відсікався fast_filter (ретроспектива), тож наслідки
+    не потрапляли в журнал. Нейромережа (impact_ai) вирішує, що це наслідки; без неї — regex impact_log."""
+    try:
+        import impact_ai
+        import impact_log
+        if not impact_ai.worth_asking(text) and not impact_log.extract_impact(text):
+            return
+        parsed = parse_post(text, source)
+        _ai = await impact_ai.classify_impact(summarizer, text) if os.getenv("AI_IMPACTS", "1") != "0" else None
+        rec = impact_log.record_from_post(db, text, source, event_ts, parsed, _impact_sources(settings), info=_ai)
+        if rec and rec["kind"] == "hit" and os.getenv("PUBLISH_IMPACTS", "1") != "0" and time.time() - event_ts < 3600 \
+                and (rec["precision"] == "place" or rec["killed"] or rec["injured"] or rec["flags"] or rec["damage"]):
+            await publisher.send(impact_log.impact_post_text(rec))
+    except Exception:  # noqa: BLE001 — журнал наслідків не должен ронять приём постов
+        logger.debug("impact_log не записал пост", exc_info=True)
+
+
 async def _process_message(
     event: events.NewMessage.Event,  # noqa: ANN001
     summarizer: SummarizerProtocol,
@@ -600,6 +592,7 @@ async def _process_message(
     vision_model: str = "",
     settings=None,
     aggregator: AlertAggregator | None = None,
+    inbox_id: int = 0,
 ) -> None:
     """Полный конвейер обработки одного входящего сообщения.
 
@@ -630,6 +623,12 @@ async def _process_message(
     #    засоряет фильтр, дедупликацию и определение региона.
     text = clean_signature(text)
 
+    # 0б) Наслідки — до фільтра загроз (див. _impact_stage); відключені джерела пропускаємо.
+    if not db.is_channel_disabled(_src_early, "military"):
+        _msg_date = getattr(message, "date", None)
+        await _impact_stage(db, publisher, summarizer, text, _src_early,
+                            int(_msg_date.timestamp()) if _msg_date else int(time.time()), settings)
+
     # 1) Быстрый фильтр по ключевым словам (до тяжёлого ИИ).
     if not matches_keywords(text):
         _hc.record(_src_early, "filtered")
@@ -649,6 +648,12 @@ async def _process_message(
         _hc.record(source, "disabled")
         return
     logger.info("Новое сообщение от %s: %s", source, text[:80])
+    from airradar.processing.inbox import Inbox
+    _inbox = Inbox.of(db)
+    if not inbox_id:
+        _ts = getattr(message, "date", None)
+        inbox_id = _inbox.add(source, int(_ts.timestamp()) if _ts else int(time.time()), text)
+    _failed = False
     # Отмечаем канал живым (для /status админки).
     db.channel_seen(source, "military")
     _hc.record(source, "processed")
@@ -668,15 +673,7 @@ async def _process_message(
                                                                "oblasts": list(parsed.oblasts)[:8], "weapon": parsed.weapon})
         _trace.record(db, _ekey, "geo", source=source, ok=bool(parsed.observations or parsed.oblasts),
                       data={"places": [getattr(o, "place", "") for o in parsed.observations][:8]})
-        # Наслідки (жертви, пошкодження) — только из официальных источников и с публикацией с задержкой.
-        try:
-            import impact_log
-            rec = impact_log.record_from_post(db, text, source, event_ts, parsed, _impact_sources(settings))
-            if rec and rec["kind"] == "hit" and os.getenv("PUBLISH_IMPACTS", "1") != "0" and time.time() - event_ts < 3600 \
-                    and (rec["precision"] == "place" or rec["killed"] or rec["injured"] or rec["flags"] or rec["damage"]):
-                await publisher.send(impact_log.impact_post_text(rec))
-        except Exception:  # noqa: BLE001 — журнал наслідків не должен ронять приём постов
-            logger.debug("impact_log не записал пост", exc_info=True)
+        # Наслідки обробляються раніше, до загрозового фільтра (_impact_stage): «приліт, є поранені» не містить слів загрози.
         # Початок/кінець повітряної тривоги — окремі пости (стан по областях, без дублів і балаканини).
         try:
             import alarm_notices
@@ -800,18 +797,22 @@ async def _process_message(
             _dup = False
             if publication and confirmation.get("material_update"):
                 published = await publisher.edit(str(publication["published_chat_id"]), int(publication["published_message_id"]), final_text)
-            elif not _DEDUP.allow(weapon, parsed, regions):
-                logger.info("Повтор уже опубликованного — в канал не идёт: %s", text[:80])
-                published = None
-                _dup = True
             else:
-                published = await publisher.send(final_text)
-                if published and confirmation.get("key"):
-                    chat = published.get("chat", {})
-                    db.save_incident_publication(confirmation["key"], str(chat.get("id", "")), int(published.get("message_id", 0)))
+                _token = _DEDUP.reserve(weapon, parsed, regions)
+                if _token is None:
+                    logger.info("Повтор уже опубликованного — в канал не идёт: %s", text[:80])
+                    published = None
+                    _dup = True
+                else:
+                    published = await publisher.send(final_text)
+                    if published and confirmation.get("key"):
+                        chat = published.get("chat", {})
+                        db.save_incident_publication(confirmation["key"], str(chat.get("id", "")), int(published.get("message_id", 0)))
+                    elif not published and not getattr(publisher, "_last_transient", False):
+                        _DEDUP.release(_token)
             if not published and not _dup:
                 logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
-            if bot_client is not None and regions and published:
+            if bot_client is not None and regions and not _dup:
                 fkey = confirmation.get("key", "")
                 await _notify_subscribers(
                     bot_client, db, _notify_regions(fact, regions), final_text,
@@ -882,9 +883,18 @@ async def _process_message(
                     logger.debug("siren_lead: не удалось записать замер (%s)", slug)
         # Рассылка по подпискам выполняется в _publish_items после публикации
         # (агрегированный пост — одна рассылка по объединённым регионам).
+    except asyncio.CancelledError:
+        _failed = True   # відміна посеред обробки: запис лишається для повтору після рестарту
+        raise
     except Exception as exc:  # pragma: no cover — страховка конвейера
-        logger.exception("Сбой обработки сообщения (пропускаем): %s", exc)
+        _failed = True
+        logger.exception("Сбой обработки сообщения (повтор через inbox): %s", exc)
         db.channel_error(str(source), "military", str(exc))
+        _inbox.fail(inbox_id, str(exc))
+        dedup.forget(text)   # R3: збій не повинен «з'їсти» повтор цього тексту
+    finally:
+        if not _failed:
+            _inbox.done(inbox_id)
 
 
 # Время последнего входящего поста с каналов: если лента молчит слишком долго, сессия
@@ -893,27 +903,6 @@ _LAST_INGEST: list[float] = [time.time()]
 INGEST_SILENCE_S = 90 * 60
 
 
-async def _report_session_failure(settings) -> None:
-    """Один раз в час шлёт админу через Bot API: сессия слетела. Файл-маркер переживает рестарты."""
-    import json as _json
-    marker = Path(settings.db_path).with_name(".session_alert")
-    try:
-        if marker.exists() and time.time() - marker.stat().st_mtime < 3600:
-            return
-        import aiohttp
-        from admin_notify import admin_recipients
-        recipients = admin_recipients(Database(settings.db_path), settings.admin_id)
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as http:
-            for chat in recipients:
-                await http.post(
-                    f"https://api.telegram.org/bot{settings.bot_token}/sendMessage",
-                    json={"chat_id": chat,
-                          "text": "🔴 AirRadar: сессия Telegram не авторизована, бот остановлен. "
-                                  "Нужен повторный вход (код из Telegram)."},
-                )
-        marker.write_text(_json.dumps({"ts": int(time.time())}))
-    except Exception:  # noqa: BLE001
-        logger.warning("Не удалось отправить уведомление о слетевшей сессии", exc_info=True)
 
 
 async def _ingest_watchdog(bot_client, admin_id: int, interval: int = 600, db: Database | None = None) -> None:
@@ -976,11 +965,12 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
         published = await publisher.edit(
             str(publication["published_chat_id"]), int(publication["published_message_id"]), final_text
         )
-    elif not _DEDUP.allow(last.fact.weapon_class, parse_post(last.text, getattr(last, "source", "")),
-                          [slug for item in items for slug in item.regions if slug]):
-        logger.info("Повтор уже опубликованного — в канал не идёт: %s", last.text[:80])
-        return
     else:
+        token = _DEDUP.reserve(last.fact.weapon_class, parse_post(last.text, getattr(last, "source", "")),
+                               [slug for item in items for slug in item.regions if slug])
+        if token is None:
+            logger.info("Повтор уже опубликованного — в канал не идёт: %s", last.text[:80])
+            return
         published = await publisher.send(final_text)
         if published:
             chat = published.get("chat", {})
@@ -990,21 +980,24 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
                     db.save_incident_publication(
                         key, str(chat.get("id", "")), int(published.get("message_id", 0))
                     )
+        elif not getattr(publisher, "_last_transient", False):
+            _DEDUP.release(token)   # пост не пішов і не стоїть у outbox: повтор не має бути відкинутий як дубль
     if not published:
-        logger.warning("Пост не записан как опубликованный: отправка в канал не удалась")
-        return
+        # Збій каналу НЕ скасовує розсилку в ЛС: тимчасово недоступний канал не повинен
+        # лишати підписників без тривоги (пост у канал доїде з outbox).
+        logger.warning("Пост не записан как опубликованный: отправка в канал не удалась (розсилка в ЛС продовжується)")
     # Метрика задержки конвейера «пост источника → пост в канале»: от самого
     # старого received_ts набора до момента публикации (мс). Замер только для
     # реально опубликованных постов; legacy-алерты без received_ts пропускаем.
     received = [int(it.received_ts) for it in items if int(getattr(it, "received_ts", 0) or 0)]
-    if received:
+    if received and published:
         try:
             db.record_pipeline_latency(int((time.time() - min(received)) * 1000))
             try:
                 from airradar.monitoring import metrics as _metrics
                 _metrics.record_stage(db, "total", int((time.time() - min(received)) * 1000))
             except Exception:  # noqa: BLE001
-                pass
+                logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'main.py', 1006, exc_info=True)
         except Exception:  # noqa: BLE001 — метрика не роняет публикацию
             logger.debug("pipeline latency: не удалось записать замер")
     regions = _notify_regions(last.fact, [
@@ -1021,6 +1014,9 @@ async def _publish_items(db: Database, publisher: Publisher, bot_client, items: 
             feedback_key=fkey, weapon_class=last.fact.weapon_class,
         )
 
+
+# Скільки ЛС-доставок одночасно (Telegram ~30 повідомлень/с глобально; FloodWait обробляє tg_delivery).
+_NOTIFY_CONCURRENCY = 8
 
 # Классы оружия, пропускаемые ночным режимом (23:00–06:00). Отбой проходит
 # всегда (правило: відбій публікується завжди і миттєво).
@@ -1175,7 +1171,7 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
     # Пустой список = нечего рассылать (фьюжен не нашёл цель, а в тексте
     # не распознан ни один регион).
     notified: set[int] = set()
-    sent_count = 0
+    jobs: list[tuple[int, str]] = []
     for slug in regions:
         targets = [slug]
         if slug == "kyivska":
@@ -1210,37 +1206,45 @@ async def _notify_subscribers(bot_client, db: Database, regions: list[str], text
                     # відбій и сообщения, касающиеся своей зоны.
                     continue
                 out_text = f"🎯 Торкнеться вашої зони\n{text}" if zone_hit else text
-                dkey = feedback_key or ack_key
-                from airradar.delivery import tg_delivery
-                # Доставка через персистентну чергу: ретраї з backoff, FloodWait, ідемпотентність, відновлення після рестарту.
+                jobs.append((user_id, out_text))
+    # Доставка через персистентну чергу: ретраї з backoff, FloodWait, ідемпотентність, відновлення після рестарту.
+    # Паралельно (не більше _NOTIFY_CONCURRENCY одночасно), збій одного отримувача не зачіпає інших.
+    from airradar.delivery import tg_delivery
+    dkey = feedback_key or ack_key
+    sem = asyncio.Semaphore(_NOTIFY_CONCURRENCY)
+    # Атомарна постановка всієї розсилки в чергу ДО мережевих викликів: крах посеред розсилки не лишає
+    # «половину» одержувачів без запису (воркер доставить усіх після рестарту).
+    ekeys: dict[tuple[int, str], str] = {}
+    try:
+        if jobs:
+            ekeys = tg_delivery.enqueue_batch(db, dkey or "bcast", jobs, feedback_key=feedback_key, ack_key=ack_key,
+                                              src_text=text, ttl_s=3600 if critical else 900)
+    except Exception:  # noqa: BLE001 — запасний шлях: deliver() сам поставить запис у чергу
+        logger.exception("Розсилка: не вдалося атомарно поставити чергу (йдемо через deliver)")
+
+    async def _send_one(user_id: int, out_text: str) -> bool:
+        async with sem:
+            try:
                 ok_sent = await tg_delivery.deliver(
                     bot_client, db, dkey or "bcast", user_id, out_text,
                     feedback_key=feedback_key, ack_key=ack_key, src_text=text,
-                    ttl_s=3600 if critical else 900)
-                if ok_sent:
-                    sent_count += 1
-                    if dkey:  # sent ≠ delivered: пишемо лише факт відправки
-                        db.record_delivery(dkey, f"tg:{user_id}", "critical" if critical else "info", "sent")
-                elif dkey:
-                    db.record_delivery(dkey, f"tg:{user_id}", "critical" if critical else "info", "failed")
+                    ttl_s=3600 if critical else 900, event_key=ekeys.get((user_id, out_text), ""))
+            except Exception:  # noqa: BLE001 — один отримувач не валить розсилку
+                logger.exception("Розсилка: збій доставки користувачу %s", user_id)
+                ok_sent = False
+            if ok_sent:
+                if dkey:  # sent ≠ delivered: пишемо лише факт відправки
+                    db.record_delivery(dkey, f"tg:{user_id}", "critical" if critical else "info", "sent")
+            elif dkey:
+                db.record_delivery(dkey, f"tg:{user_id}", "critical" if critical else "info", "failed")
+            return bool(ok_sent)
+
+    sent_count = sum(await asyncio.gather(*[_send_one(u, t) for u, t in jobs])) if jobs else 0
     if sent_count:
         logger.info("Рассылка по подпискам: отправлено %d получателям (регионы: %s)",
                     sent_count, ", ".join(region_name(s) for s in regions))
 
 
-async def _healthcheck_loop(summarizer: SummarizerProtocol, interval: int) -> None:
-    """Периодический пинг Ollama — раннее обнаружение падения локального ИИ."""
-    try:
-        while True:
-            await asyncio.sleep(interval)
-            ok = await summarizer.healthcheck()
-            if ok:
-                logger.debug("Healthcheck Ollama: OK")
-            else:
-                logger.warning("Healthcheck Ollama: НЕДОСТУПНА — работает fallback на оригинал.")
-    except asyncio.CancelledError:
-        # Нормальный выход при остановке приложения.
-        raise
 
 
 # Интервал фоновой проверки прогнозов (статистика волн):
@@ -1320,24 +1324,6 @@ async def _check_pre_wave(bot_client, db: Database, publisher=None) -> int:
     return sent
 
 
-async def _publish_notice(publisher, text: str) -> None:
-    """Опубликовать прогнозное уведомление в канал (best effort).
-
-    Прогнозы (countdown отбоя, «можлива нова тривога») раньше уходили
-    только в ЛС подписчикам. По правилу продукта они должны быть видны
-    и в канале. Бренд-строка в конце — как у обычных постов (Publisher
-    делает её кликабельной ссылкой на наш канал).
-    """
-    if publisher is None:
-        return
-    from alert_renderer import SOURCE_BRAND_LINE
-
-    try:
-        sent = await publisher.send(f"{text}\n\n{SOURCE_BRAND_LINE}")
-        if not sent:
-            logger.warning("Прогноз не опубликован в канал: отправка не удалась")
-    except Exception as exc:  # noqa: BLE001 — прогноз не должен ронять цикл
-        logger.warning("Прогноз не опубликован в канал: %s", exc)
 
 
 async def _pre_wave_loop(bot_client, db: Database, interval: int = PRE_WAVE_CHECK_INTERVAL,

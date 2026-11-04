@@ -10,6 +10,7 @@ CLI: python -m airradar.ops.backup create | verify <file> | list | restore-test 
 """
 from __future__ import annotations
 
+import logging
 import hashlib
 import json
 import os
@@ -299,7 +300,7 @@ def _notify(msg: str) -> None:
         requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
                       data={"chat_id": admin, "text": msg[:500]}, timeout=15)
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'backup.py', 301, exc_info=True)
 
 
 if __name__ == "__main__":

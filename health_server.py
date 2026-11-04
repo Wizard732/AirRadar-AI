@@ -196,7 +196,7 @@ def radar_payload(db, minutes: int, now: int) -> dict:
         impacts = [i for i in impact_log.impacts_payload(db, now, 0, days=1)["items"] if i["lat"] is not None
                    and now - i["ts"] <= 6 * 3600]
     except Exception:  # noqa: BLE001 — наслідки не должны ломать карту
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'health_server.py', 198, exc_info=True)
     # Офіційні сирени (alerts.in.ua): None — джерело не підключене, тоді карта показує область за зведеннями.
     on = bool(os.getenv("ALERTS_IN_UA_TOKEN", "").strip())
     fresh = db.siren_states_fresh() if on else []
@@ -230,7 +230,7 @@ def radar_payload(db, minutes: int, now: int) -> dict:
         feed = [{"ts": t["ts"], "text": public_text(t.get("text") or "", 220), "region": t["region"], "type": t["type"]}
                 for t in db.active_threats(within_seconds=3 * 3600, include_reported=True)][:60]
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'health_server.py', 232, exc_info=True)
     return {"now": now, "window_min": minutes, "tracks": [_track_json(t, now, off_set) for t in tracks],
             "events": build_events(rows, now), "impacts": impacts, "sirens": sirens, "sirens_raions": sirens_raions, "sirens_raions_y": sirens_raions_y,
             "sirens_raions_p": sirens_raions_p, "siren_threats": threats if on else None, "alerts": detail, "feed": feed, "accuracy": accuracy}
@@ -331,7 +331,7 @@ async def _api_stream(request: web.Request) -> web.StreamResponse:  # noqa: ANN0
                 try:
                     _stream_rev["rev"] = await asyncio.get_running_loop().run_in_executor(None, _compute_rev)
                 except Exception:  # noqa: BLE001
-                    pass
+                    logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'health_server.py', 333, exc_info=True)
                 _stream_rev["ts"] = time.time()
             if _stream_rev["rev"] != last:
                 last = _stream_rev["rev"]

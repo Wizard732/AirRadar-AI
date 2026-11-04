@@ -12,12 +12,12 @@ class EvidenceAlertTests(unittest.TestCase):
             fact=fact, confirmation={"status": "reported", "sources": 1, "count_kind": "unspecified"},
         )
         # Заголовок капсом — визуальный якорь.
-        self.assertIn("🔴 ОДЕЩИНА\nБПЛА\n", result)
-        # Одиночное сообщение статуса не получает вовсе (шум в каждом посте).
-        self.assertNotIn("повідомлення одного джерела", result)
-        self.assertNotIn("Статус:", result)
+        self.assertIn("🛵 Одещина: БпЛА курсом на Одеса\n🕒 ", result)
+        # Одиночное сообщение явно помечено «не підтверджено» (отличие от официального/подтверждённого).
+        self.assertIn("❔ не підтверджено", result)
+        self.assertNotIn("Що робити", result)
         self.assertIn("🕒 ", result)
-        self.assertIn("➡️ Курс на: Одеса", result)
+        self.assertIn("курсом на Одеса", result)
         # Читабельность: блоки разделены пустыми строками.
         self.assertIn("\n\n", result)
         # Строка источника — всегда наш канал (пассивный брендинг).
@@ -50,8 +50,8 @@ class EvidenceAlertTests(unittest.TestCase):
             text="БПЛА з Сум у напрямку Києва", source="a", event_ts=1_700_000_000,
             fact=fact, confirmation={"status": "reported", "sources": 1},
         )
-        self.assertIn("➡️ Курс на: Київ", result)
-        self.assertIn("↩️ Звідки: Сум", result)
+        self.assertIn("курсом на Київ", result)
+        self.assertIn("з Сум", result)
 
         fact2 = extract_incident_fact("БпЛА на Одесу", "uav", "imminent")
         result2 = render_evidence_alert(
@@ -103,7 +103,7 @@ class EvidenceAlertTests(unittest.TestCase):
             text=roundup, source="a", event_ts=1_700_000_000,
             fact=fact, confirmation={"status": "reported", "sources": 1},
         )
-        self.assertIn("🔴 КИЇВЩИНА · ПОЛТАВЩИНА +1\nБПЛА (реактивний)", result)
+        self.assertIn("🛵 Київщина · Полтавщина +1\nРеактивний БпЛА", result)
         # Ни один отдельный регион не вынесен в заголовок.
         self.assertIn("Київщина · 2: 2× → Васильків", result)
 
@@ -114,10 +114,9 @@ class EvidenceAlertTests(unittest.TestCase):
             text="БпЛА на Київ", source="a", event_ts=1_700_000_000,
             fact=fact, confirmation={"status": "reported", "sources": 1},
         )
-        # Без трека каскад падает до типового подлёта класса (орієнтовно).
+        # Без трека типовий підліт більше не публікується (хибна точність).
         plain = render_evidence_alert(**kwargs)
-        self.assertIn("Типовий підліт", plain)
-        self.assertIn("орієнтовно", plain)
+        self.assertNotIn("Типовий підліт", plain)
         # Измеренный трек: строка «За треком», типовой диапазон вытеснен.
         track = {
             "available": True, "points": 2,
@@ -136,7 +135,7 @@ class EvidenceAlertTests(unittest.TestCase):
         dead = dict(track, available=False, minutes=None)
         fallback = render_evidence_alert(**kwargs, track=dead)
         self.assertNotIn("За треком", fallback)
-        self.assertIn("Типовий підліт", fallback)
+        self.assertNotIn("Типовий підліт", fallback)
 
     def test_long_roundup_body_not_truncated(self):
         """Сводка мониторинга >300 знаков не режется: все направления на месте.

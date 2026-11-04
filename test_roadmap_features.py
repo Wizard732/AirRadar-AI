@@ -160,7 +160,7 @@ class BotUiRoadmapTests(unittest.TestCase):
         event = self._callback("main")
         datas = _button_datas(event.edits[-1]["buttons"])
         self.assertIn("myzone", datas)
-        self.assertIn("shelter", datas)
+        self.assertIn("grd", datas)   # «Укриття» прибрано з головного меню
 
     def test_myzone_sets_pending_and_prompts(self):
         event = self._callback("myzone")
@@ -679,7 +679,8 @@ class ConfigFlagsTests(unittest.TestCase):
         s = Settings(tg_api_id=1, tg_api_hash="h", session_name="s",
                      bot_token="t", target_channel="@c")
         self.assertEqual(s.alerts_in_ua_token, "")
-        self.assertTrue(s.accuracy_post_enabled)
+        self.assertFalse(s.accuracy_post_enabled)   # ядро: пост точності вимкнено за замовчуванням
+        self.assertFalse(s.extras_enabled)
         self.assertEqual(s.accuracy_post_weekday, 1)
         self.assertEqual(s.accuracy_post_hour, 9)
         self.assertEqual(s.groq_model_strong, "llama-3.3-70b-versatile")

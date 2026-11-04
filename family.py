@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import logging
 import secrets
 import time
 
@@ -133,7 +134,7 @@ async def notify_members(db, send, uid: int, text: str) -> int:
             await send(m, text)
             n += 1
         except Exception:  # noqa: BLE001 — недоступний родич не ламає решту
-            pass
+            logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'family.py', 135, exc_info=True)
     return n
 
 

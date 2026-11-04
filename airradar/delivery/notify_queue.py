@@ -13,6 +13,7 @@ MAX_ATTEMPTS = 5
 BASE_BACKOFF_S = 5
 MAX_BACKOFF_S = 600
 DEFAULT_TTL_S = 15 * 60
+SENDING_LEASE_S = 180   # запис у 'sending' довше цього вважається завислим і повертається в retrying
 
 _SCHEMA = (
     """CREATE TABLE IF NOT EXISTS notification_queue (
@@ -37,6 +38,19 @@ _SCHEMA = (
 )
 
 
+# Постійні помилки отримувача: повтор нічого не змінить (бот заблокований, акаунт видалено, чат недоступний).
+# Імена класів Telethon; порівняння за іменем, щоб модуль не залежав від бібліотеки.
+PERMANENT_ERRORS = frozenset({
+    "UserIsBlockedError", "UserBlockedError", "InputUserDeactivatedError", "UserDeactivatedError", "UserDeactivatedBanError",
+    "PeerIdInvalidError", "ChatWriteForbiddenError", "UserPrivacyRestrictedError", "YouBlockedUserError",
+})
+
+
+def is_permanent(exc: BaseException) -> bool:
+    """True — повтор безглуздий: одразу failed без backoff (не навантажує Telegram під час масової тривоги)."""
+    return type(exc).__name__ in PERMANENT_ERRORS
+
+
 def ensure_schema(db) -> None:
     done = db.__dict__.setdefault("_ar_schema_done", set())  # DDL раз на екземпляр БД, а не на кожен виклик
     if "notify_queue" in done:
@@ -45,6 +59,8 @@ def ensure_schema(db) -> None:
         for sql in _SCHEMA:
             db._conn.execute(sql)  # noqa: SLF001
         cols = {r[1] for r in db._conn.execute("PRAGMA table_info(notification_queue)")}  # noqa: SLF001
+        if "claimed_ts" not in cols:   # lease: коли запис узято в роботу (для відновлення завислих 'sending' без рестарту)
+            db._conn.execute("ALTER TABLE notification_queue ADD COLUMN claimed_ts INTEGER")  # noqa: SLF001
         if "payload" not in cols:   # таблиця створена до появи payload — додаємо колонку (без втрати даних)
             db._conn.execute("ALTER TABLE notification_queue ADD COLUMN payload TEXT")  # noqa: SLF001
         db._conn.commit()  # noqa: SLF001
@@ -71,18 +87,46 @@ def enqueue(db, event_key: str, user_id: int, channel: str, kind: str = "threat"
         return cur.rowcount == 1
 
 
+def enqueue_many(db, rows: list[tuple[str, int, str | None]], channel: str, kind: str = "threat",
+                 ttl_s: int = DEFAULT_TTL_S, now: int | None = None) -> int:
+    """Поставити в чергу всі записи розсилки ОДНІЄЮ транзакцією: або всі, або жодного.
+
+    rows: [(event_key, user_id, payload)]. Повторний виклик ідемпотентний (UNIQUE event_key+user_id+channel,
+    INSERT OR IGNORE). Повертає кількість нових записів.
+    """
+    now = (int(time.time()) if now is None else now)
+    ensure_schema(db)
+    with db._lock:  # noqa: SLF001
+        try:
+            created = 0
+            for event_key, uid, payload in rows:
+                cur = db._conn.execute(  # noqa: SLF001
+                    "INSERT OR IGNORE INTO notification_queue (event_key,user_id,channel,kind,status,next_attempt_ts,created_ts,expires_ts,payload) "
+                    "VALUES (?,?,?,?,'pending',?,?,?,?)",
+                    (event_key, int(uid), channel, kind, now, now, now + ttl_s, payload))
+                created += cur.rowcount
+            db._conn.commit()  # noqa: SLF001
+            return created
+        except BaseException:
+            db._conn.rollback()  # noqa: SLF001
+            raise
+
+
 def claim_due(db, limit: int = 50, now: int | None = None, channel: str | None = None) -> list[dict]:
     """Забрати готові до відправки записи (pending/retrying) і позначити sending. Прострочені → expired."""
     now = (int(time.time()) if now is None else now)
     ensure_schema(db)
     with db._lock:  # noqa: SLF001
         db._conn.execute(  # noqa: SLF001
+            "UPDATE notification_queue SET status='retrying' WHERE status='sending' AND claimed_ts IS NOT NULL AND claimed_ts < ?",
+            (now - SENDING_LEASE_S,))
+        db._conn.execute(  # noqa: SLF001
             "UPDATE notification_queue SET status='expired' WHERE status IN ('pending','retrying') AND expires_ts < ?", (now,))
         rows = db._conn.execute(  # noqa: SLF001
             "SELECT * FROM notification_queue WHERE status IN ('pending','retrying') AND next_attempt_ts <= ? "
             "AND (? IS NULL OR channel = ?) ORDER BY next_attempt_ts LIMIT ?", (now, channel, channel, limit)).fetchall()
         for r in rows:
-            db._conn.execute("UPDATE notification_queue SET status='sending', attempts=attempts+1 WHERE id=?", (r["id"],))  # noqa: SLF001
+            db._conn.execute("UPDATE notification_queue SET status='sending', attempts=attempts+1, claimed_ts=? WHERE id=?", (now, r["id"]))  # noqa: SLF001
         db._conn.commit()  # noqa: SLF001
     return [dict(r) for r in rows]
 
@@ -94,15 +138,15 @@ def mark_sent(db, qid: int, external_id: str = "", now: int | None = None) -> No
         db._conn.commit()  # noqa: SLF001
 
 
-def mark_failed(db, qid: int, error: str, retry_after_s: int | None = None, now: int | None = None) -> str:
-    """Повернути новий статус: retrying (з backoff; retry_after_s — з rate-limit) або failed."""
+def mark_failed(db, qid: int, error: str, retry_after_s: int | None = None, now: int | None = None, permanent: bool = False) -> str:
+    """Повернути новий статус: retrying (з backoff; retry_after_s — з rate-limit) або failed (permanent=True — одразу, без повторів)."""
     now = (int(time.time()) if now is None else now)
     with db._lock:  # noqa: SLF001
         row = db._conn.execute("SELECT attempts, expires_ts FROM notification_queue WHERE id=?", (qid,)).fetchone()  # noqa: SLF001
         if row is None:
             return "missing"
         delay = retry_after_s if retry_after_s else backoff_s(row["attempts"])
-        if row["attempts"] >= MAX_ATTEMPTS or now + delay > row["expires_ts"]:
+        if permanent or row["attempts"] >= MAX_ATTEMPTS or now + delay > row["expires_ts"]:
             status = "failed"
         else:
             status = "retrying"
@@ -156,7 +200,7 @@ def claim_one(db, event_key: str, user_id: int, channel: str) -> dict | None:
             (event_key, int(user_id), channel)).fetchone()
         if row is None:
             return None
-        db._conn.execute("UPDATE notification_queue SET status='sending', attempts=attempts+1 WHERE id=?", (row["id"],))  # noqa: SLF001
+        db._conn.execute("UPDATE notification_queue SET status='sending', attempts=attempts+1, claimed_ts=? WHERE id=?", (int(time.time()), row["id"]))  # noqa: SLF001
         db._conn.commit()  # noqa: SLF001
         return dict(row)
 

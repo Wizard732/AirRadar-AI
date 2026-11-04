@@ -170,9 +170,8 @@ class AlertRendererProfileTests(unittest.TestCase):
             event_ts=BASE, fact=fact, confirmation={"status": "corroborated", "key": "k"},
             track=None,
         )
-        self.assertIn("БПЛА (реактивний)", text)
-        self.assertIn("Типовий підліт: ~10–30 хв", text)
-        self.assertIn("орієнтовно", text)
+        self.assertIn("Реактивний БпЛА", text)
+        self.assertNotIn("Типовий підліт", text)
 
     def test_base_profile_header_unchanged(self):
         """Без профиля — прежняя шапка и прежний диапазон (регресс)."""
@@ -183,7 +182,7 @@ class AlertRendererProfileTests(unittest.TestCase):
             track=None,
         )
         self.assertNotIn("(реактивний)", text)
-        self.assertIn("Типовий підліт: ~10–40 хв", text)
+        self.assertNotIn("Типовий підліт", text)
 
     def test_cascade_priority_preserved_for_reactive(self):
         """Каскад: трек (уровень 1) по-прежнему выше типового підліту."""

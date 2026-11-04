@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 import html
 import time
 
@@ -113,5 +114,5 @@ async def send_alarm_prompt(db, bot, regions: list[str], now: int | None = None)
                     [Button.inline("🆘 Потрібна допомога", data="fam:st:help")]])
                 sent += 1
             except Exception:  # noqa: BLE001
-                pass
+                logging.getLogger(__name__).debug("подавлена помилка (%s:%d)", 'family_status.py', 115, exc_info=True)
     return sent

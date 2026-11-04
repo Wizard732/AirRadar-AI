@@ -78,3 +78,10 @@ class DedupCache:
 
         self._seen[fp] = now
         return False
+
+    def forget(self, text: str) -> None:
+        """Забути відбиток (R3): обробка поста завершилась збоєм, повтор того ж тексту не має відкидатись як дубль."""
+        fp = _fingerprint(text)
+        self._seen.pop(fp, None)
+        if self._db is not None:
+            self._db.forget_fingerprint(fp)

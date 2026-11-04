@@ -48,10 +48,10 @@ class MenuButtonsTests(unittest.TestCase):
                 dead.append(data)
             for out in [e["buttons"] for e in ev.edits] + ev.respond_buttons:
                 for d in _button_datas(out):
-                    if d not in seen and not d.startswith(("fb", "rsb:", "zsb:", "wt:", "sht", "night", "wall")):
+                    if d not in seen and not d.startswith(("fb", "rsb:", "zsb:", "wt:", "sht", "night", "wall", "fcst", "wave")):
                         queue.append(d)
         self.assertFalse(dead, f"кнопки без реакции: {dead}")
-        for needed in ("trk", "st2:today", "st2:7d", "his", "imp", "grd", "mysubs", "active"):
+        for needed in ("trk", "grd", "mysubs", "active"):  # ядро; статистика, історія та інше свідомо прибрані з меню
             self.assertIn(needed, seen, f"экран {needed} недостижим из меню")
 
     def test_main_menu_has_map_and_miniapp_buttons(self):

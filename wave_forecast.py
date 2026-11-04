@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import statistics
 import time
@@ -356,6 +357,9 @@ def live_standdown(db: Database, region: str, *, now: int | None = None) -> dict
     now = int(now if now is not None else time.time())
     try:
         conn = db._conn  # type: ignore[attr-defined]
+        # Прогноз «відбій за N хв» має сенс лише поки тривога триває: після відбою «ціль у повітрі» — застарілий факт.
+        if conn.execute("SELECT 1 FROM alerts WHERE region=? AND ended_ts IS NULL LIMIT 1", (region,)).fetchone() is None:
+            return {"available": False, "samples": est["samples"], "no_active_alert": True}
         last = _last_flight_ts(conn, region, now - STANDDOWN_MAX_GAP_S, now)
     except sqlite3.Error:
         return {"available": False, "samples": est["samples"]}
@@ -507,7 +511,7 @@ def region_forecast(db: Database, region: str, *, now: int | None = None) -> dic
             out["standdown_hits"] = int(acc["hits"])
             out["standdown_total"] = int(acc["total"])
     except Exception:  # noqa: BLE001 — карта важнее метрики
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'wave_forecast.py', 509, exc_info=True)
     try:
         profile = wave_hour_profile(db, region, now=now)
         if profile["available"]:
@@ -516,7 +520,7 @@ def region_forecast(db: Database, region: str, *, now: int | None = None) -> dic
                 "to": int(profile["to_hour"]),
             }
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'wave_forecast.py', 518, exc_info=True)
     return out
 
 
@@ -603,7 +607,7 @@ def format_wave_forecast(db: Database, region: str, name: str) -> str:
                     line += f", типова тривалість епізоду ~{_fmt_duration(ep['median_min'])}."
             lines.append(line)
     except Exception:  # noqa: BLE001 — прогресс не роняет прогноз
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'wave_forecast.py', 605, exc_info=True)
 
     live = live_standdown(db, region)
     base = standdown_estimate(db, region)
@@ -636,7 +640,7 @@ def format_wave_forecast(db: Database, region: str, name: str) -> str:
                 f"<b>{acc['hits']}/{acc['total']}</b> епізодів."
             )
     except Exception:  # noqa: BLE001 — метрика не роняет прогноз
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'wave_forecast.py', 638, exc_info=True)
 
     # Профиль «часы волн»: когда в регионе обычно начинаются тревоги.
     try:
@@ -649,7 +653,7 @@ def format_wave_forecast(db: Database, region: str, name: str) -> str:
                 f"(статистика {profile['samples']} епізодів)."
             )
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'wave_forecast.py', 651, exc_info=True)
 
     wave = next_wave_estimate(db, region)
     if wave["available"]:

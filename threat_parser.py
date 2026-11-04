@@ -419,10 +419,22 @@ def _heading_from(line: str) -> str:
     return ""
 
 
+_REGION_WORD_RE = re.compile(r"^\S*щин\w{0,3}$|^\S+\s+област\w*$")   # «Харківщину», «Сумщині», «Полтавську область»
+
+
 def _make_obs(
     place: str, rel: str, count: int | None, group: int | None, oblast: str,
     weapon: str, profile: str, heading: str,
 ) -> Observation:
+    if place and _FOREIGN_RE.search(_norm(place)):
+        # Російське місце («з Курська»): нечіткий збіг газетира давав українське село («Курське», Крим) і псував напрямок треку.
+        return Observation(weapon, profile, count, group, "", place, rel, None, None, "none", heading)
+    region = oblast_in(place) if place and _REGION_WORD_RE.search(_norm(place)) else ""
+    if region:
+        # «на Харківщину» — назва області, а не село Харківщина (Сумська); точка = центроїд області.
+        og = oblast_geo(region)
+        return Observation(weapon, profile, count, group, region, place, rel,
+                           og.lat if og else None, og.lon if og else None, "oblast" if og else "none", heading)
     geo = locate(place, oblast) if place else None
     if geo is None and place and place in _PAREN_HINT:
         geo = locate(_PAREN_HINT[place], oblast) or locate(_PAREN_HINT[place], "")

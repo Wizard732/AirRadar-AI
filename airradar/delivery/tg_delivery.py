@@ -40,10 +40,30 @@ async def _send(bot, user_id: int, payload: dict) -> str:
     return str(getattr(msg, "id", "") or "")
 
 
+def enqueue_batch(db, dkey: str, recipients: list[tuple[int, str]], *, feedback_key: str = "", ack_key: str = "",
+                  src_text: str = "", ttl_s: int = nq.DEFAULT_TTL_S, now: float | None = None) -> dict[tuple[int, str], str]:
+    """Атомарно поставити в чергу всю розсилку події (recipients: [(user_id, text)]).
+
+    Повертає {(user_id, text): event_key}; ключ потрібно передати в deliver(event_key=...), щоб межа
+    10-хвилинного відра не створила другий запис. Транзакція: або всі, або жоден.
+    """
+    keys: dict[tuple[int, str], str] = {}
+    rows: list[tuple[str, int, str | None]] = []
+    payloads: dict[str, str] = {}
+    for uid, text in recipients:
+        k = event_key_for(dkey, text, now)
+        keys[(uid, text)] = k
+        if text not in payloads:
+            payloads[text] = json.dumps({"text": text, "feedback_key": feedback_key, "ack_key": ack_key, "src_text": src_text}, ensure_ascii=False)
+        rows.append((k, uid, payloads[text]))
+    nq.enqueue_many(db, rows, CHANNEL, ttl_s=ttl_s)
+    return keys
+
+
 async def deliver(bot, db, dkey: str, user_id: int, text: str, *, feedback_key: str = "", ack_key: str = "",
-                  src_text: str = "", ttl_s: int = nq.DEFAULT_TTL_S) -> bool:
+                  src_text: str = "", ttl_s: int = nq.DEFAULT_TTL_S, event_key: str = "") -> bool:
     """True — відправлено зараз. False — дубль, або помилка (буде повтор воркером)."""
-    key = event_key_for(dkey, text)
+    key = event_key or event_key_for(dkey, text)
     payload = {"text": text, "feedback_key": feedback_key, "ack_key": ack_key, "src_text": src_text}
     nq.enqueue(db, key, user_id, CHANNEL, ttl_s=ttl_s, payload=json.dumps(payload, ensure_ascii=False))
     job = nq.claim_one(db, key, user_id, CHANNEL)
@@ -53,9 +73,12 @@ async def deliver(bot, db, dkey: str, user_id: int, text: str, *, feedback_key: 
         ext = await _send(bot, user_id, payload)
         nq.mark_sent(db, job["id"], ext)
         return True
+    except asyncio.CancelledError:
+        nq.mark_failed(db, job["id"], "cancelled", retry_after_s=1)   # задачу скасовано посеред відправки: не лишаємо запис у 'sending' до рестарту
+        raise
     except Exception as exc:  # noqa: BLE001 — один недоступний користувач не зупиняє решту
-        status = nq.mark_failed(db, job["id"], type(exc).__name__, retry_after_s=nq.flood_wait_seconds(exc))
-        logger.debug("tg deliver %s: %s → %s", user_id, type(exc).__name__, status)
+        status = nq.mark_failed(db, job["id"], type(exc).__name__, retry_after_s=nq.flood_wait_seconds(exc), permanent=nq.is_permanent(exc))
+        logger.log(logging.INFO if nq.is_permanent(exc) else logging.DEBUG, "tg deliver %s: %s → %s", user_id, type(exc).__name__, status)
         return False
 
 
@@ -69,8 +92,11 @@ async def retry_worker(bot, db, interval_s: int = 10) -> None:
                         nq.mark_failed(db, job["id"], "no_payload", retry_after_s=nq.MAX_BACKOFF_S * 100)
                         continue
                     nq.mark_sent(db, job["id"], await _send(bot, job["user_id"], payload))
+                except asyncio.CancelledError:
+                    nq.mark_failed(db, job["id"], "cancelled", retry_after_s=1)
+                    raise
                 except Exception as exc:  # noqa: BLE001
-                    nq.mark_failed(db, job["id"], type(exc).__name__, retry_after_s=nq.flood_wait_seconds(exc))
+                    nq.mark_failed(db, job["id"], type(exc).__name__, retry_after_s=nq.flood_wait_seconds(exc), permanent=nq.is_permanent(exc))
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

@@ -6,6 +6,7 @@ check(name, bad, message): якщо стан «поганий» — шле ал�
 """
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import time
@@ -106,5 +107,5 @@ def evaluate(db, *, now: int | None = None) -> list[str]:
         silent = [r["channel"] for r in rows if not r.get("disabled") and r.get("last_seen") and now - r["last_seen"] > th["source_silent_s"]]
         msgs.append(check(db, "sources_silent", bool(silent), f"Джерела мовчать: {', '.join(silent[:5])}", now=now))
     except Exception:  # noqa: BLE001
-        pass
+        logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'alerts.py', 108, exc_info=True)
     return [m for m in msgs if m]
