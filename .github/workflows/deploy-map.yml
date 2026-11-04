@@ -37,6 +37,8 @@ jobs:
           cp miniapp/radar.html site/index.html
           cp miniapp/raions.json site/
           cp miniapp/app.html miniapp/native.js miniapp/manifest.webmanifest miniapp/sw.js miniapp/icon-192.png miniapp/icon-512.png miniapp/webpush.html site/
+          mkdir -p site/map2 && cp -r miniapp/map2/. site/map2/ && rm -rf site/map2/test site/map2/tools site/map2/mockup.html
+          cp miniapp/map.html site/map.html 2>/dev/null || true
           cp miniapp/vapid.json site/ 2>/dev/null || echo '{"public_key": ""}' > site/vapid.json
           cp miniapp/downloads/AirRadar.apk site/AirRadar.apk
           cp map_live.html site/snapshot.html
