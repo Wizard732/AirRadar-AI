@@ -49,3 +49,6 @@ local.properties
 # Web Push: приватний VAPID-ключ
 vapid_private.pem
 pytest-failures.log
+
+# Внутрішній контекст для чатів (прод-хост, акаунти) — не публікувати
+HANDOFF.md
