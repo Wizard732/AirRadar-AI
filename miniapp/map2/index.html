@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0e1318">
+<link rel="icon" type="image/png" href="../icon-192.png">
+<link rel="apple-touch-icon" href="../icon-192.png">
+<title>AirRadar: карта</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="map2.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="7" height="7" fill="rgba(242,181,61,.10)"/><rect width="3" height="7" fill="rgba(242,181,61,.55)"/>
+    </pattern>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5ZM3 13l9 5 9-5"/></symbol>
+    <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+    <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5h4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-siren" viewBox="0 0 24 24"><path d="M7 18v-6a5 5 0 0 1 10 0v6M5 18h14M12 3v2M4.5 6.5 6 8M19.5 6.5 18 8"/></symbol>
+    <symbol id="i-hint" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v5M12 16.2v.01"/></symbol>
+    <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/><path d="M12 12 18 6"/></symbol>
+    <pattern id="hatch-warn" width="6" height="6" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="rgba(242,181,61,.16)"/><circle cx="3" cy="3" r="1.4" fill="rgba(242,181,61,.75)"/></pattern>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-shelter" viewBox="0 0 24 24"><path d="M3 11 12 4l9 7M5.5 9.5V20h13V9.5M10 20v-5.5h4V20"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3.6 2.55 5.3 5.8.8-4.2 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8L12 3.6Z"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 13v6.5h14V13"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l10.5-6.5L8 5.5Z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M8.5 5.5v13M15.5 5.5v13"/></symbol>
+    <symbol id="i-target" viewBox="0 0 24 24"><path d="M12 3 20.5 19H3.5L12 3ZM12 9v5"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  </defs>
+</svg>
+<div class="app" id="app">
+  <div id="map" role="application" aria-label="Карта України за районами"></div>
+
+  <div class="top">
+    <div class="pill brand"><svg class="ic"><use href="#i-radar"/></svg><span>AirRadar</span></div>
+    <label class="pill search"><svg class="ic"><use href="#i-search"/></svg><input id="q" placeholder="Пошук міста, району, області" aria-label="Пошук" autocomplete="off"></label>
+    <div class="spacer"></div>
+    <button class="pill my" id="my" aria-label="Моя територія"><span class="dot"></span><span><small>Моя територія</small><b id="myT">Оберіть район</b></span></button>
+    <div class="pill fresh" id="fresh" role="status"><i></i><span id="freshT">завантаження</span></div>
+  </div>
+
+  <div class="democlock" id="demoClock" hidden aria-live="polite"></div>
+  <div class="tgtbar" id="tgtbar" hidden role="group" aria-label="Цілі за типами"></div>
+
+  <div class="panel results" id="results" hidden></div>
+
+  <aside class="sheet" id="sheet" aria-label="Обстановка">
+    <div class="grab" id="grab" role="button" tabindex="0" aria-label="Розгорнути або згорнути панель"></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-tab="feed" aria-selected="true">Стрічка</button>
+      <button role="tab" data-tab="mine" aria-selected="false">Моє</button>
+      <button role="tab" data-tab="history" aria-selected="false">Історія</button>
+      <button role="tab" data-tab="stats" aria-selected="false">Статистика</button>
+      <button role="tab" data-tab="filters" aria-selected="false">Фільтри</button>
+      <button role="tab" data-tab="guide" aria-selected="false">Типи</button>
+    </div>
+    <div class="sum"><b id="sumN">0</b><span id="sumT">офіційних тривог</span></div>
+    <div class="disc-note" id="discNote" hidden role="note">Карта не показує всі загрози. Відсутність мітки не означає відсутність небезпеки. Орієнтуйтесь на сирену.</div>
+    <div class="chips" id="chips">
+      <button class="chip" data-f="all" aria-pressed="true">Усі</button>
+      <button class="chip" data-f="official" aria-pressed="false"><svg class="ic" style="width:16px;height:16px"><use href="#i-siren"/></svg>Офіційні</button>
+      <button class="chip" data-f="hint" aria-pressed="false"><svg class="ic" style="width:16px;height:16px"><use href="#i-hint"/></svg>Неофіційні</button>
+    </div>
+    <div class="list" id="list"></div>
+  </aside>
+
+  <div class="pill tools" role="toolbar" aria-label="Інструменти карти">
+    <button id="t-layers" aria-label="Підкладка карти" title="Підкладка карти" aria-haspopup="true" aria-expanded="false"><svg class="ic"><use href="#i-layers"/></svg></button>
+    <button id="t-in" aria-label="Збільшити" title="Збільшити"><svg class="ic"><use href="#i-plus"/></svg></button>
+    <button id="t-out" aria-label="Зменшити" title="Зменшити"><svg class="ic"><use href="#i-minus"/></svg></button>
+    <button id="t-shel" aria-label="Укриття" title="Укриття" aria-pressed="false"><svg class="ic"><use href="#i-shelter"/></svg></button>
+    <button id="t-tgt" aria-label="Цілі" title="Цілі" aria-pressed="true"><svg class="ic"><use href="#i-target"/></svg></button>
+    <button id="t-imp" aria-label="Наслідки" title="Наслідки: влучання за 24 год" aria-pressed="false"><span class="ic" style="font-size:18px;line-height:1">💥</span></button>
+    <button id="t-rad" aria-label="Радар навколо мене" title="Радар навколо мене і мої місця"><span class="ic" style="font-size:18px;line-height:1">📡</span></button>
+    <button id="t-loc" aria-label="Моя геолокація" title="Моя геолокація"><svg class="ic"><use href="#i-locate"/></svg></button>
+    <button id="t-full" aria-label="На весь екран" title="На весь екран" hidden><svg class="ic"><use href="#i-full"/></svg></button>
+  </div>
+  <div class="panel basepick" id="basepick" role="radiogroup" aria-label="Підкладка" hidden></div>
+
+  <div class="pill legend" aria-label="Легенда">
+    <span><i class="a"></i>Офіційна тривога</span><span><i class="h"></i>Неофіційне повідомлення</span><span class="tg" id="legTg" hidden><i class="t"></i>Ціль · пунктир — курс до найближчого пункту, орієнтовно</span>
+  </div>
+  <div class="pill disc" id="disc" hidden role="note">Карта не показує всі загрози. Відсутність мітки не означає відсутність небезпеки. Орієнтуйтесь на сирену.</div>
+
+  <div class="pill replaybar" id="replaybar" hidden role="status"><span id="replayT"></span><button id="replayNow">До поточних даних</button></div>
+  <section class="panel card" id="card" hidden aria-live="polite"></section>
+  <div class="pill banner" id="banner" hidden role="status"></div>
+  <div class="loading" id="loading"><div><div class="spin"></div><b>Завантаження карти</b><p>Готуємо мапу повітряних тривог</p></div></div>
+  <div class="errscreen" id="err" hidden><div><b style="font-size:18px">Не вдалося завантажити карту</b><p id="errT">Дані не завантажились.</p><p>Орієнтуйтесь на сирену та офіційні повідомлення.</p><button class="btn" id="retry">Повторити</button></div></div>
+</div>
+<script src="layers.js"></script>
+<script src="alerts-state.js"></script>
+<script src="filters.js"></script>
+<script src="guide.js"></script>
+<script src="shelters.js"></script>
+<script src="watch.js"></script>
+<script src="stats.js"></script>
+<script src="ui-state.js"></script>
+<script src="tracks.js"></script>
+<script src="sync.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

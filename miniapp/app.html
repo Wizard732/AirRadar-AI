@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0b0e14">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>AirRadar — Mini App</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
@@ -100,9 +102,16 @@ async function renderHist() {
   const el = $('t-hist');
   try {
     const d = await fetchJSON('stats.json');
+    let strikes = '';
+    try {
+      const im = await fetchJSON('impacts.json'), byDay = {};
+      im.items.filter(i => i.kind === 'hit').forEach(i => { (byDay[i.when.slice(0, 5)] = byDay[i.when.slice(0, 5)] || []).push(i); });
+      const days = Object.keys(byDay);
+      strikes = `<h3>💥 Удари та наслідки</h3>` + (days.length ? days.map(k => `<div class="card"><div class="d" style="font-weight:600">${esc(k)}</div>` + byDay[k].map(i => `<div class="imp"><div class="t">${esc(i.place || i.oblast)}${i.place && i.oblast ? ' · ' + esc(i.oblast) : ''}</div><div class="meta">${esc(i.when.slice(6))}${i.killed ? ' · загинули: ' + i.killed : ''}${i.injured ? ' · поранені: ' + i.injured : ''}${(i.damage || []).length ? ' · ' + esc(i.damage.join(', ')) : ''}</div></div>`).join('') + `</div>`).join('') : '<div class="card empty">Влучань за останні дні не зафіксовано.</div>') + `<div class="note">${esc(im.note)}</div>`;
+    } catch (e) { strikes = ''; }
     el.innerHTML = `<h2>Історія атак</h2><div class="upd">${fmtUpd(d.now)}</div>` + d.days.map(x => `<div class="card"><div class="day"><div><div class="d">${esc(x.date.split('-').reverse().slice(0, 2).join('.'))}</div>
       <div class="sub">${x.total ? (x.first + '–' + x.last + ' · ' + esc(x.regions.join(', '))) : 'без сигналів'}</div></div><div class="big" style="font-size:22px">${x.total}</div></div>
-      ${x.total ? `<div class="chips">${chips(x.cats)}</div>` : ''}</div>`).join('') + `<div class="note">${esc(d.note)}</div>`;
+      ${x.total ? `<div class="chips">${chips(x.cats)}</div>` : ''}</div>`).join('') + `<div class="note">${esc(d.note)}</div>` + strikes;
   } catch (e) { fail(el, e); }
 }
 async function renderImp() {
@@ -138,7 +147,12 @@ function renderMore() {
     <button class="btn" id="b-test" style="margin-bottom:6px">🔔 Перевірити гучний сигнал</button>
     ${N.battery === false ? '<button class="btn" id="b-batt" style="margin-bottom:6px">🔋 Не вимикати у фоні<small>Дозволь роботу без обмежень економії батареї, щоб тривога не запізнювалась</small></button>' : ''}
     <button class="btn" id="b-newcode" style="margin-bottom:0">🔄 Новий код<small>Якщо код потрапив не туди — старий перестане діяти</small></button></div>` : '';
-  $('t-more').innerHTML = nativeCard + `<h2 style="margin-top:14px">Ще</h2>
+  const GO = [
+    ['🚨 Зараз', 'Де тривога прямо зараз', 'active'], ['🔮 Прогноз для моєї зони', 'Імовірність підльоту до дому/роботи + пояснення ШІ', 'forecast'], ['⏳ Коли відбій / нова тривога', 'Статистичний прогноз по вашій області', 'wave'],
+    ['🛡 Гео-сторож', 'Постійно чи разово, радіус, місця: дім, робота', 'guard'], ['🔔 Мої підписки', 'Області та райони, про які писати', 'subs'],
+    ['🏙 Області', 'Обрати область для підписки', 'regions'], ['📍 Повідомити загрозу', 'Надіслати геопозицію з побаченим', 'report'], ['🤖 Меню бота', 'Усі функції бота кнопками', 'menu']];
+  const botCard = `<h2 style="margin-top:14px">Керування ботом</h2>` + GO.map(g => `<button class="btn" data-go="${g[2]}">${g[0]}<small>${g[1]}</small></button>`).join('');
+  $('t-more').innerHTML = nativeCard + botCard + `<h3>Ще</h3>
     <button class="btn" id="b-ch">📣 Канал @AirRadarAI<small>Тривоги в стрічці Telegram</small></button>
     <button class="btn" id="b-open">🌐 Карта окремою сторінкою<small>Повний екран, можна додати на головний екран</small></button>
     <button class="btn" id="b-share">🔗 Поділитися<small>Надіслати посилання на Mini App</small></button>
@@ -150,17 +164,21 @@ function renderMore() {
     $('b-test').onclick = () => N.test();
     if ($('b-batt')) $('b-batt').onclick = async () => { await N.askBattery(); setTimeout(async () => { await N.init(); renderMore(); }, 1500); };
   }
+  document.querySelectorAll('[data-go]').forEach(b => { b.onclick = () => botLink(b.dataset.go); });
   $('b-ch').onclick = () => tg && tg.openTelegramLink ? tg.openTelegramLink('https://t.me/AirRadarAI') : window.open('https://t.me/AirRadarAI', '_blank');
   $('b-open').onclick = () => tg && tg.openLink ? tg.openLink(base) : window.open(base, '_blank');
   $('b-share').onclick = () => { const u = base + 'app.html'; tg && tg.openTelegramLink ? tg.openTelegramLink('https://t.me/share/url?url=' + encodeURIComponent(u)) : (navigator.share ? navigator.share({ url: u }) : prompt('Посилання:', u)); };
 }
 const renderers = { stats: renderStats, hist: renderHist, imp: renderImp, more: renderMore };
+function mapSrc() { return new URL(params.get('map') || 'map2/index.html', document.baseURI).href; }
+const BOT = 'https://t.me/AirRadar_AI_bot';
+const botLink = go => tg && tg.openTelegramLink ? tg.openTelegramLink(BOT + '?start=go_' + go) : window.open(BOT + '?start=go_' + go, '_blank');
 let current = 'map', mapLoaded = false;
 function show(t) {
   current = t;
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
   document.querySelectorAll('.tab').forEach(s => s.classList.toggle('on', s.id === 't-' + t));
-  if (t === 'map' && !mapLoaded) { mapLoaded = true; $('map-frame').src = new URL(params.get('map') || (window.AIRRADAR_DATA_BASE ? 'radar.html' : './'), document.baseURI).href; }
+  if (t === 'map' && !mapLoaded) { mapLoaded = true; $('map-frame').src = mapSrc(); }
   else if (renderers[t]) renderers[t]();
   try { localStorage.setItem('app_tab', t); } catch (e) {}
 }

@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AirRadar: макет карти</title>
+<style>
+/* Дизайн-система AirRadar map2 (макет). Токени описані в docs/airradar-map-design-system.md */
+:root{
+  --bg:#0e1318; --land:#18212a; --land-2:#1d2833; --line:#2c3a47; --sea:#0b1015;
+  --surface:#161d25; --surface-2:#1e2731; --fg:#e9eef3; --muted:#93a1af; --faint:#5f6d7a;
+  --alert:#ff5a4d; --alert-fill:rgba(255,90,77,.34);
+  --hint:#f2b53d; --hint-fill:rgba(242,181,61,.30);
+  --ok:#3fd9a0; --nodata:#6b7785; --focus:#7cc4ff;
+  --r:14px; --r-s:10px; --t:.2s cubic-bezier(.2,.7,.2,1);
+  --font:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --safe-b:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:light){
+  :root[data-theme="auto"]{--bg:#eef2f6;--land:#f8fafc;--land-2:#eef3f7;--line:#c5d0da;--sea:#dfe8ef;--surface:#ffffff;--surface-2:#f1f5f9;--fg:#101820;--muted:#4b5b69;--faint:#8794a1;--alert-fill:rgba(255,90,77,.30);--hint-fill:rgba(242,181,61,.34)}
+}
+*{box-sizing:border-box;margin:0}
+[hidden]{display:none!important}
+html,body{height:100%;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font);-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:8px}
+.app{position:fixed;inset:0;overflow:hidden}
+#map{position:absolute;inset:0;width:100%;height:100%;background:var(--sea)}
+#map path{stroke:var(--line);stroke-width:.6;vector-effect:non-scaling-stroke;fill:var(--land);transition:fill var(--t)}
+#map path.o-hint{fill:url(#hatch);stroke:var(--hint);stroke-dasharray:4 3;stroke-width:1.4}
+#map path.o-alert{fill:var(--alert-fill);stroke:var(--alert);stroke-width:1.6;stroke-dasharray:none}
+#map path.sel{stroke:var(--fg);stroke-width:2.2;stroke-dasharray:none}
+#map path:hover{fill:var(--land-2)}
+.pill{background:var(--surface);border:1px solid var(--line);border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.28)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 10px 34px rgba(0,0,0,.34)}
+/* верхня смуга */
+.top{position:absolute;left:12px;right:12px;top:calc(12px + env(safe-area-inset-top,0px));display:flex;gap:10px;align-items:center;z-index:5;pointer-events:none}
+.top>*{pointer-events:auto}
+.brand{display:flex;align-items:center;gap:8px;padding:0 14px 0 10px;height:44px;font-weight:700;letter-spacing:.2px}
+.brand svg{width:22px;height:22px}
+.search{flex:1;max-width:420px;display:flex;align-items:center;gap:8px;height:44px;padding:0 14px;color:var(--muted)}
+.search input{flex:1;background:none;border:0;color:var(--fg);font:inherit;outline:none;min-width:0}
+.my{display:flex;align-items:center;gap:10px;height:44px;padding:0 16px 0 12px}
+.my .dot{width:12px;height:12px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 25%,transparent)}
+.my small{display:block;color:var(--muted);font-size:11px;line-height:1.1}
+.my b{display:block;font-size:14px;line-height:1.2}
+.my.alert .dot{background:var(--alert);box-shadow:0 0 0 4px color-mix(in srgb,var(--alert) 28%,transparent)}
+.my.nodata .dot{background:var(--nodata);box-shadow:none}
+.spacer{flex:1}
+.fresh{display:flex;align-items:center;gap:6px;height:44px;padding:0 14px;color:var(--muted);font-size:12px}
+.fresh i{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.fresh.stale i{background:var(--hint)} .fresh.off i{background:var(--alert)}
+/* інструменти */
+.tools{position:absolute;right:12px;bottom:calc(24px + var(--safe-b));display:flex;flex-direction:column;gap:2px;padding:4px;z-index:5}
+.tools button{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;color:var(--fg);transition:background var(--t)}
+.tools button:hover{background:var(--surface-2)} .tools button:active{transform:scale(.96)} .tools button[disabled]{opacity:.35;cursor:not-allowed}
+.tools button[aria-pressed="true"]{background:var(--surface-2);color:var(--focus)}
+.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+/* шторка */
+.sheet{position:absolute;z-index:4;background:var(--surface);border:1px solid var(--line);box-shadow:0 10px 40px rgba(0,0,0,.4);display:flex;flex-direction:column;transition:transform var(--t),height var(--t)}
+.sheet .grab{display:none}
+.tabs{display:flex;gap:4px;padding:10px 12px 0}
+.tabs button{padding:9px 12px;border-radius:10px;color:var(--muted);font-weight:600}
+.tabs button[aria-selected="true"]{background:var(--surface-2);color:var(--fg)}
+.sum{padding:14px 16px 10px;display:flex;gap:10px;align-items:baseline}
+.sum b{font-size:28px;line-height:1}
+.sum span{color:var(--muted)}
+.chips{display:flex;gap:6px;padding:0 12px 10px;flex-wrap:wrap}
+.chip{height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted);display:inline-flex;align-items:center;gap:6px;font-size:13px}
+.chip[aria-pressed="true"]{background:var(--surface-2);color:var(--fg);border-color:var(--faint)}
+.list{overflow:auto;padding:0 8px 12px;flex:1}
+.grp{padding:12px 8px 6px;color:var(--faint);font-size:11px;letter-spacing:.8px;text-transform:uppercase}
+.row{display:flex;gap:12px;align-items:center;width:100%;text-align:left;padding:10px;border-radius:12px;min-height:56px}
+.row:hover{background:var(--surface-2)}
+.mark{flex:none;width:34px;height:34px;border-radius:10px;display:grid;place-items:center}
+.mark.a{background:var(--alert-fill);border:1.5px solid var(--alert);color:var(--alert)}
+.mark.h{background:repeating-linear-gradient(45deg,var(--hint-fill) 0 4px,transparent 4px 8px);border:1.5px dashed var(--hint);color:var(--hint)}
+.row .t{flex:1;min-width:0}.row .t b{display:block;font-weight:600;overflow-wrap:anywhere}.row .t small{color:var(--muted)}
+.row time{color:var(--faint);font-size:12px;white-space:nowrap}
+.row.old{opacity:.55}
+.tag{font-size:10px;font-weight:700;letter-spacing:.5px;padding:2px 6px;border-radius:6px;border:1px solid currentColor;margin-left:6px;vertical-align:1px}
+/* картка */
+.card{position:absolute;z-index:6;padding:16px;width:340px;animation:in .22s cubic-bezier(.2,.7,.2,1)}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.card h2{font-size:18px;line-height:1.2;overflow-wrap:anywhere;padding-right:34px}
+.card .sub{color:var(--muted);margin-top:2px}
+.card .x{position:absolute;right:8px;top:8px;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--muted)}
+.card .x:hover{background:var(--surface-2)}
+.blk{margin-top:12px;padding:12px;border-radius:12px;background:var(--surface-2);border-left:4px solid var(--faint)}
+.blk.a{border-left-color:var(--alert)} .blk.h{border-left:4px dashed var(--hint)}
+.blk h3{font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;display:flex;justify-content:space-between}
+.kv{display:flex;justify-content:space-between;gap:12px;padding:3px 0}.kv span{color:var(--muted)}
+.big{font-size:22px;font-weight:700}
+.legend{position:absolute;left:12px;bottom:calc(24px + var(--safe-b));z-index:3;padding:10px 12px;display:flex;gap:14px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:18px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:6px}
+.legend .a{background:var(--alert-fill);border:1.5px solid var(--alert)}
+.legend .h{background:repeating-linear-gradient(45deg,var(--hint-fill) 0 3px,transparent 3px 6px);border:1.5px dashed var(--hint)}
+.banner{position:absolute;left:50%;transform:translateX(-50%);top:calc(70px + env(safe-area-inset-top,0px));z-index:7;padding:10px 16px;display:flex;gap:10px;align-items:center;white-space:nowrap}
+.loading{position:absolute;inset:0;z-index:9;background:var(--bg);display:grid;place-items:center;text-align:center}
+.loading p{color:var(--muted);margin-top:6px}
+.spin{width:30px;height:30px;border:3px solid var(--line);border-top-color:var(--focus);border-radius:50%;margin:0 auto 14px;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(1turn)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* desktop */
+@media (min-width:900px){
+  .sheet{left:12px;top:70px;bottom:12px;width:372px;border-radius:var(--r)}
+  .card{right:76px;top:70px}
+  .legend{left:396px}
+}
+/* mobile */
+@media (max-width:899px){
+  .top{display:grid;grid-template-columns:44px 1fr auto;gap:8px}
+  .brand{grid-column:1;padding:0;justify-content:center;width:44px}.brand span{display:none}
+  .search{grid-column:2/4;max-width:none}
+  .spacer{display:none}
+  .my{grid-column:1/3;min-width:0;padding:0 14px 0 12px}
+  .my>span:last-child{min-width:0}.my small{display:none}
+  .my b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .fresh{grid-column:3}
+  body.has-card .sheet{display:none}
+  .banner{top:calc(124px + env(safe-area-inset-top,0px));max-width:calc(100% - 24px);white-space:normal}
+  .card{top:auto!important}
+  .sheet{left:0;right:0;bottom:0;height:var(--h,46%);border-radius:20px 20px 0 0;border-bottom:0;padding-bottom:var(--safe-b)}
+  .sheet.peek{--h:132px}.sheet.full{--h:84%}
+  .sheet .grab{display:block;width:40px;height:5px;border-radius:3px;background:var(--line);margin:8px auto 0}
+  .sheet.peek .list,.sheet.peek .chips,.sheet.peek .tabs{display:none}
+  .card{left:0;right:0;bottom:0;width:auto;max-height:52%;overflow:auto;border-radius:20px 20px 0 0;border-bottom:0;padding-bottom:calc(16px + var(--safe-b))}
+  .tools{bottom:calc(var(--sheetH,150px) + 12px)}
+  body.has-card .tools{bottom:calc(var(--cardH,300px) + 12px)}
+  .legend{display:none}
+}
+</style>
+</head>
+<body data-state="">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <pattern id="hatch" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="7" height="7" fill="rgba(242,181,61,.10)"/><rect width="3" height="7" fill="rgba(242,181,61,.55)"/>
+    </pattern>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5ZM3 13l9 5 9-5"/></symbol>
+    <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+    <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16ZM10 20.5h4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-siren" viewBox="0 0 24 24"><path d="M7 18v-6a5 5 0 0 1 10 0v6M5 18h14M12 3v2M4.5 6.5 6 8M19.5 6.5 18 8"/></symbol>
+    <symbol id="i-hint" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v5M12 16.2v.01"/></symbol>
+    <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5"/><path d="M12 12 18 6"/></symbol>
+  </defs>
+</svg>
+
+<div class="app" id="app">
+  <svg id="map" role="img" aria-label="Карта України за районами"></svg>
+
+  <div class="top">
+    <div class="pill brand"><svg class="ic"><use href="#i-radar"/></svg><span>AirRadar</span></div>
+    <label class="pill search"><svg class="ic"><use href="#i-search"/></svg><input id="q" placeholder="Пошук міста, району, області" aria-label="Пошук"></label>
+    <div class="spacer"></div>
+    <button class="pill my" id="my" aria-label="Моя територія"><span class="dot"></span><span><small>Моя територія</small><b id="myT">Тривоги немає · Київська обл.</b></span></button>
+    <div class="pill fresh" id="fresh"><i></i><span id="freshT">оновлено 12 с тому</span></div>
+  </div>
+
+  <aside class="sheet" id="sheet" aria-label="Обстановка">
+    <div class="grab" id="grab" role="button" tabindex="0" aria-label="Розгорнути або згорнути панель"></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true">Стрічка</button>
+      <button role="tab" aria-selected="false">Історія</button>
+      <button role="tab" aria-selected="false">Фільтри</button>
+    </div>
+    <div class="sum"><b id="sumN">4</b><span id="sumT">області в тривозі · 2 неофіційні повідомлення</span></div>
+    <div class="chips">
+      <button class="chip" aria-pressed="true">Усі</button>
+      <button class="chip" aria-pressed="false"><svg class="ic" style="width:16px;height:16px"><use href="#i-siren"/></svg>Офіційні</button>
+      <button class="chip" aria-pressed="false"><svg class="ic" style="width:16px;height:16px"><use href="#i-hint"/></svg>Неофіційні</button>
+    </div>
+    <div class="list" id="list"></div>
+  </aside>
+
+  <div class="pill tools" role="toolbar" aria-label="Інструменти карти">
+    <button aria-label="Шари і підложка" title="Шари і підложка"><svg class="ic"><use href="#i-layers"/></svg></button>
+    <button aria-label="Сповіщення" title="Сповіщення" aria-pressed="true"><svg class="ic"><use href="#i-bell"/></svg></button>
+    <button aria-label="Моя геолокація" title="Моя геолокація"><svg class="ic"><use href="#i-locate"/></svg></button>
+    <button aria-label="На весь екран" title="На весь екран"><svg class="ic"><use href="#i-full"/></svg></button>
+  </div>
+
+  <div class="pill legend" aria-label="Легенда">
+    <span><i class="a"></i>Офіційна тривога</span><span><i class="h"></i>Неофіційне повідомлення</span>
+  </div>
+
+  <section class="panel card" id="card" hidden></section>
+  <div class="pill banner" id="banner" hidden></div>
+  <div class="loading" id="loading" hidden><div><div class="spin"></div><b>Завантаження карти</b><p>Готуємо мапу повітряних тривог</p></div></div>
+</div>
+
+<script>
+// ===== Умовні дані макета (НЕ реальні): тільки для демонстрації станів =====
+const MOCK_ALERT = { 'Харківська':[0,1,2], 'Сумська':[0,1], 'Одеська':[3], 'Херсонська':[0,1,2,3,4] };
+const MOCK_HINT = { 'Полтавська':{0:'БпЛА · 2–5'}, 'Чернігівська':{2:'Розвідка · 1'}, 'Дніпропетровська':{1:'БпЛА · 6+'} };
+const P = new URLSearchParams(location.search);
+const sel = { o:null, i:null };
+const $ = id => document.getElementById(id);
+document.documentElement.dataset.theme = 'auto';
+
+fetch('../raions.json').then(r=>r.json()).then(g=>{
+  const lonX = x => (x-21.8)*Math.cos(48.5*Math.PI/180), latY = y => 52.6-y;
+  const W = (40.4-21.8)*Math.cos(48.5*Math.PI/180), H = 52.6-44.0;
+  const svg = $('map'); const mobile = innerWidth < 900;
+  // на desktop карта зсунута праворуч від шторки, на mobile — вгору від шторки
+  if (mobile) {
+    // Україна між верхньою смугою (≈120 px) і шторкою/карткою; праворуч запас під інструменти
+    const vw = W + 2.8, s = innerWidth / vw;
+    svg.setAttribute('viewBox', `-0.3 ${-(150 / s)} ${vw} ${innerHeight / s}`);
+  } else svg.setAttribute('viewBox', `${-3.6} ${-1.0} ${W+4.4} ${H+1.6}`);
+  svg.setAttribute('preserveAspectRatio', mobile ? 'xMinYMin meet' : 'xMidYMid meet');
+  const per = {};
+  g.features.forEach(f=>{ const o=f.properties.o; per[o]=(per[o]||0); f._i = per[o]++; });
+  const ring = c => 'M'+c.map(p=>lonX(p[0]).toFixed(3)+' '+latY(p[1]).toFixed(3)).join('L')+'Z';
+  g.features.forEach(f=>{
+    const polys = f.geometry.type==='Polygon' ? [f.geometry.coordinates] : f.geometry.coordinates;
+    const d = polys.map(p=>p.map(ring).join('')).join('');
+    const el = document.createElementNS('http://www.w3.org/2000/svg','path');
+    el.setAttribute('d', d);
+    const o=f.properties.o, i=f._i;
+    f._alert = !!(MOCK_ALERT[o] && MOCK_ALERT[o].includes(i));
+    f._hint = (MOCK_HINT[o]||{})[i] || null;
+    if (f._alert) el.classList.add('o-alert'); else if (f._hint) el.classList.add('o-hint');
+    el.tabIndex = 0; el.setAttribute('role','button'); el.setAttribute('aria-label', f.properties.r+' район, '+o+(f._alert?', офіційна тривога':f._hint?', неофіційне повідомлення':''));
+    el.onclick = ()=>select(f, el);
+    el.onkeydown = e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); select(f, el);} };
+    f._el = el; svg.appendChild(el);
+  });
+  window.__g = g;
+  renderList(g);
+  if (P.get('card')) { const f = g.features.find(x=>x.properties.o==='Харківська'&&x._i===1); select(f, f._el); }
+  if (P.get('card')==='hint') { const f = g.features.find(x=>x.properties.o==='Полтавська'&&x._i===0); select(f, f._el); }
+});
+
+function renderList(g){
+  const rows = [];
+  g.features.filter(f=>f._alert).forEach(f=>rows.push({f,t:'a',time:'з 14:'+(10+f._i*7)}));
+  g.features.filter(f=>f._hint).forEach(f=>rows.push({f,t:'h',time:'14:5'+f._i}));
+  const byO = {}; rows.forEach(r=>(byO[r.f.properties.o] ||= []).push(r));
+  let h = '';
+  Object.keys(byO).forEach(o=>{
+    h += `<div class="grp">${o} · ${byO[o].length}</div>`;
+    byO[o].forEach((r,k)=>{
+      const a = r.t==='a';
+      const old = !a && k>0;
+      h += `<button class="row${old?' old':''}" data-o="${o}" data-i="${r.f._i}">
+        <span class="mark ${r.t}"><svg class="ic" style="width:18px;height:18px"><use href="#${a?'i-siren':'i-hint'}"/></svg></span>
+        <span class="t"><b>${r.f.properties.r}${a?'':'<span class="tag" style="color:var(--hint)">неофіційно</span>'}</b>
+        <small>${a?'Офіційна повітряна тривога':r.f._hint}${old?' · дані застарівають':''}</small></span><time>${r.time}</time></button>`;
+    });
+  });
+  $('list').innerHTML = h;
+  $('list').querySelectorAll('.row').forEach(b=>b.onclick=()=>{ const f=g.features.find(x=>x.properties.o===b.dataset.o&&x._i==b.dataset.i); select(f,f._el); });
+}
+
+function select(f, el){
+  document.querySelectorAll('#map .sel').forEach(n=>n.classList.remove('sel'));
+  el.classList.add('sel'); el.parentNode.appendChild(el);
+  const o=f.properties.o, r=f.properties.r;
+  const c = $('card'); c.hidden=false; document.body.classList.add('has-card');
+  const official = f._alert
+    ? `<div class="blk a"><h3><span>Офіційна тривога</span><span>alerts.in.ua</span></h3>
+         <div class="big">з 14:${10+f._i*7}</div>
+         <div class="kv"><span>Триває</span><b>${50-f._i*7} хв</b></div>
+         <div class="kv"><span>Тип</span><b>Повітряна тривога</b></div></div>`
+    : `<div class="blk"><h3><span>Офіційна тривога</span></h3><div class="big" style="color:var(--ok)">Тривоги немає</div><div class="kv"><span>Останній відбій</span><b>вчора, 23:41</b></div></div>`;
+  const unofficial = f._hint
+    ? `<div class="blk h"><h3><span>Неофіційні повідомлення</span><span class="tag" style="color:var(--hint)">не підтверджено</span></h3>
+         <div class="kv"><span>Категорія</span><b>${f._hint.split(' · ')[0]}</b></div>
+         <div class="kv"><span>Кількість</span><b>${f._hint.split(' · ')[1]}</b></div>
+         <div class="kv"><span>Оновлено</span><b>≈ 14:55</b></div></div>`
+    : `<div class="blk"><h3><span>Неофіційні повідомлення</span></h3><div class="kv"><span>Немає активних повідомлень</span></div></div>`;
+  c.innerHTML = `<button class="x" aria-label="Закрити картку"><svg class="ic"><use href="#i-close"/></svg></button>
+    <h2>${r} район</h2><div class="sub">${o}${o.length<9?'':' область'}</div>${official}${unofficial}`;
+  c.querySelector('.x').onclick = ()=>{ c.hidden=true; el.classList.remove('sel'); document.body.classList.remove('has-card'); };
+  requestAnimationFrame(()=>document.documentElement.style.setProperty('--cardH', c.getBoundingClientRect().height+'px'));
+}
+
+// шторка на mobile: peek / half / full
+const sh = $('sheet');
+$('grab').onclick = ()=>{ const s = sh.classList.contains('peek')?'':(sh.classList.contains('full')?'peek':'full'); sh.classList.remove('peek','full'); if(s) sh.classList.add(s); sizeTools(); };
+function sizeTools(){ if(innerWidth<900) document.documentElement.style.setProperty('--sheetH', sh.getBoundingClientRect().height+'px'); }
+if (P.get('sheet')) sh.classList.add(P.get('sheet')); sizeTools(); addEventListener('resize', sizeTools);
+
+// стани
+const st = P.get('state');
+const banner = $('banner'), fresh = $('fresh');
+if (st==='loading') $('loading').hidden = false;
+if (st==='offline'){ banner.hidden=false; banner.innerHTML='<svg class="ic"><use href="#i-hint"/></svg>Немає зв’язку, показано останні дані'; fresh.classList.add('off'); $('freshT').textContent='оновлено 4 хв тому'; }
+if (st==='stale'){ banner.hidden=false; banner.innerHTML='<svg class="ic"><use href="#i-hint"/></svg>Дані застарілі. Орієнтуйтесь на сирену'; fresh.classList.add('stale'); $('freshT').textContent='оновлено 18 хв тому'; $('my').classList.add('nodata'); $('myT').textContent='Немає свіжих даних · Київська обл.'; }
+if (st==='alert'){ $('my').classList.add('alert'); $('myT').textContent='ТРИВОГА з 14:32 · Київська обл.'; }
+</script>
+</body>
+</html>
