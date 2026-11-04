@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0b0e14">
 <title>AirRadar AI — Карта загроз</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; background: #0b0e14; font-family: -apple-system, 'Segoe UI', sans-serif; color: #fff; overflow: hidden; }
@@ -478,18 +478,13 @@ function citySlugsOf(text, max = 3) {
 
 // Київские события вешаем на конкретный берег, если источник его назвал.
 function pinSlugOf(t) {
-  if (t.region !== 'kyivska') return t.region;
-  const lower = (t.text || '').toLowerCase();
-  const left = KYIV_BANK.kyiv_left.keys.some(k => lower.includes(k));
-  const right = KYIV_BANK.kyiv_right.keys.some(k => lower.includes(k));
-  if (left && !right) return 'kyiv_left';
-  if (right && !left) return 'kyiv_right';
-  return 'kyivska';
+  // Публічна карта: пін — центр області, без прив'язки до міста чи берега (точні позиції не публікуються).
+  return t.region;
 }
 
 // Пины события: упомянутые в тексте города/районы (до 3) → берег Киева → центр области.
 function pinsOf(t) {
-  const slugs = citySlugsOf(t.text);
+  const slugs = [];   // міста з тексту більше не дають піни: лише область (узагальнене положення)
   if (slugs.length) {
     return slugs
       .filter(s => CITY_COORDS[s])
@@ -563,9 +558,9 @@ function routeOf(t, pin) {
 }
 
 const TYPE_COLORS = {
-  ballistic: '#ff3b30', cruise_missile: '#ff3b30', missile: '#ff3b30',
-  shahed: '#ff9500', uav: '#ff9500', fpv: '#ff9500',
-  kab: '#ffcc00', aviation: '#ffcc00',
+  ballistic: '#ff3b30', cruise_missile: '#ff3b30', missile: '#ff3b30',   // ракети — червоні
+  shahed: '#ffd60a', uav: '#ffd60a', fpv: '#ffd60a',   // дрони — жовті
+  kab: '#ff9f0a', aviation: '#5ac8fa',
   explosion: '#ff2d55',
   alert: '#ffcc00', stand_down: '#34c759',
   mlrs: '#ff3b30', artillery: '#ff3b30',
@@ -650,9 +645,10 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
   const shape = TYPE_ICON_SHAPE[t.type] || 'warn';
   const size = ICON_SIZES[shape] || 24;
   const box = size + 8;
-  const glow = fresh ? `drop-shadow(0 0 5px ${color})` : `drop-shadow(0 0 2px ${color}aa)`;
+  const glow = confirmed ? `drop-shadow(0 0 7px ${color})` : (fresh ? `drop-shadow(0 0 5px ${color})` : `drop-shadow(0 0 2px ${color}aa)`);
   const rot = angle ? `transform:rotate(${angle}deg);` : '';
-  const stroke = confirmed ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.55)';
+  // Обводка тёмная у всех: модель остаётся цветной (жовта/червона), підтвердження — сильніше світіння, не біла заливка.
+  const stroke = '#0b0e14';
   const svg = (WEAPON_SVG[shape] || WEAPON_SVG.warn)
     .replaceAll('{c}', color)
     .replaceAll('{s}', stroke);
@@ -663,9 +659,9 @@ function weaponIconHtml(t, color, fresh, confirmed, angle) {
 
 // Данные встроены генератором (без API — автономная карта).
 const API_URL = null;
-const EMBEDDED_THREATS = [{"type": "uav", "region": "kharkivska", "text": "🏍 Харківщина: реактивний БпЛА курсом на Златопіль.", "sources": 1, "origin": "", "destination": "kharkivska", "track": {"from": [49.994, 36.231], "to": [51.498, 31.289], "from_name": "Харків", "to_name": "Чернігів", "speed_kmh": 1017.3, "course_deg": 298, "minutes": 28, "points": 3}, "age_min": 1}, {"type": "mlrs", "region": "sumska", "text": "І так, козаки зі знову не перестають дивувати 😎 Наша задача, як завжди, виявити та провести аналіз. А козаки вже знають, що робити далі. Що маємо за чотири дні? Мінус два БМ-21 «Град». Схоже, на…", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 18}, {"type": "mlrs", "region": "sumska", "text": "💥 Мінус ворожий БМ-21 «Град» на Сумському напрямку! Ця реактивна установка регулярно обстрілювала наші позиції та прикордонні населені пункти. Тепер її виявлено та остаточно перетворено на брухт…", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 19}, {"type": "uav", "region": "sumska", "text": "🟡 Сумський район — повітряна тривога, жовтий рівень: Дронова загроза (жовтий рівень)", "sources": 1, "origin": "", "destination": "sumska", "track": {"from": [49.994, 36.231], "to": [50.907, 34.798], "from_name": "Харків", "to_name": "Суми", "speed_kmh": 220.6, "course_deg": 316, "minutes": null, "points": 4}, "age_min": 27}, {"type": "uav", "region": "kharkivska", "text": "Харківщина: БпЛА на Богодухів", "sources": 1, "origin": "", "destination": "kharkivska", "track": {"from": [49.208, 37.249], "to": [51.498, 31.289], "from_name": "Ізюм", "to_name": "Чернігів", "speed_kmh": 603.7, "course_deg": 303, "minutes": 48, "points": 4}, "age_min": 28}];
+const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Київщина: БпЛА на Чорнобиль БпЛА на Немішаєве Кіровоградщина: БпЛА на Новомиргород Черкащина: БпЛА на Городище", "sources": 2, "origin": "", "destination": "multi", "track": null, "age_min": 4}, {"type": "uav", "region": "dnipropetrovska", "text": "🏍 Реактивний БпЛА на Дніпро.", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": null, "age_min": 8}, {"type": "uav", "region": "kyivska", "text": "Київщина: Реактивний БпЛА курсом на Стоянку", "sources": 4, "origin": "", "destination": "kyivska", "track": null, "age_min": 8}, {"type": "kab", "region": "odeska", "text": "Одещина - КАБ на Маяки", "sources": 1, "origin": "", "destination": "odeska", "track": null, "age_min": 14}, {"type": "stand_down", "region": "unknown", "text": "🟢 Роменський район — відбій повітряної тривоги", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 17}, {"type": "stand_down", "region": "sumska", "text": "🟢 Сумський район — відбій повітряної тривоги", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 17}, {"type": "kab", "region": "unknown", "text": "🛩Активність ворожої тактичної авіації в акваторії Чорного моря Загроза застосування авіаційного озброєння (КАР/КАБ", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 22}, {"type": "uav", "region": "unknown", "text": "БпЛА на [", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 23}, {"type": "uav", "region": "sumska", "text": "🛵 БпЛА на Суми з півночі.", "sources": 1, "origin": "", "destination": "sumska", "track": {"from": [48.508, 32.262], "to": [50.907, 34.798], "from_name": "Кропивницький", "to_name": "Суми", "speed_kmh": 192.3, "course_deg": 33, "minutes": null, "points": 4}, "age_min": 24}, {"type": "uav", "region": "kirovohradska", "text": "🏍 Реактивний БпЛА на заході Харківщини, курс на північ. 🏍 Реактивний БпЛА в напрямку Прилук зі сходу. 🏍 Реактивний БпЛА на Олександрію зі сходу.", "sources": 1, "origin": "", "destination": "kirovohradska", "track": null, "age_min": 26}, {"type": "tac_aviation", "region": "unknown", "text": "Активність Су-34", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 27}];
 const EMBEDDED_REPORTS = [];
-const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 102, "standdown_hits": 4, "standdown_total": 8}, "kharkivska": {"standdown_min": 46, "standdown_live": true, "standdown_hits": 2, "standdown_total": 5, "wave_hours": {"from": 23, "to": 5}}};
+const EMBEDDED_FORECAST = {"kirovohradska": {"standdown_min": 13, "standdown_live": false, "standdown_hits": 2, "standdown_total": 4}, "sumska": {"standdown_min": 20, "standdown_live": false, "next_wave_min": 77, "standdown_hits": 4, "standdown_total": 8}, "odeska": {"standdown_min": 3, "standdown_live": false, "wave_hours": {"from": 21, "to": 3}}, "kyivska": {"standdown_min": 4, "standdown_live": true, "next_wave_min": 67, "standdown_hits": 4, "standdown_total": 8}};
 const CHANNEL_URL = 'https://t.me/AirRadarAI';
 
 // === Микро-звуки + хаптика (тактический фидбек) ===
@@ -1111,7 +1107,8 @@ function renderAll() {
     const marker = L.marker(coords, {
       icon: L.divIcon({
         className: '',
-        html: weaponIconHtml(top, color, fresh, confirmed, angle) +
+        // Силует нейтральний: колір загрози — у зоні/векторі (color), не в самій моделі.
+        html: weaponIconHtml(top, '#e9edf3', fresh, confirmed, angle) +
           (approach ? `<span style="position:absolute;left:26px;top:-8px;background:#ff3b30;` +
             `color:#fff;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:8px;` +
             `border:1px solid rgba(255,255,255,0.75);text-shadow:0 0 3px #000;white-space:nowrap">` +
