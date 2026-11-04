@@ -61,6 +61,8 @@ def setup_logging(level: str) -> None:
         datefmt="%Y-%m-%d %H:%M:%S",
         stream=sys.stdout,
     )
+    from airradar.security import hardening
+    hardening.install_log_redaction()   # токени/ключі/координати не потрапляють у логи
     # Telethon очень разговорчив на DEBUG — приглушим до WARNING, если не debug.
     if level != "DEBUG":
         logging.getLogger("telethon").setLevel(logging.WARNING)
@@ -70,6 +72,8 @@ def setup_logging(level: str) -> None:
 async def run() -> None:
     """Главная асинхронная точка: инициализация всего и запуск Telethon."""
     settings = config.load_settings()
+    from airradar.security import hardening as _hard
+    _hard.harden_file_permissions(_hard.sensitive_paths(settings.db_path, settings.session_name))   # .env/сесія/БД/бекапи — лише власнику
     setup_logging(settings.log_level)
 
     logger.info("AirRadar AI запускается…")

@@ -308,12 +308,15 @@ _TAIL_RESIDUE_RE = re.compile(rf"\n[\s{_SIG_DECOR}\[\]{{}}()«»·—-]*$")
 
 def _strip_channel_links(text: str) -> str:
     """Вырезать подписи канала: t.me-ссылки и декоративные вставки ✙…✙."""
-    text = _TME_MARKDOWN_RE.sub(" ", text)
-    text = _TME_URL_RE.sub(" ", text)
+    # Регулярки з ведучим \s* квадратичні на «стіні» пробілів — запускаємо лише якщо маркер справді є в тексті.
+    if "t.me/" in text:
+        text = _TME_MARKDOWN_RE.sub(" ", text)
+        text = _TME_URL_RE.sub(" ", text)
     # Пары декоративных символов убираем итеративно: «✙✙» после вырезания
     # ссылки — тоже подпись. Достаточно двух проходов.
-    text = _DECORATED_SIG_RE.sub(" ", text)
-    text = _DECORATED_SIG_RE.sub(" ", text)
+    if any(c in text for c in _SIG_DECOR):
+        text = _DECORATED_SIG_RE.sub(" ", text)
+        text = _DECORATED_SIG_RE.sub(" ", text)
     # Хвост-обрывок подписи («✙[», «✙✙») после последнего переноса — мусор.
     text = _TAIL_RESIDUE_RE.sub("", text)
     return text
@@ -331,6 +334,9 @@ def clean_signature(text: str) -> str:
     """
     if not text:
         return text
+    # Захист від квадратичної поведінки регулярок на «стіні» з пробілів/переносів (4000 переносів = ~0.5 с блокування циклу).
+    text = re.sub(r"\n{3,}", "\n\n", text[:8000])
+    text = re.sub(r"[ \t]{3,}", "  ", text)
     lowered = text.lower()
     cut_at = len(text)
     for marker in _SIGNATURE_MARKERS:

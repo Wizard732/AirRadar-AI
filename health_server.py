@@ -426,7 +426,8 @@ async def _api_stats(request: web.Request) -> web.Response:  # noqa: ANN001
         counts = _app_db.threat_counts(region=None, since=day)
         return web.json_response({"counts": counts, "total": sum(counts.values())})
     except Exception as exc:  # noqa: BLE001
-        return web.json_response({"error": str(exc)})
+        logger.warning("API /api/stats error: %s", exc)
+        return web.json_response({"error": "temporarily unavailable"}, status=503)   # без тексту винятку назовні
 
 
 async def _serve_forever(port: int) -> None:
@@ -442,7 +443,8 @@ async def _serve_forever(port: int) -> None:
         resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
         return resp
 
-    app = web.Application(middlewares=[cors])
+    from airradar.security import hardening
+    app = web.Application(middlewares=[hardening.make_security_middleware(), cors], client_max_size=64 * 1024)
     app.router.add_get("/health", _health)
     app.router.add_get("/api/threats", _api_threats)
     app.router.add_get("/api/stats", _api_stats)
@@ -469,7 +471,8 @@ async def _serve_forever(port: int) -> None:
     app.router.add_get("/map", map_handler)
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
+    # HTTP_BIND=127.0.0.1 — якщо перед сервісом стоїть тунель/реверс-проксі на цьому ж хості (рекомендовано); за замовчуванням як раніше.
+    site = web.TCPSite(runner, os.getenv("HTTP_BIND", "0.0.0.0"), port)
     await site.start()
     logger.info("HTTP-сервер на порту %s (health + API /api/threats)", port)
     await asyncio.Event().wait()

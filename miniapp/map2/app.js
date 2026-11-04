@@ -714,7 +714,7 @@
 
   // ---------- збережені місця (дім, робота…): лише в цьому браузері, з колом і попередженнями ----------
   const PLACES_KEY = 'airradar.map2.places';
-  let places = (() => { try { const v = JSON.parse(lsGet(PLACES_KEY) || '[]'); return Array.isArray(v) ? v.filter(p => p && isFinite(p.lat) && isFinite(p.lon)).slice(0, 5) : []; } catch (e) { return []; } })();
+  let places = (() => { try { const v = JSON.parse(lsGet(PLACES_KEY) || '[]'); return Array.isArray(v) ? v.filter(p => p && isFinite(p.lat) && isFinite(p.lon)).slice(0, 5).map(p => ({ id: String(p.id || '').replace(/[^\w-]/g, '').slice(0, 24) || 'p' + Math.random().toString(36).slice(2, 8), name: String(p.name || 'Місце').slice(0, 24), lat: +p.lat, lon: +p.lon, r: Math.max(5, Math.min(150, Number(p.r) || 25)) })) : []; } catch (e) { return []; } })();
   let placeNear = new Map(), placeWarned = new Set();
   const savePlaces = () => lsSet(PLACES_KEY, JSON.stringify(places));
   function placesApply() {

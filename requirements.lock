@@ -1,0 +1,33 @@
+# Зафіксовані версії, з якими пройшли 697 тестів (2026-11-04). Встановлення: pip install -r requirements.lock
+# Оновлювати свідомо (pip-audit/dependabot), а не автоматично.
+aiohappyeyeballs==2.7.1
+aiohttp==3.14.5
+aiosignal==1.4.0
+attrs==26.1.0
+certifi==2026.10.23
+cffi==2.1.1
+charset-normalizer==3.5.2
+cryptg==0.6.0
+cryptography==50.0.2
+edge-tts==7.3.1
+frozenlist==1.8.0
+google-auth==2.62.0
+http_ece==1.2.1
+idna==3.20
+multidict==7.2.1
+packaging==26.3
+propcache==0.5.4
+py-vapid==1.9.6
+pyaes==1.6.1
+pyasn1==0.6.5
+pyasn1_modules==0.4.2
+pycparser==3.12
+python-dotenv==1.2.4
+pywebpush==2.5.0
+requests==2.34.2
+rsa==4.9.1
+tabulate==0.10.0
+Telethon==1.45.0
+typing_extensions==4.16.0
+urllib3==2.8.0
+yarl==1.25.1
