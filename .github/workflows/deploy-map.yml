@@ -60,3 +60,4 @@ jobs:
 
       - id: deployment
         uses: actions/deploy-pages@v4
+# Pages пересобирається лише від push у main; radar-data (без workflow-файлу) його не запускає.
