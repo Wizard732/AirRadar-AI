@@ -14,8 +14,9 @@ from pathlib import Path
 
 from config import load_settings
 from database import Database
+from airradar.safety import public_view as _pv
 from airradar.safety.public_view import public_impacts, regions_contract
-from health_server import history_payload, public_payload
+from health_server import history_payload, public_delay_s, public_payload
 from impact_log import impacts_payload
 from stats_engine import stats_payload
 from track_engine import build_tracks
@@ -52,8 +53,10 @@ def main() -> int:
     # Формат — PUBLIC_MODE (за замовчуванням повні дані; region — узагальнено), затримка — TRACKS_PUBLIC_DELAY_MIN.
     payload = public_payload(db, WINDOW_MIN, now)
     changed |= _write_if_changed(out / "tracks.json", payload, ("now", "updated_at"), 1800)
-    if payload.get("public"):
-        changed |= _write_if_changed(out / "public-regions.json", regions_contract(payload), ("now", "updated_at"), 1800)
+    # public-regions.json потрібен карті Mini App на Pages завжди (як і живий /api/public/v1/regions): у legacy-режимі
+    # payload повний, тож контракт будуємо так само, як це робить API, — без координат і службових полів.
+    pub = payload if payload.get("public") else _pv.build_public(payload, now - public_delay_s(), public_delay_s() // 60)
+    changed |= _write_if_changed(out / "public-regions.json", regions_contract(pub), ("now", "updated_at"), 1800)
     changed |= _write_if_changed(out / "alerts_hist.json", history_payload(db, now, 7), ("now",), 600)
     changed |= _write_if_changed(out / "stats.json", stats_payload(db, now), ("now",), 900)
     # Наслідки: як раніше (затримка IMPACT_DELAY_MIN); у режимі PUBLIC_MODE=region — агреговано за областю (docs/impacts-audit.md).
