@@ -112,7 +112,7 @@ class Settings:
     # Публиковать только угрозы «в воздухе» (стадия imminent). Посты без
     # глагола движения («3 БпЛА на Путивль» без «летить») пишутся в БД и
     # карту, но не публикуются в канал. Отбой проходит всегда.
-    in_flight_only: bool = True
+    in_flight_only: bool = False
 
     # Проактивное предупреждение «можлива нова тривога»: после отбоя, когда
     # статистика региона (медіана «відбій → нова тривога») подходит к сроку,
@@ -134,7 +134,7 @@ class Settings:
     # подтверждения (2+ независимых источника). В БД/карту пишется сразу,
     # поэтому при реальном подтверждении пост уходит байпасом. Выключение
     # возвращает прежний мгновенный CRITICAL-байпас.
-    critical_needs_confirmation: bool = True
+    critical_needs_confirmation: bool = False
 
     # Официальные сирены alerts.in.ua (https://alerts.in.ua/api).
     # Пусто = опрос выключен, бот живёт как раньше.
@@ -212,11 +212,11 @@ def load_settings() -> Settings:
         active_threat_ttl=max(60, int(os.getenv("ACTIVE_THREAT_TTL", "1800"))),
         confirmation_sources=max(2, int(os.getenv("CONFIRMATION_SOURCES", "2"))),
         aggregate_window_sec=max(5, int(os.getenv("AGGREGATE_WINDOW_SEC", "35"))),
-        in_flight_only=os.getenv("IN_FLIGHT_ONLY", "1").strip() not in ("0", "false", "no"),
+        in_flight_only=os.getenv("IN_FLIGHT_ONLY", "0").strip() not in ("0", "false", "no"),
         extras_enabled=os.getenv("EXTRAS", "0").strip() in ("1", "true", "yes"),
         pre_wave_notice=os.getenv("PRE_WAVE_NOTICE", "1").strip() not in ("0", "false", "no"),
         standdown_notice=os.getenv("STANDDOWN_NOTICE", "1").strip() not in ("0", "false", "no"),
-        critical_needs_confirmation=os.getenv("CRITICAL_NEEDS_CONFIRMATION", "1").strip() not in ("0", "false", "no"),
+        critical_needs_confirmation=os.getenv("CRITICAL_NEEDS_CONFIRMATION", "0").strip() in ("1", "true", "yes"),
         alerts_in_ua_token=os.getenv("ALERTS_IN_UA_TOKEN", "").strip(),
         accuracy_post_enabled=os.getenv("ACCURACY_POST", "0").strip() not in ("0", "false", "no"),
         accuracy_post_weekday=min(6, max(0, int(os.getenv("ACCURACY_POST_DAY", "1")))),

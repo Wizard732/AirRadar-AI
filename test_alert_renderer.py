@@ -156,3 +156,20 @@ class EvidenceAlertTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HarshWordingTests(unittest.TestCase):
+    def _render(self, text, weapon, status):
+        fact = extract_incident_fact(text, weapon, "imminent")
+        return render_evidence_alert(text=text, source="s", event_ts=1_700_000_000, fact=fact,
+                                     confirmation={"status": status, "sources": 1, "count_kind": "unspecified"})
+
+    def test_critical_weapon_gets_direct_order_even_when_unconfirmed(self):
+        r = self._render("Балістика на Київ", "ballistic", "reported")
+        self.assertIn("⛔ НЕГАЙНО В УКРИТТЯ", r)
+        self.assertIn("вважайте загрозу реальною", r)
+        r = self._render("КАБи на Суми", "kab", "reported")
+        self.assertIn("⛔ НЕГАЙНО В УКРИТТЯ", r)
+
+    def test_drones_do_not_get_shelter_order(self):
+        self.assertNotIn("НЕГАЙНО", self._render("БпЛА на Одесу", "uav", "reported"))

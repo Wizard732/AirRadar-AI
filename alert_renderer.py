@@ -270,10 +270,16 @@ def render_evidence_alert(
         lines.append(trk)
     elif vec:
         lines.append(vec)
+    critical = weapon_severity(fact.weapon_class) == "CRITICAL"
+    if critical:
+        # Жорстко й прямо: для балістики/ракет/КАБ — одна команда без «орієнтовно» і застережень
+        lines.insert(1, "⛔ НЕГАЙНО В УКРИТТЯ")
     if lag_s > 600:  # пост обробили із запізненням — не видаємо за свіже
         lines.append(f"⏳ Повідомлення опубліковано {lag_s // 60} хв тому — інформація може бути застарілою.")
     status_line = _status(confirmation)
     tag = ("✅ " if status_line.startswith("підтверджено") else "❔ ") + status_line
+    if critical and not status_line.startswith("підтверджено"):
+        tag += " — вважайте загрозу реальною"
     lines.append(f"🕒 {when} · {tag}")
     # Текст источника — недоверенные данные: без разметки; лимит 1200, чтобы сводки
     # мониторинга не резались на полуслове (лимит Telegram 4096 страхует сверху).

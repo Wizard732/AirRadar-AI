@@ -10,7 +10,7 @@ ROOT = Path(__file__).parent
 @unittest.skipUnless(shutil.which("node"), "node не встановлено")
 class Map2AlertStateTests(unittest.TestCase):
     def test_node_suite(self):
-        r = subprocess.run(["node", "--test", str(ROOT / "miniapp" / "map2" / "test")], capture_output=True, text=True, timeout=60)
+        r = subprocess.run(["node", "--test", *sorted(str(p) for p in (ROOT / "miniapp" / "map2" / "test").glob("*.test.js"))], capture_output=True, text=True, timeout=60)
         self.assertEqual(r.returncode, 0, r.stdout[-3000:] + r.stderr[-1500:])
 
     def test_public_client_has_no_private_fields(self):

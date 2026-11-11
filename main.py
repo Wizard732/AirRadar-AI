@@ -761,7 +761,7 @@ async def _process_message(
         # like «3 БпЛА на Путивль» have no motion verb, so stage "unknown"
         # is still actionable. Predictive or generic aviation noise stays
         # internal, while all-clear must always reach the channel.
-        public_class = weapon not in {"aviation", "tac_aviation", "strat_aviation", "alert"}
+        public_class = weapon not in {"alert"}   # авіація (Су-34/35, Ту-95) теж публікується: це попередження про пуски КАБ/ракет
         # IN_FLIGHT_ONLY (по умолчанию): в канал летит только то, что уже в
         # воздухе (imminent) либо отбой. Стадия unknown («3 БпЛА на Путивль»
         # без глагола движения) пишется в БД/карту, но не публикуется —
