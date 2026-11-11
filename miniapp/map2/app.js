@@ -206,6 +206,7 @@
     else if (statusOf(myId) === 'alert') { el.classList.add('alert'); t.textContent = 'ТРИВОГА · ' + name; }
     else if (statusOf(myId) === 'warn') { el.classList.add('alert'); t.textContent = 'Загроза поруч · ' + name; }
     else t.textContent = 'Тривоги немає · ' + name;
+    if (typeof renderVerdict === 'function') renderVerdict();
   }
   $('my').onclick = async () => {
     if (myId && infoById.has(myId)) { amap.select(myId); amap.flyTo(myId, flyPad()); openCard(myId); return; }
@@ -758,6 +759,7 @@
     $('legTg').hidden = !(tgtOn && tgt.tracks.length); $('disc').hidden = $('discNote').hidden = !(tgtOn && tgt.tracks.length);
     $('t-tgt').setAttribute('aria-pressed', String(tgtOn)); $('t-tgt').title = 'Цілі' + (tgt.tracks.length ? ': ' + fresh + ' актуальних' : '');
     tgtWatch(); if (mePos) meApply(); if (places.length) placesApply(); else amap.setPlaces([]);
+    renderVerdict();
     if (cardMode === 'targets') renderTargets(); else if (cardMode === 'target' && tgtSel) renderTarget(tgtSel);
   }
   function renderTgtBar() {
@@ -782,11 +784,44 @@
     tgtWarned = keys;                                                         // ціль зникла або пройшла: ключ скидається, наступна поява попередить знову
     if (fresh.length) {
       const txt = fresh.slice(0, 2).map(w => w.t.kind.short + (w.t.count > 1 ? ' ×' + w.t.count : '') + ' курсом на ' + infoById.get(w.id).r + ' район' + (w.eta ? ' · ' + Tracks.fmtEta(Tracks.etaRange(w.eta, w.t.speedSource)) : '')).join(' · ') + (fresh.length > 2 ? ' · ще ' + (fresh.length - 2) + ' (див. вкладку «Моє»)' : '');
-      flash('Попередження: ' + txt, 12000);
+      if ($('verdict').hidden) flash('Попередження: ' + txt, 12000);   // з плашкою-вердиктом тост дублював би її
       if (notifyCfg.on) { if (notifyCfg.sound) { beep('alert'); vibrate([250, 120, 250]); } if (notifyCfg.system && document.hidden && 'Notification' in window && Notification.permission === 'granted') { try { new Notification('AirRadar: попередження', { body: txt, tag: 'ar-tgt-' + fresh[0].t.id }); } catch (e) { /* ignore */ } } }
     }
     if (tab === 'mine') renderMine();
   }
+  // ---------- вердикт «що загрожує мені зараз»: одна велика плашка, найважливіше з усього, що відомо ----------
+  const V_EMO = { shahed: '🛵', uav: '🛵', cruise_missile: '🚀', ballistic: '🚀' };
+  function verdictCompute() {
+    const name = myId && infoById.has(myId) ? infoById.get(myId).r + ' район' : null;
+    const where = mePos && !mePos.approx ? 'біля вас' : name;
+    if (!where) return { lvl: 'none', t: 'Де ви? Оберіть район', s: 'Або дозвольте геолокацію: покажу, що летить саме до вас' };
+    if (tgtErr || tgt.feedStale) return { lvl: 'nodata', t: 'Немає свіжих даних про цілі', s: 'Слухайте сирену й офіційні повідомлення · ' + where };
+    const thr = new Map();
+    const add = x => { const o = thr.get(x.id); if (!o || (x.eta != null && (o.eta == null || x.eta < o.eta))) thr.set(x.id, Object.assign({}, o || {}, x)); };
+    tgtWarnList.forEach(w => add({ id: w.t.id, t: w.t, eta: w.eta || 0, km: null, side: '', via: infoById.get(w.id).r + ' район' }));
+    if (mePos) meNear.forEach(n => add({ id: n.t.id, t: n.t, eta: n.etaMin, km: Math.round(n.km), side: n.side, inside: n.inside, toMe: n.toMe }));
+    const list = [...thr.values()].sort((a, b) => ((a.eta == null ? 999 : a.eta) - (b.eta == null ? 999 : b.eta)) || ((a.km == null ? 999 : a.km) - (b.km == null ? 999 : b.km)));
+    const off = myId ? statusOf(myId) : null;
+    const line = x => (V_EMO[x.t.weapon] || '🎯') + ' ' + x.t.kind.short + (x.t.count > 1 ? ' ×' + x.t.count : '');
+    const detail = x => [x.eta ? '≈ ' + x.eta + ' хв' : (x.eta === 0 ? 'уже поруч' : ''), x.km != null ? x.km + ' км' + (x.side ? ', ' + x.side : '') : (x.via ? 'курс на ' + x.via : '')].filter(Boolean).join(' · ');
+    const top = list[0];
+    if (off === 'alert') return { lvl: 'alert', t: '🔴 ТРИВОГА · ' + where, s: top ? line(top) + ' · ' + detail(top) + ' — в укриття' : 'В укриття негайно. Цілей із курсом на вас у даних поки немає' };
+    if (top) {
+      const hot = top.inside || (top.eta != null && top.eta <= 10) || (top.km != null && top.km <= 10);
+      return { lvl: hot ? 'alert' : 'warn', t: line(top) + ' → ' + where, s: detail(top) + (hot ? ' — в укриття' : '') + (list.length > 1 ? ' · ще ' + (list.length - 1) : '') };
+    }
+    if (off === 'warn') return { lvl: 'warn', t: '🟠 Загроза поруч · ' + where, s: 'Офіційне попередження. Цілей із курсом на вас у даних немає' };
+    return { lvl: 'ok', t: '🟢 Цілей на підльоті немає · ' + where, s: 'Це не означає, що безпечно: слухайте сирену' };
+  }
+  function renderVerdict() {
+    const el = $('verdict'); if (!el) return;
+    if (!feats.length) { el.hidden = true; document.body.classList.remove('has-verdict'); return; }
+    const v = verdictCompute();
+    el.className = 'verdict ' + v.lvl; el.hidden = false;
+    el.innerHTML = '<span><b>' + esc(v.t) + '</b><small>' + esc(v.s) + '</small></span>';
+    document.body.classList.add('has-verdict');
+  }
+  $('verdict').onclick = () => { if (!myId && !mePos) $('my').click(); else if (mePos) { openTargets(); } else $('my').click(); };
   function tgtWarnHtml(idFilter) {
     const l = tgtWarnList.filter(w => !idFilter || w.id === idFilter); if (!l.length) return '';
     return l.map(w => '<div class="tgtwarn" role="alert">' + esc(w.t.kind.short) + (w.t.count > 1 ? ' × ' + w.t.count : '') + ': прогноз веде на ' + esc(infoById.get(w.id).r) + ' район' + (w.eta ? ' · ' + Tracks.fmtEta(Tracks.etaRange(w.eta, w.t.speedSource)) : ' · уже поруч') +
