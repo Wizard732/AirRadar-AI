@@ -164,8 +164,9 @@ async def run() -> None:
         register_guard_handlers(bot_client, db)
         register_handlers(bot_client, db, settings.admin_id, settings.webapp_url, settings.map_webapp_url)
         # Interests-модуль: команды /add_channel, /my_channels + кнопки тем.
-        from interests_ui import register_interests_handlers
-        register_interests_handlers(bot_client, db, settings.admin_id)
+        if settings.interests_enabled:
+            from interests_ui import register_interests_handlers
+            register_interests_handlers(bot_client, db, settings.admin_id)
         # Админка (5.4): /status, /give_admin, /ban_channel.
         from admin_ui import register_admin_handlers
         register_admin_handlers(bot_client, db, settings.admin_id)
@@ -301,22 +302,26 @@ async def run() -> None:
 
     interests = InterestsChannelTracker(client, db)
 
-    @client.on(events.NewMessage())
-    async def interests_handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
-        if not interests.is_tracked(event.chat_id):
-            return
-        await process_interests_message(
-            event, summarizer, dedup, db, bot_client,
-            http_session, settings.groq_api_key, settings.groq_vision_model,
-        )
+    async def _no_interests() -> None:   # модуль вимкнено (INTERESTS_ENABLED=0): ні хендлера, ні опитування каналів
+        await asyncio.Event().wait()   # просто висить до cancel() при зупинці
 
-    # Первичный резолв user-каналов + фоновая синхронизация новых (/add_channel).
-    await interests.resolve_new()
-    if interests.ids:
-        logger.info("Interests: подключено user-каналов: %d", len(interests.ids))
-    interests_task = asyncio.create_task(
-        interests.refresh_loop(), name="interests-refresh"
-    )
+    if settings.interests_enabled:
+        @client.on(events.NewMessage())
+        async def interests_handler(event: events.NewMessage.Event) -> None:  # noqa: ANN001
+            if not interests.is_tracked(event.chat_id):
+                return
+            await process_interests_message(
+                event, summarizer, dedup, db, bot_client,
+                http_session, settings.groq_api_key, settings.groq_vision_model,
+            )
+
+        # Первичный резолв user-каналов + фоновая синхронизация новых (/add_channel).
+        await interests.resolve_new()
+        if interests.ids:
+            logger.info("Interests: подключено user-каналов: %d", len(interests.ids))
+        interests_task = asyncio.create_task(interests.refresh_loop(), name="interests-refresh")
+    else:
+        interests_task = asyncio.create_task(_no_interests(), name="interests-off")
 
     # --- фоновый healthcheck Ollama ---
     health_task = asyncio.create_task(
@@ -486,7 +491,7 @@ async def run() -> None:
     except Exception:  # noqa: BLE001 — відновлення не має блокувати старт
         logger.exception("Агрегатор: помилка відновлення")
     try:
-        await stop_event.wait()
+        await asyncio.Event().wait()   # просто висить до cancel() при зупинці
     except KeyboardInterrupt:
         logger.info("Ctrl+C — выходим.")
     finally:
