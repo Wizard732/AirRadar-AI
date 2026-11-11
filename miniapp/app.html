@@ -71,7 +71,8 @@ const params = new URLSearchParams(location.search);
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const CATS = { drone: ['БпЛА', '🛸'], missile: ['Ракети', '🚀'], kab: ['КАБ', '💣'], air: ['Авіація', '✈️'], fpv: ['FPV', '✦'], arty: ['РСЗО/арт.', '💥'] };
-const dataURL = n => new URL(n, window.AIRRADAR_DATA_BASE || document.baseURI).href + '?t=' + Math.floor(Date.now() / 60000);
+const RAW_DATA = 'https://raw.githubusercontent.com/Wizard732/AirRadar-AI/radar-data/';   // свіжі дані прямо з гілки radar-data (Pages від неї не перезбирається)
+const dataURL = n => new URL(n, window.AIRRADAR_DATA_BASE || (/github\.io$/.test(location.hostname) && n !== 'raions.json' ? RAW_DATA : document.baseURI)).href + '?t=' + Math.floor(Date.now() / 60000);
 const fetchJSON = async n => { const r = await fetch(dataURL(n), { cache: 'no-store' }); if (!r.ok) throw new Error(n + ' ' + r.status); return r.json(); };
 const fmtUpd = ts => ts ? 'Оновлено ' + new Date(ts * 1000).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' }) : '';
 const chips = c => Object.keys(CATS).filter(k => c[k]).map(k => `<span class="chip">${CATS[k][1]} ${CATS[k][0]} ${c[k]}</span>`).join('');

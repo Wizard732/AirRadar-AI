@@ -15,13 +15,14 @@ _SCHEMA = ("CREATE TABLE IF NOT EXISTS alert_state (name TEXT PRIMARY KEY, activ
 
 DEFAULT_THRESHOLDS = {
     "source_silent_s": 3 * 3600,
+    "source_dead_s": 3 * 86400,
     "queue_pending_max": 200,
     "disk_free_min_mb": 500,
-    "pipeline_p95_max_ms": 30000,
+    "pipeline_p95_max_ms": 60000,
     "push_fail_ratio_max": 0.5,
     "backup_max_age_s": 36 * 3600,
 }
-COOLDOWN_S = 3600
+COOLDOWN_S = 6 * 3600   # адмін-сповіщення про той самий стан не частіше раз на 6 год
 
 
 def thresholds() -> dict:
@@ -104,8 +105,10 @@ def evaluate(db, *, now: int | None = None) -> list[str]:
         msgs.append(check(db, "backup_stale", age > th["backup_max_age_s"], f"Остання резервна копія {age // 3600} год тому", now=now))
     try:
         rows = db.all_channel_health()
-        silent = [r["channel"] for r in rows if not r.get("disabled") and r.get("last_seen") and now - r["last_seen"] > th["source_silent_s"]]
-        msgs.append(check(db, "sources_silent", bool(silent), f"Джерела мовчать: {', '.join(silent[:5])}", now=now))
+        # лише військові джерела (interests-канали за природою рідкісні) і не «мертві» понад 3 доби (покинуті/невірні id)
+        silent = [r["channel"] for r in rows if not r.get("disabled") and r.get("last_seen") and r.get("module", "military") == "military"
+                  and th["source_silent_s"] < now - r["last_seen"] < th["source_dead_s"]]
+        msgs.append(check(db, "sources_silent", bool(silent), f"Мовчать понад 3 год: {', '.join(silent[:5])}" + (f" (+{len(silent) - 5})" if len(silent) > 5 else ""), now=now))
     except Exception:  # noqa: BLE001
         logging.getLogger(__name__).warning("подавлена помилка (%s:%d)", 'alerts.py', 108, exc_info=True)
     return [m for m in msgs if m]

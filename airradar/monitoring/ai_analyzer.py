@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 
 from admin_notify import notify_admins
@@ -101,7 +102,8 @@ async def analyze(db: Database, summarizer=None, hours: int = 24) -> str:
     issues = find_issues(m)
     body = ["🧠 <b>ІІ-аналіз системи</b>", "", render_metrics(m), ""]
     body.append("⚠️ <b>Проблеми</b>:\n" + "\n".join(f"• {i}" for i in issues) if issues else "✅ Проблем не знайдено.")
-    if summarizer is not None and issues:
+    # вільний «висновок» малої локальної моделі давав незв'язний текст — за замовчуванням лише факти (AI_ANALYZER_VERDICT=1 вмикає)
+    if summarizer is not None and issues and os.getenv("AI_ANALYZER_VERDICT", "0") == "1":
         prompt = render_metrics(m) + "\nПроблеми:\n" + "\n".join(issues)
         try:
             ai = await asyncio.wait_for(summarizer.classify(prompt, SYSTEM_PROMPT, max_tokens=500), timeout=90)

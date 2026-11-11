@@ -9,6 +9,8 @@ on:
   push:
     branches: [main, radar-data]
     paths: ["map_live.html", "miniapp/**", ".github/workflows/deploy-map.yml", "tracks.json", "stats.json", "impacts.json", "alerts_hist.json"]
+  schedule:
+    - cron: "*/10 * * * *"   # запасний шлях: копія даних на Pages оновлюється й без push у main
   workflow_dispatch: {}
 
 permissions:
@@ -46,6 +48,7 @@ jobs:
           echo '<!doctype html><meta charset=utf-8><meta http-equiv=refresh content="0;url=../"><a href="../">radar</a>' > site/radar/index.html
           if git fetch --depth=1 origin radar-data 2>/dev/null; then
             for f in tracks public-regions stats impacts alerts_hist; do git show FETCH_HEAD:$f.json > site/$f.json 2>/dev/null || true; done
+            git show FETCH_HEAD:map_live.html > site/snapshot.new 2>/dev/null && [ -s site/snapshot.new ] && mv site/snapshot.new site/snapshot.html || rm -f site/snapshot.new
           fi
           [ -s site/tracks.json ] || echo '{"now":0,"tracks":[],"events":[]}' > site/tracks.json
           [ -s site/alerts_hist.json ] || echo '{"now":0,"alerts":[],"events":[]}' > site/alerts_hist.json

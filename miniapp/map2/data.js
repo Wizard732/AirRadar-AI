@@ -18,6 +18,7 @@
   STEM_SLUG['Київ'] = 'kyivska'; STEM_SLUG['Севастополь'] = 'crimea';
   const CATEGORY = { drone: 'БпЛА', shahed: 'БпЛА', uav: 'БпЛА', fpv: 'БпЛА', recon_drone: 'Розвідка', recon: 'Розвідка',
     cruise_missile: 'Ракети', missile: 'Ракети', ballistic: 'Балістика', kab: 'КАБ', aviation: 'Авіація', unknown: 'Невідомі' };
+  const RAW_DATA_BASE = 'https://raw.githubusercontent.com/Wizard732/AirRadar-AI/radar-data/';
   const STALE_AFTER_S = 15 * 60;
   const CACHE_KEY = 'airradar.map2.last', HIST_KEY = 'airradar.map2.hist';
 
@@ -25,7 +26,10 @@
     opts = opts || {};
     this.demo = !!opts.demo;
     // дані лежать у корені клієнта (поруч із radar.html), а map2/ — підпапка; APK/Pages можуть задати AIRRADAR_DATA_BASE
-    const base = opts.base || global.AIRRADAR_DATA_BASE || new URL('../', document.baseURI).href;
+    // На GitHub Pages дані читаємо напряму з гілки radar-data (raw): сервер пушить туди кожні ~2 хв, а перезбирання Pages
+    // від цієї гілки не запускається — копія на Pages застарівала на дні. raw віддає CORS і кеш ~5 хв.
+    const onPages = /github\.io$/.test(location.hostname) && !opts.base && !global.AIRRADAR_DATA_BASE;
+    const base = opts.base || global.AIRRADAR_DATA_BASE || (onPages ? RAW_DATA_BASE : new URL('../', document.baseURI).href);
     const pages = /github\.io$/.test(location.hostname) || !!opts.staticOnly || !!global.AIRRADAR_DATA_BASE;
     this.base = base;
     this.staticMode = pages;

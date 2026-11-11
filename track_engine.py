@@ -455,8 +455,8 @@ def trust_phrase(r: Risk) -> str:
     if r.official is True:
         return " ✅ Підтверджено офіційною тривогою."
     if r.official is False:
-        return (" ⚠️ Без офіційного підтвердження (1 джерело)." if r.sources < 2
-                else f" ⚠️ Офіційної тривоги там ще немає ({r.sources} джерела бачать ціль).")
+        return (" ❔ Без офіційного підтвердження (1 джерело)." if r.sources < 2
+                else f" ❔ Офіційної тривоги ще немає ({r.sources} джерела).")
     return ""
 
 
@@ -470,8 +470,8 @@ def risk_text(r: Risk) -> str:
     if r.level == "over":
         return f"🔴 {what} над вами або поруч (~{r.distance_km:g} км)." + trust_phrase(r)
     if r.approx_only:   # «курсом на Київ»: де саме ціль зараз — невідомо, тому «0 км / 0–1 хв» було б вигадкою
-        return (f"🟠 {what}: названо вашу територію як ціль — точна позиція невідома, вважайте, що курс на вас "
-                f"({'~' + format(r.speed_kmh, 'g') + ' км/год' + ('' if r.speed_source == 'measured' else ', типова')})." + trust_phrase(r))
+        return (f"🟠 {what} → ваш район · точна позиція невідома, вважайте курс на вас "
+                f"(~{format(r.speed_kmh, 'g')} км/год{'' if r.speed_source == 'measured' else ', типова'})." + trust_phrase(r))
     side = compass_ua(r.bearing_from_point)
     speed = f"~{r.speed_kmh:g} км/год" + ("" if r.speed_source == "measured" else ", типова")
     eta = _eta_phrase(r)

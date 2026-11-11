@@ -131,7 +131,8 @@ def test_notify_admins_only_admins_and_survives_failure(tmp_path):
     assert calls == [777]
 
 
-def test_analyzer_finds_issues_and_uses_model(tmp_path):
+def test_analyzer_finds_issues_and_uses_model(tmp_path, monkeypatch):
+    monkeypatch.setenv("AI_ANALYZER_VERDICT", "1")
     db = Database(str(tmp_path / "a.db"))
     for _ in range(3):
         db.add_error_report(1, "k", "stale")

@@ -750,7 +750,7 @@
   function tgtApply() {
     tgt = Tracks.normalize(tgtRaw, nowS());
     const vis = Tracks.filterKinds(tgt.tracks, tgtKinds);
-    amap.setTargets(vis.filter(t => tgtStale ? (t.stale || Tracks.hasCourse(t)) : (!t.stale && Tracks.hasCourse(t))), t => openTarget(t.id)); amap.showTargets(tgtOn);   // без курсу на карті не малюємо (лише лічильник)
+    amap.setTargets(vis.filter(t => tgtStale || !t.stale), t => openTarget(t.id)); amap.showTargets(tgtOn);   // свіжі цілі малюємо завжди (без курсу — просто значок, без пунктиру); застарілі — лише за перемикачем
     renderTgtBar();
     const fresh = tgt.tracks.filter(t => !t.stale).length;
     $('legTg').hidden = !(tgtOn && tgt.tracks.length); $('disc').hidden = $('discNote').hidden = !(tgtOn && tgt.tracks.length);

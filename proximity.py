@@ -38,7 +38,7 @@ def guard_message(risk: Risk, map_url: str = "", label: str = "") -> str:
     text = risk_text(risk)
     if label:
         text = f"📍 {label}\n{text}"
-    tail = "\nОрієнтовно, за даними моніторингових каналів. Не чекайте — в укриття, якщо є тривога."
+    tail = "\nОрієнтовно. Якщо тривога — в укриття, не чекайте."
     if risk.level == "over":
         tail = "\n🚨 В укриття зараз."
     if map_url:
@@ -109,9 +109,13 @@ def guard_targets(db, now: int) -> list[dict]:
     """Усі точки сторожа: поточна геопозиція/точка + збережені місця. suffix відокремлює стан кожної точки."""
     import guard_places
     out = []
+    places = guard_places.all_places(db)
     for g in db.active_guards(now):
+        # жива точка поруч зі збереженим місцем (напр. «Дім») — те саме попередження двічі не шлемо: лишається те, що з назвою
+        if any(p["user_id"] == g["user_id"] and haversine_km((p["lat"], p["lon"]), (g["lat"], g["lon"])) < 1.0 for p in places):
+            continue
         out.append({"uid": g["user_id"], "point": (g["lat"], g["lon"]), "radius": float(g["radius_km"] or 10.0), "label": "", "suffix": ""})
-    for p in guard_places.all_places(db):
+    for p in places:
         out.append({"uid": p["user_id"], "point": (p["lat"], p["lon"]), "radius": float(p["radius_km"] or 10.0),
                     "label": p["name"], "suffix": f"|p{p['id']}"})
     return out
