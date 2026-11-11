@@ -554,6 +554,7 @@ async def run() -> None:
 
 from publish_dedup import PublishDedup
 _DEDUP = PublishDedup()
+_PARSE_CTX: dict = {}   # source -> (ts, weapon, profile): продовження допису («На Димерку/Бровари») бере тип цілі з попереднього
 
 
 def _impact_sources(settings) -> frozenset[str]:
@@ -672,7 +673,7 @@ async def _process_message(
         event_ts = int(getattr(message, "date", None).timestamp()) if getattr(message, "date", None) else int(time.time())
         # Структурный разбор: новости/цитаты, события на чужой территории,
         # статистика сбитых и реклама — не живая угроза (раньше попадали на карту).
-        parsed = parse_post(text, source)
+        parsed = parse_post(text, source, _PARSE_CTX)
         _trace.record(db, _ekey, "parse", source=source, data={"kind": parsed.kind, "observations": len(parsed.observations),
                                                                "oblasts": list(parsed.oblasts)[:8], "weapon": parsed.weapon})
         _trace.record(db, _ekey, "geo", source=source, ok=bool(parsed.observations or parsed.oblasts),

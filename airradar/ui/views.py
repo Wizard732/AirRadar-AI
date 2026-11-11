@@ -143,7 +143,6 @@ def _main_menu_kb():
         [Button.inline("📍 Повідомити загрозу", data=CB_REPORT)],
         [Button.inline("🔔 Мої підписки", data=CB_MY_SUBS)],
         [Button.inline("🎯 Типи тривог", data=CB_WEAPONS)],
-        [Button.inline("📰 Новости по интересам", data=CB_INTERESTS)],
         [
             Button.inline("📊 Общая статистика", data=CB_STATS_ALL),
             Button.inline("📋 Детальна статистика", data="stats_detail"),

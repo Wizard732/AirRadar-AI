@@ -79,8 +79,8 @@ class Settings:
     http_timeout: int = 30
     healthcheck_interval: int = 300
 
-    # Включение Interests-модуля (новости по темам). По умолчанию включён.
-    interests_enabled: bool = True
+    # Interests-модуль (новости по темам: хакинг, нейросети…) к тревогам не относится: по умолчанию ВЫКЛЮЧЕН (INTERESTS_ENABLED=1 включает).
+    interests_enabled: bool = False
 
     # Дайджесты: часы (UTC) утра/вечера, когда собирать и слать сводку.
     # Пусто = дайджесты отключены (только мгновенная выдача).
@@ -198,7 +198,7 @@ def load_settings() -> Settings:
         dedup_ttl=int(os.getenv("DEDUP_TTL", "60")),
         http_timeout=int(os.getenv("HTTP_TIMEOUT", "30")),
         healthcheck_interval=int(os.getenv("HEALTHCHECK_INTERVAL", "300")),
-        interests_enabled=os.getenv("INTERESTS_ENABLED", "1").strip() not in ("0", "false", "no"),
+        interests_enabled=os.getenv("INTERESTS_ENABLED", "0").strip() in ("1", "true", "yes"),
         digest_morning_hour=int(os.getenv("DIGEST_MORNING_HOUR", "8")),
         digest_evening_hour=int(os.getenv("DIGEST_EVENING_HOUR", "20")),
         webapp_url=os.getenv("WEBAPP_URL", ""),

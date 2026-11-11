@@ -6,7 +6,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const VERSION = 'v6';                                   // змінити при зміні списку/логіки: старі кеші map2 буде видалено
+  const VERSION = 'v7';                                   // змінити при зміні списку/логіки: старі кеші map2 буде видалено
   const CACHE_PREFIX = 'airradar-map2-';
   const CACHE = CACHE_PREFIX + VERSION;
   const LEAFLET = ['https://unpkg.com/leaflet@1.9.4/dist/leaflet.css', 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'];

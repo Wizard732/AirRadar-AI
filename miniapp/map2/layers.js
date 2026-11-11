@@ -252,8 +252,11 @@
     ring: '<path d="M16 .8C17.9 3.4 18.7 5.6 18.7 8.2V22.6L22.6 28V31.2L18.2 29.3 16 31 13.8 29.3 9.4 31.2V28L13.3 22.6V8.2C13.3 5.6 14.1 3.4 16 .8Z"/>',
     quad: '<path d="M11.2 11.2 20.8 20.8M20.8 11.2 11.2 20.8" fill="none" stroke-width="2.6"/><circle cx="16" cy="16" r="3.4"/><circle cx="7" cy="7" r="4.4"/><circle cx="25" cy="7" r="4.4"/><circle cx="7" cy="25" r="4.4"/><circle cx="25" cy="25" r="4.4"/>',
   };
-  function glyphSvg(glyph, stale) {
-    const fill = stale ? '#b3bcc6' : '#ffffff';
+  // колір за типом цілі: видно з першого погляду, що саме летить (застарілі — сірі)
+  const W_COLOR = { shahed: '#ffb02e', uav: '#ffd84d', cruise_missile: '#ff4d3d', ballistic: '#ff2d8a', kab: '#5aa9ff', aviation: '#b9c4d0' };
+  function colorOf(t) { return t.stale ? '#b3bcc6' : (t.profile === 'reactive' ? '#ff7a2e' : (W_COLOR[t.weapon] || '#ffffff')); }
+  function glyphSvg(glyph, stale, color) {
+    const fill = color || (stale ? '#b3bcc6' : '#ffffff');
     return '<svg viewBox="0 0 32 32" width="36" height="36" fill="' + fill + '" stroke="#0b1015" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true">' + (SIL[glyph] || SIL.delta) + '</svg>';
   }
   const R_EARTH = 6371;
@@ -264,41 +267,68 @@
     return [la2 * 180 / Math.PI, lo2 * 180 / Math.PI];
   }
   const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const CLUSTER_PX = 30, CLUSTER_MAX_ZOOM = 7;
   AirMap.prototype.setTargets = function (tracks, onPick) {
     if (!this._tgtPane) {
       this.map.createPane('targets'); this.map.getPane('targets').style.zIndex = 470; this._tgtPane = true; this._tgt = new Map(); this._tgtLayer = L.layerGroup().addTo(this.map);
-      const z = () => this.map.getContainer().classList.toggle('tgt-zoomlow', this.map.getZoom() < 6);   // на загальному плані підписи ховаються: їх було б забагато
+      const z = () => {
+        const c = this.map.getContainer(), zm = this.map.getZoom();
+        c.classList.toggle('tgt-zoomlow', zm < 6);      // на загальному плані підписи міст ховаються: їх було б забагато
+        c.classList.toggle('tgt-zs', zm < 6); c.classList.toggle('tgt-zm', zm >= 6 && zm < 8);   // розмір значка росте з масштабом
+        if (this._tgtLast && (zm < CLUSTER_MAX_ZOOM || this._tgtClustered)) this.setTargets(this._tgtLast.tracks, this._tgtLast.onPick);
+      };
       this.map.on('zoomend', z); z();
     }
-    this._tgtPick = onPick;
-    const seen = new Set();
+    this._tgtPick = onPick; this._tgtLast = { tracks, onPick };
+    this._tgt.forEach(rec => rec.parts.forEach(p => p.remove())); this._tgt.clear();    // повний перемал: кластери залежать від масштабу
+    const g = this._tgtLayer, map = this.map, zoom = map.getZoom();
+    // кластеризація свіжих цілей на малих масштабах: щільні скупчення → один значок із числом
+    const cl = new Map(), singles = [];
     tracks.forEach(t => {
-      seen.add(t.id);
-      const rec = this._tgt.get(t.id) || { parts: [] };
-      rec.parts.forEach(p => p.remove()); rec.parts = [];
-      const g = this._tgtLayer, parts = rec.parts, white = t.stale ? '#b3bcc6' : '#ffffff';
-      const trail = t.points.slice(-3).map(p => [p.lat, p.lon]); trail.push([t.lat, t.lon]);   // короткий слід: останні відрізки, не вся траєкторія
-      if (trail.length > 1) parts.push(L.polyline(trail, { pane: 'targets', color: white, weight: 2, opacity: .55, interactive: false }).addTo(g));
-      // курс: до найближчої точки призначення; якщо її немає, але курс відомий: коротка лінія за курсом без підпису
+      if (zoom >= CLUSTER_MAX_ZOOM || t.stale) { singles.push(t); return; }
+      const pt = map.latLngToContainerPoint([t.lat, t.lon]), key = Math.floor(pt.x / CLUSTER_PX) + ':' + Math.floor(pt.y / CLUSTER_PX);
+      (cl.get(key) || cl.set(key, []).get(key)).push(t);
+    });
+    this._tgtClustered = false;
+    const groups = [];
+    cl.forEach(arr => { if (arr.length === 1) singles.push(arr[0]); else groups.push(arr); });
+    const drawCourse = (t, parts, color) => {
+      const trail = t.points.slice(-3).map(p => [p.lat, p.lon]); trail.push([t.lat, t.lon]);   // короткий слід: останні відрізки
+      if (trail.length > 1) parts.push(L.polyline(trail, { pane: 'targets', color, weight: 2.5, opacity: .6, interactive: false }).addTo(g));
       let to = null, label = '';
       if (!t.stale) {
         if (t.dest) { to = [t.dest.lat, t.dest.lon]; label = t.dest.name; }
         else if (t.forecast.length) { to = [t.forecast[0].lat, t.forecast[0].lon]; label = t.forecast[0].name; }
-        else if (t.heading != null) to = destPoint(t.lat, t.lon, t.heading, 18);
+        else if (t.heading != null) to = destPoint(t.lat, t.lon, t.heading, 25);
       }
       if (to) {
-        parts.push(L.polyline([[t.lat, t.lon], to], { pane: 'targets', color: '#ffffff', weight: 2, opacity: .95, dashArray: '1 6', lineCap: 'round', interactive: false }).addTo(g));
-        parts.push(L.circleMarker(to, { pane: 'targets', radius: 4.5, weight: 2, color: '#0b1015', fillColor: '#ffffff', fillOpacity: 1, interactive: false }).addTo(g));
-        if (label) parts.push(L.marker(to, { pane: 'targets', interactive: false, keyboard: false, icon: L.divIcon({ className: 'tgt-dest-wrap', html: '<span class="tgt-dest">→ ' + escHtml(label) + '</span>', iconSize: [0, 0], iconAnchor: [-9, 11] }) }).addTo(g));
+        parts.push(L.polyline([[t.lat, t.lon], to], { pane: 'targets', color, weight: 2.6, opacity: .95, dashArray: '2 7', lineCap: 'round', interactive: false }).addTo(g));
+        parts.push(L.circleMarker(to, { pane: 'targets', radius: 5, weight: 2, color: '#0b1015', fillColor: color, fillOpacity: 1, interactive: false }).addTo(g));
+        if (label) parts.push(L.marker(to, { pane: 'targets', interactive: false, keyboard: false, icon: L.divIcon({ className: 'tgt-dest-wrap', html: '<span class="tgt-dest" style="border-left:3px solid ' + color + '">→ ' + escHtml(label) + '</span>', iconSize: [0, 0], iconAnchor: [-9, 11] }) }).addTo(g));
       }
+      return label;
+    };
+    singles.forEach(t => {
+      const rec = { parts: [] }, parts = rec.parts, color = colorOf(t), label = drawCourse(t, parts, color);
       const rot = t.heading == null ? 0 : t.heading;
-      const html = '<div class="tgt' + (t.stale ? ' stale' : '') + '"><span class="ico" style="transform:rotate(' + (t.kind.glyph === 'quad' ? 0 : rot) + 'deg)">' + glyphSvg(t.kind.glyph, t.stale) + '</span>' + (t.count > 1 ? '<b class="cnt">' + t.count + '</b>' : '') + '</div>';
+      const html = '<div class="tgt' + (t.stale ? ' stale' : '') + '"><span class="ico" style="transform:rotate(' + (t.kind.glyph === 'quad' ? 0 : rot) + 'deg)">' + glyphSvg(t.kind.glyph, t.stale, color) + '</span>' + (t.count > 1 ? '<b class="cnt">' + t.count + '</b>' : '') + '</div>';
       const m = L.marker([t.lat, t.lon], { pane: 'targets', icon: L.divIcon({ className: 'tgt-wrap', html, iconSize: [38, 38], iconAnchor: [19, 19] }), keyboard: true, riseOnHover: true,
         title: t.kind.name + (t.count > 1 ? ' × ' + t.count : '') + (t.stale ? ' (застаріло)' : '') + (label ? ', курс: ' + label : '') }).addTo(g);
       m.on('click', e => { L.DomEvent.stopPropagation(e); if (this._tgtPick) this._tgtPick(t); });
       parts.push(m); this._tgt.set(t.id, rec);
     });
-    this._tgt.forEach((rec, id) => { if (!seen.has(id)) { rec.parts.forEach(p => p.remove()); this._tgt.delete(id); } });   // зниклі цілі прибираються повністю, без витоків
+    groups.forEach((arr, gi) => {
+      this._tgtClustered = true;
+      const rec = { parts: [] }, parts = rec.parts, n = arr.reduce((a, t) => a + (t.count || 1), 0);
+      arr.forEach(t => drawCourse(t, parts, colorOf(t)));                                   // напрямки лишаються видимими навіть у скупченні
+      const lat = arr.reduce((a, t) => a + t.lat, 0) / arr.length, lon = arr.reduce((a, t) => a + t.lon, 0) / arr.length;
+      const kinds = {}; arr.forEach(t => { kinds[t.weapon] = (kinds[t.weapon] || 0) + 1; });
+      const top = Object.keys(kinds).sort((a, b) => kinds[b] - kinds[a])[0], color = W_COLOR[top] || '#ffffff';
+      const m = L.marker([lat, lon], { pane: 'targets', keyboard: true, title: 'Цілей: ' + n + ' — натисніть, щоб наблизити',
+        icon: L.divIcon({ className: 'tgt-wrap', html: '<div class="tgt-cl" style="border-color:' + color + '"><b>' + n + '</b></div>', iconSize: [40, 40], iconAnchor: [20, 20] }) }).addTo(g);
+      m.on('click', e => { L.DomEvent.stopPropagation(e); this._fly(L.latLngBounds(arr.map(t => [t.lat, t.lon])), { maxZoom: 9 }); });
+      parts.push(m); this._tgt.set('cluster:' + gi, rec);
+    });
   };
   AirMap.prototype.showTargets = function (on) { if (!this._tgtLayer) return; if (on && !this.map.hasLayer(this._tgtLayer)) this._tgtLayer.addTo(this.map); else if (!on) this._tgtLayer.remove(); };
   AirMap.prototype.targetCount = function () { return this._tgt ? this._tgt.size : 0; };

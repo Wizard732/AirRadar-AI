@@ -637,7 +637,7 @@
 
   // ---------- цілі: слід, швидкість, курс, орієнтовний прогноз; попередження для моєї території ----------
   const TGT_KEY = 'airradar.map2.tgt', TGT_POLL_MS = 15000;
-  let tgtStale = lsGet('airradar.map2.tgtstale') === '1', tgtOn = lsGet(TGT_KEY) !== '0', tgtRaw = null, tgt = { tracks: [], ok: false, generalized: false, feedStale: false, rejected: 0 }, tgtErr = false, tgtSel = null, tgtKinds = [], tgtWarned = new Set(), tgtTimer = null, tgtWarnList = [];
+  let tgtFitDone = false, tgtStale = lsGet('airradar.map2.tgtstale') === '1', tgtOn = lsGet(TGT_KEY) !== '0', tgtRaw = null, tgt = { tracks: [], ok: false, generalized: false, feedStale: false, rejected: 0 }, tgtErr = false, tgtSel = null, tgtKinds = [], tgtWarned = new Set(), tgtTimer = null, tgtWarnList = [];
   const ATTACK_T0 = window.AIRRADAR_ATTACK_T0 || Date.now();
   async function tgtFetch() {
     if (P.get('demo') === 'attack') { const d = Tracks.demoAttack(nowS(), (Date.now() - ATTACK_T0) / 1000); const c = $('demoClock'); c.hidden = false; c.textContent = 'ДЕМО · ' + d.attack.phase + ' · t+' + d.attack.simMin + ' хв'; return d; }
@@ -753,6 +753,8 @@
     amap.setTargets(vis.filter(t => tgtStale || !t.stale), t => openTarget(t.id)); amap.showTargets(tgtOn);   // свіжі цілі малюємо завжди (без курсу — просто значок, без пунктиру); застарілі — лише за перемикачем
     renderTgtBar();
     const fresh = tgt.tracks.filter(t => !t.stale).length;
+    // при першому відкритті — показати, де зараз цілі (поки користувач сам не рухав карту)
+    if (!tgtFitDone && fresh && tgtOn && !P.has('demo') && !amap.userMoved) { tgtFitDone = true; amap.fitPoints(tgt.tracks.filter(t => !t.stale).map(t => ({ lat: t.lat, lon: t.lon })), Object.assign({}, flyPad(), { maxZoom: 8 })); }
     $('legTg').hidden = !(tgtOn && tgt.tracks.length); $('disc').hidden = $('discNote').hidden = !(tgtOn && tgt.tracks.length);
     $('t-tgt').setAttribute('aria-pressed', String(tgtOn)); $('t-tgt').title = 'Цілі' + (tgt.tracks.length ? ': ' + fresh + ' актуальних' : '');
     tgtWatch(); if (mePos) meApply(); if (places.length) placesApply(); else amap.setPlaces([]);

@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass, field
 
 from city_coords import CITIES, REGION_CENTROIDS
@@ -218,7 +219,7 @@ _SHAHED_RE = re.compile(r"(?<!\w)(?:шахед|шахід|шахид|шахэд|
 _UAV_RE = re.compile(r"(?<!\w)(?:бпла|бпл|бп-ла|дрон|розвіддрон|розвідувальн\w*\s+дрон|безпілотн|мопед|мопєд|бандерол|гербер|молні[яй]|італмас|італмаси|ланцет|fpv)\w*")
 _WEAPON_WORDS = re.compile(
     _SHAHED_RE.pattern + "|" + _UAV_RE.pattern + "|" + _REACTIVE_RE.pattern
-    + r"|(?<!\w)(?:ракет|балісти|крилат|каб(?!\w)|калібр|кинджал|циркон|іскандер|х-\d{2,3}|kh-\d{2,3})\w*"
+    + r"|(?<!\w)(?:ракет|балісти|крилат|калібр|кинджал|циркон|іскандер|х-\d{2,3}|kh-\d{2,3})\w*|(?<!\w)(?:каб|фаб)(?:и|ів|ам|ами|ах|у|ом)?(?!\w)|(?<!\w)су-?(?:24|25|34|35|57)\w*|(?<!\w)ту-?(?:95|22|160)\w*|(?<!\w)міг-?31\w*"
 )
 
 
@@ -328,7 +329,7 @@ _REL = (
     r"курсом\s+на|курсом\s+через|курсом\s+в\s+бік|курсом\s+у\s+бік|"
     r"в\s+напрямку|у\s+напрямку|в\s+напрямі|у\s+напрямі|у\s+бік|в\s+бік|в\s+сторону|у\s+сторону|"
     r"в\s+район|у\s+район|в\s+районі|у\s+районі|в\s+передмісті|у\s+передмісті|на\s+околиці|на\s+околицях|поблизу|біля|над|"
-    r"через|повз|"
+    r"через|повз|між|"
     r"із|зі|з|из|"
     r"на|до|к"
 )
@@ -341,13 +342,13 @@ _REL_KIND = [
 ]
 
 _STOP_TOKENS = re.compile(
-    r"(?:\s+(?:та|і|й|та ще|а також|потім|далі|ще)\s+|[;()!?🚨⚠️❗️🔴]|\.\s|\s[—–-]\s|$)", re.IGNORECASE
+    r"(?:\s+(?:та ще|а також|потім|далі|ще)\s+|\s+(?:та|і|й)\s+(?-i:(?=[а-яіїєґ0-9]))|[;()!?🚨⚠️❗️🔴]|\.\s|\s[—–-]\s|$)", re.IGNORECASE
 )
 
 _NOT_PLACE = re.compile(
     r"^(?:цю|цей|ця|це|водосховищ\w*|море|моря|морем|чорного\s+моря|акваторі\w+|нас|нашому|наш|вас|вам|нам|тебе|мене|ночі|ранку|вечір|вечора|півдня|півночі|заходу|сходу|"
     r"північ|південь|захід|схід|північний\w*|південний\w*|східний\w*|західний\w*|"
-    r"тривогу|тривога|укриття|небо|небі|місто|області|регіон|район|території|"
+    r"тривогу|тривога|укриття|небо|небі|місто|області|регіон|район|території|пуск\w*|повторн\w*|"
     r"півд\w*|півн\w*|цілі|ціль|курс|обл\w*|область|"
     r"станом|годину|хвилин\w*|секунд\w*|\d[\d:.\-]*)$",
     re.IGNORECASE,
@@ -464,7 +465,7 @@ _SHORT_RE = re.compile(
     re.IGNORECASE,
 )
 _ORDINAL_RE = re.compile(r"(?<!\w)(?:наступн\w*|перш\w+|друг\w+|трет\w+|четверт\w+|останн\w+|ще\s+(?:один|два|три|\d+))(?!\w)")
-_MOVE_RE = re.compile(r"(?<!\w)(?:летять|летить|летят|йдуть|йде|заходять|заходить|рухаєтьс\w+|рухаються|повертає\w*)")
+_MOVE_RE = re.compile(r"(?<!\w)(?:летять|летить|летят|йдуть|йде|заходять|заходить|рухаєтьс\w+|рухаються|повертає\w*|пуск\w*|пролітають|пролітає|маневрує|маневрують)")
 
 
 def _parse_you_form(line: str, oblast: str, group: int | None, weapon: str, profile: str) -> list[Observation]:
@@ -562,8 +563,18 @@ def _normalize_post(raw: str) -> str:
     return _KAB_PHRASE_RE.sub("КАБ", raw)
 
 
-def parse_post(text: str, source: str = "") -> ParsedPost:
-    """Главная функция: сырой текст поста → ParsedPost."""
+_BARE_DEST_RE = re.compile(r"^[\W_]*(?i:(?:далі\s+|ще\s+|\+\s*)?(?:курсом\s+на|в\s+бік|у\s+бік|на|до))\s+[А-ЯІЇЄҐ]")
+_LAUNCH_HINT_RE = re.compile(r"(?<!\w)(?:пуск\w*|заход\w*|загроз\w*|увага|уважно|летить|летять|курс\w*|напрямк\w*|активн\w*)")
+_PLACE_FIRST_RE = re.compile(
+    r"^[\W_]*(?P<place>[А-ЯІЇЄҐ][\w'’ʼ-]{2,24}(?:\s+[А-ЯІЇЄҐ][\w'’ʼ-]{2,24})?)(?:/район|\s+район)?\s*[-–—:]\s*(?:уважно\s+)?(?:по|на)\s+")
+CONTEXT_TTL_S = 600
+
+
+def parse_post(text: str, source: str = "", context: dict | None = None) -> ParsedPost:
+    """Главная функция: сырой текст поста → ParsedPost.
+
+    context — необов'язковий словник стану ``{source: (ts, weapon, profile)}``: коротке продовження без зброї
+    («На Димерку/Бровари») успадковує тип цілі з попереднього допису цього ж каналу (до CONTEXT_TTL_S)."""
     raw = _normalize_post(text or "")
     low = raw.lower()
     post = ParsedPost(kind="unknown")
@@ -575,6 +586,15 @@ def parse_post(text: str, source: str = "") -> ParsedPost:
         post.as_of = f"{int(time_m.group(1)):02d}:{time_m.group(2)}"
 
     weapon, profile = weapon_of(raw)
+    from airradar.ingestion.source_region import oblast_for
+    src_obl = oblast_for(source)
+    inherited = False
+    if context is not None and source:
+        prev = context.get(source)
+        if not weapon and prev and len(raw) <= 90 and _BARE_DEST_RE.match(raw) and time.time() - prev[0] <= CONTEXT_TTL_S:
+            weapon, profile, inherited = prev[1], prev[2], True
+        elif weapon and weapon != "unknown":
+            context[source] = (time.time(), weapon, profile)
     post.weapon, post.profile = weapon, profile
     has_ua = bool(oblast_in(raw))
     foreign = bool(_FOREIGN_RE.search(low))
@@ -619,6 +639,10 @@ def parse_post(text: str, source: str = "") -> ParsedPost:
                 inline = _parse_line_rest(rest, cur_obl, cur_group, lw or cur_weapon, lp or cur_profile)
                 obs.extend(inline)
             continue
+        pf = _PLACE_FIRST_RE.match(stripped)
+        if pf and (lw or cur_weapon) and not _NOT_PLACE.match(pf.group("place").strip()):
+            obs.append(_make_obs(pf.group("place").strip(), "near", None, None, cur_obl or "", lw or cur_weapon, lp or cur_profile, ""))
+            continue
         cnt = _COUNT_PLACE_RE.match(stripped)
         if cnt and (lw or cur_weapon):
             for name, pcount in _split_places(cnt.group("place")):
@@ -627,6 +651,9 @@ def parse_post(text: str, source: str = "") -> ParsedPost:
             continue
         obs.extend(_parse_line(stripped, cur_obl or "", cur_group, lw or cur_weapon, lp or cur_profile))
 
+    if not obs and weapon and src_obl and not has_ua and not foreign and _LAUNCH_HINT_RE.search(low):
+        # місцевий канал, місце не назване («Заходять на пуски КАБ по Сумському району») — загроза для області каналу
+        obs.append(_make_obs("", "threat", None, None, src_obl, weapon, profile, ""))
     if not obs and weapon and has_ua and not foreign:
         # «Сумщина під балістичним обстрілом», «Загроза КАБ для Запоріжжя/області»
         for slug in dict.fromkeys(oblast_in(ln) for ln in lines if oblast_in(ln)):
@@ -641,6 +668,16 @@ def parse_post(text: str, source: str = "") -> ParsedPost:
             obs = [o if o.oblast else _with_oblast(o, text_obl) for o in obs]
 
     obs = _disambiguate(obs)
+    if src_obl:   # однойменні села: місцевий канал — значить, найімовірніше його область
+        fixed = []
+        for o in obs:
+            if o.precision == "approx" and o.alts and o.place:
+                g = locate(o.place, src_obl)
+                if g is not None and g.oblast == src_obl and g.precision == "place":
+                    o = Observation(o.weapon, o.profile, o.count, o.group_count, src_obl, o.place, o.relation,
+                                    g.lat, g.lon, "place", o.heading_from, ())
+            fixed.append(o)
+        obs = fixed
     post.observations = obs
     all_obl = list(dict.fromkeys(o.oblast for o in obs if o.oblast))
     here = list(dict.fromkeys(o.oblast for o in obs if o.oblast and o.relation != "from"))
