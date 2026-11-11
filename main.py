@@ -491,7 +491,7 @@ async def run() -> None:
     except Exception:  # noqa: BLE001 — відновлення не має блокувати старт
         logger.exception("Агрегатор: помилка відновлення")
     try:
-        await asyncio.Event().wait()   # просто висить до cancel() при зупинці
+        await stop_event.wait()
     except KeyboardInterrupt:
         logger.info("Ctrl+C — выходим.")
     finally:
