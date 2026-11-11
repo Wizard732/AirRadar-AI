@@ -52,7 +52,7 @@ async def main() -> None:
             db.add_event(event_ts=start - 5 * MIN, weapon_class="shahed", stage="launch", region=REGION, text="історія", source="seed")
             db.add_event(event_ts=flight, weapon_class="shahed", stage="movement", region=REGION, text="історія", source="seed")
             db.alert_end(REGION, event_ts=end)
-    print(f"Історія: 12 завершених хвиль Київщини за 6 ночей (вигадані).\n")
+    print("Історія: 12 завершених хвиль Київщини за 6 ночей (вигадані).\n")
 
     clock = [0]
     wave_forecast.time = SimpleNamespace(time=lambda: clock[0])

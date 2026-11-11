@@ -22,7 +22,6 @@ from aggregator import AlertAggregator
 from airradar.delivery import tg_delivery
 from database import Database
 from dedup import DedupCache
-from kyiv_time import fmt as kyiv_fmt
 import proximity
 
 KYIV = (50.4501, 30.5234)

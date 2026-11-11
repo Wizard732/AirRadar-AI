@@ -2,26 +2,20 @@
 
 from __future__ import annotations
 
-import asyncio
 import html
 import logging
 import time
 
-from telethon import Button, TelegramClient, events
-from telethon.errors import MessageNotModifiedError
+from telethon import Button
 
 from kyiv_time import fmt as kyiv_fmt
 
 from database import Database
 import menu_screens as ms
-from city_coords import region_for_point
 from eta import build_eta_text
 from fast_filter import public_text
 from regions import (
-    REGIONS,
-    ZONE_NAMES,
     all_region_slugs,
-    find_regions_by_text,
     region_name,
 )
 
