@@ -18,7 +18,7 @@
   STEM_SLUG['Київ'] = 'kyivska'; STEM_SLUG['Севастополь'] = 'crimea';
   const CATEGORY = { drone: 'БпЛА', shahed: 'БпЛА', uav: 'БпЛА', fpv: 'БпЛА', recon_drone: 'Розвідка', recon: 'Розвідка',
     cruise_missile: 'Ракети', missile: 'Ракети', ballistic: 'Балістика', kab: 'КАБ', aviation: 'Авіація', unknown: 'Невідомі' };
-  const RAW_DATA_BASE = 'https://raw.githubusercontent.com/Wizard732/AirRadar-AI/radar-data/';
+  const RAW_DATA_BASE = 'https://raw.githubusercontent.com/Wizard732/AirRadar-AI/refs/heads/radar-data/';
   const STALE_AFTER_S = 15 * 60;
   const CACHE_KEY = 'airradar.map2.last', HIST_KEY = 'airradar.map2.hist';
 
