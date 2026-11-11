@@ -762,8 +762,7 @@
   }
   function renderTgtBar() {
     const bar = $('tgtbar'), c = Tracks.counts(tgt.tracks), kinds = [['shahed', 'delta', 'Шахеди'], ['cruise_missile', 'dart', 'Крилаті ракети'], ['ballistic', 'ring', 'Балістика'], ['uav', 'quad', 'БпЛА розвідувальні']];
-    const chips = kinds.filter(k => c[k[0]] > 0).map(k => '<button class="tchip" data-tg-open="1" aria-label="' + k[2] + ': ' + c[k[0]] + '">' + AirMap.glyphSvg(k[1], false).replace('width="36" height="36"', 'width="24" height="24"') + '<b>' + c[k[0]] + '</b></button>');
-    if (c.noCourse) chips.push('<button class="tchip nc" data-tg-open="1">ще ' + c.noCourse + ' без курсу</button>');
+    const chips = kinds.filter(k => c[k[0]] > 0).map(k => '<button class="tchip" data-tg-open="1" aria-label="' + k[2] + ': ' + c[k[0]] + '">' + AirMap.glyphSvg(k[1], false, AirMap.W_COLOR[k[0]]).replace('width="36" height="36"', 'width="24" height="24"') + '<b>' + c[k[0]] + '</b></button>');
     bar.hidden = !(tgtOn && chips.length); bar.innerHTML = chips.join('');
     document.body.classList.toggle('has-tgtbar', !bar.hidden);
   }

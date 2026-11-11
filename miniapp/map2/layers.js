@@ -267,7 +267,7 @@
     return [la2 * 180 / Math.PI, lo2 * 180 / Math.PI];
   }
   const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const CLUSTER_PX = 30, CLUSTER_MAX_ZOOM = 7;
+  const CLUSTER_PX = 56, CLUSTER_MAX_ZOOM = 8, COURSE_MAX_KM = 70;   // кластер ширше, лінії курсу коротші: карта має читатися з першого погляду
   AirMap.prototype.setTargets = function (tracks, onPick) {
     if (!this._tgtPane) {
       this.map.createPane('targets'); this.map.getPane('targets').style.zIndex = 470; this._tgtPane = true; this._tgt = new Map(); this._tgtLayer = L.layerGroup().addTo(this.map);
@@ -292,19 +292,25 @@
     this._tgtClustered = false;
     const groups = [];
     cl.forEach(arr => { if (arr.length === 1) singles.push(arr[0]); else groups.push(arr); });
+    const kmBetween = (a, b) => { const R = Math.PI / 180, dy = (b[0] - a[0]) * 111.2, dx = (b[1] - a[1]) * 111.2 * Math.cos(a[0] * R); return Math.sqrt(dx * dx + dy * dy); };
     const drawCourse = (t, parts, color) => {
-      const trail = t.points.slice(-3).map(p => [p.lat, p.lon]); trail.push([t.lat, t.lon]);   // короткий слід: останні відрізки
-      if (trail.length > 1) parts.push(L.polyline(trail, { pane: 'targets', color, weight: 2.5, opacity: .6, interactive: false }).addTo(g));
+      // курс = ОДНА коротка стрілка (≤ COURSE_MAX_KM) у бік найближчої точки призначення; без довгих слідів і прогнозів через пів країни
       let to = null, label = '';
       if (!t.stale) {
-        if (t.dest) { to = [t.dest.lat, t.dest.lon]; label = t.dest.name; }
-        else if (t.forecast.length) { to = [t.forecast[0].lat, t.forecast[0].lon]; label = t.forecast[0].name; }
-        else if (t.heading != null) to = destPoint(t.lat, t.lon, t.heading, 25);
+        let far = null;
+        if (t.dest) { far = [t.dest.lat, t.dest.lon]; label = t.dest.name; }
+        else if (t.forecast.length) { far = [t.forecast[0].lat, t.forecast[0].lon]; label = t.forecast[0].name; }
+        if (far) {
+          const d = kmBetween([t.lat, t.lon], far);
+          if (d <= COURSE_MAX_KM) to = far;
+          else { const brg = t.heading != null ? t.heading : Math.atan2((far[1] - t.lon) * Math.cos(t.lat * Math.PI / 180), far[0] - t.lat) * 180 / Math.PI; to = destPoint(t.lat, t.lon, brg, COURSE_MAX_KM); }
+        } else if (t.heading != null) to = destPoint(t.lat, t.lon, t.heading, 40);
       }
       if (to) {
-        parts.push(L.polyline([[t.lat, t.lon], to], { pane: 'targets', color, weight: 2.6, opacity: .95, dashArray: '2 7', lineCap: 'round', interactive: false }).addTo(g));
-        parts.push(L.circleMarker(to, { pane: 'targets', radius: 5, weight: 2, color: '#0b1015', fillColor: color, fillOpacity: 1, interactive: false }).addTo(g));
-        if (label) parts.push(L.marker(to, { pane: 'targets', interactive: false, keyboard: false, icon: L.divIcon({ className: 'tgt-dest-wrap', html: '<span class="tgt-dest" style="border-left:3px solid ' + color + '">→ ' + escHtml(label) + '</span>', iconSize: [0, 0], iconAnchor: [-9, 11] }) }).addTo(g));
+        parts.push(L.polyline([[t.lat, t.lon], to], { pane: 'targets', color, weight: 3, opacity: .9, lineCap: 'round', interactive: false }).addTo(g));
+        const brg = Math.atan2((to[1] - t.lon) * Math.cos(t.lat * Math.PI / 180), to[0] - t.lat) * 180 / Math.PI;
+        parts.push(L.marker(to, { pane: 'targets', interactive: false, keyboard: false, icon: L.divIcon({ className: 'tgt-arrow-wrap', html: '<i class="tgt-arrow" style="border-bottom-color:' + color + ';transform:rotate(' + brg + 'deg)"></i>', iconSize: [14, 14], iconAnchor: [7, 7] }) }).addTo(g));
+        if (label && zoom >= 7) parts.push(L.marker(to, { pane: 'targets', interactive: false, keyboard: false, icon: L.divIcon({ className: 'tgt-dest-wrap', html: '<span class="tgt-dest" style="border-left:3px solid ' + color + '">→ ' + escHtml(label) + '</span>', iconSize: [0, 0], iconAnchor: [-10, 11] }) }).addTo(g));
       }
       return label;
     };
@@ -333,7 +339,7 @@
   AirMap.prototype.showTargets = function (on) { if (!this._tgtLayer) return; if (on && !this.map.hasLayer(this._tgtLayer)) this._tgtLayer.addTo(this.map); else if (!on) this._tgtLayer.remove(); };
   AirMap.prototype.targetCount = function () { return this._tgt ? this._tgt.size : 0; };
 
-  AirMap.glyphSvg = glyphSvg;
+  AirMap.glyphSvg = glyphSvg; AirMap.W_COLOR = W_COLOR;
   AirMap.districtId = districtId;
   global.AirMap = AirMap;
 })(window);
