@@ -166,7 +166,7 @@ async def _api_threats(request: web.Request) -> web.Response:  # noqa: ANN001
 
 
 def _track_json(t, now: int, official: set | None = None) -> dict:
-    from track_engine import _is_official, compass_ua, forecast_places, position_at
+    from track_engine import _is_official, compass_ua, forecast_places, position_at, position_radius_km
     lat, lon, est = position_at(t, now)
     return {
         "sources": max(1, len(t.sources)), "official": _is_official(lat, lon, official),
@@ -175,7 +175,8 @@ def _track_json(t, now: int, official: set | None = None) -> dict:
         "speed_kmh": t.speed_kmh, "speed_source": t.speed_source,
         "heading": None if t.heading is None else round(t.heading),
         "heading_text": "" if t.heading is None else compass_ua(t.heading),
-        "now": {"lat": round(lat, 4), "lon": round(lon, 4), "estimated": est},
+        "now": {"lat": round(lat, 4), "lon": round(lon, 4), "estimated": est,
+                "radius_km": position_radius_km(t, now) if est else 0.0},
         "points": [{"ts": p.ts, "lat": round(p.lat, 4), "lon": round(p.lon, 4), "count": p.count,
                     "place": p.place, "precision": p.precision} for p in t.points],
         "course_sigma": round(t.sigma), "heading_source": t.heading_source,

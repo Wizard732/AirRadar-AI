@@ -378,28 +378,44 @@ def _finalize(t: Track, now_ts: int) -> None:
 
 # --- положение и прогноз -----------------------------------------------------
 
+EXTRAPOLATE_MAX_S = 10 * 60     # далі 10 хв за курсом позиція — здогад, не малюємо її як факт
+
+
 def position_at(t: Track, ts: int) -> tuple[float, float, bool]:
     """(lat, lon, estimated). Внутри трека — интерполяция, после последней точки —
-    экстраполяция по курсу не дольше 20 минут."""
+    экстраполяция по курсу не дольше EXTRAPOLATE_MAX_S и не дальше пункта назначения.
+    estimated=True и для приблизительной точки («курсом на X»): реальное положение неизвестно."""
     pts = t.points
     if ts <= pts[0].ts:
-        return pts[0].lat, pts[0].lon, False
+        return pts[0].lat, pts[0].lon, pts[0].precision == "approx"
     for a, b in zip(pts, pts[1:]):
         if a.ts <= ts <= b.ts:
             k = 0 if b.ts == a.ts else (ts - a.ts) / (b.ts - a.ts)
-            return a.lat + (b.lat - a.lat) * k, a.lon + (b.lon - a.lon) * k, False
+            return a.lat + (b.lat - a.lat) * k, a.lon + (b.lon - a.lon) * k, a.precision == "approx" or b.precision == "approx"
     last = pts[-1]
     if t.heading is None or t.status != "active":
-        return last.lat, last.lon, False
+        return last.lat, last.lon, last.precision == "approx"
     if t.heading_source == "dest" and t.anchor is not None and t.dest is not None:
         # остання точка = сам пункт призначення, а не положення цілі: летимо від останньої ТОЧНОЇ позиції і не далі пункту
         km = t.speed_kmh * max(0, ts - t.anchor.ts) / 3600
         cap = haversine_km((t.anchor.lat, t.anchor.lon), (t.dest[0], t.dest[1])) * 0.95
         lat, lon = destination((t.anchor.lat, t.anchor.lon), t.heading, min(km, cap))
         return lat, lon, True
-    dt = min(ts - last.ts, 20 * 60)
-    lat, lon = destination((last.lat, last.lon), t.heading, t.speed_kmh * dt / 3600)
+    dt = max(0, min(ts - last.ts, EXTRAPOLATE_MAX_S))
+    km = t.speed_kmh * dt / 3600
+    if t.dest is not None:   # не «пролітаємо» повз заявлену ціль
+        km = min(km, haversine_km((last.lat, last.lon), (t.dest[0], t.dest[1])))
+    lat, lon = destination((last.lat, last.lon), t.heading, km)
     return lat, lon, True
+
+
+def position_radius_km(t: Track, ts: int) -> float:
+    """Радіус невизначеності позиції для карти (км); 0 — позиція точна."""
+    last = t.points[-1]
+    r = TOWARD_BACK_KM if last.precision == "approx" else 0.0
+    if t.heading is not None and t.status == "active" and ts > last.ts:
+        r = max(r, 5.0 + min(ts - last.ts, EXTRAPOLATE_MAX_S) / 60 * 1.5)
+    return round(r, 1)
 
 
 @dataclass

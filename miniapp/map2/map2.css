@@ -294,6 +294,7 @@ html[data-replay] .ar-alert,html[data-replay] .ar-warn{opacity:1!important}
 .tgt{position:relative;width:38px;height:38px;display:grid;place-items:center;cursor:pointer;filter:drop-shadow(0 1px 2px rgba(0,0,0,.75))}
 .tgt .ico{display:block;line-height:0;transform-origin:50% 50%}
 .tgt.stale{opacity:.75}
+.tgt.est{opacity:.8}
 .tgt .cnt{position:absolute;right:-5px;top:-6px;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:#0b1015;border:1.5px solid #fff;color:#fff;font:700 11px/15px system-ui,sans-serif;text-align:center}
 .tgt-dest-wrap{background:none;border:0;pointer-events:none}
 .tgt-dest{display:inline-block;white-space:nowrap;background:#0b1015;color:#fff;font:700 13px/1 system-ui,sans-serif;padding:6px 9px;border-radius:7px;box-shadow:0 1px 4px rgba(0,0,0,.5)}

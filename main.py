@@ -714,7 +714,13 @@ async def _process_message(
             db.record_inference_audit(event_ts=event_ts, source=source, model=getattr(summarizer, "_model", "unknown"), raw_output="", decision="rejected", reason="unknown_weapon")
             return
         # 4) Сжатие через LLM только для уже распознанной угрозы.
-        summary = await summarizer.summarize(text)
+        # Парсер-first: якщо структурний розбір упевнено дав трек зі спостереженнями, модель не кличемо —
+        # на CPU вона давала до 36 с затримки, а публікація будується з тексту і фактів, не з summary.
+        if parsed.kind == "track" and parsed.observations and os.getenv("PARSER_FIRST", "1") != "0":
+            from ai_summarizer import safe_summary
+            summary = safe_summary("", text)
+        else:
+            summary = await summarizer.summarize(text)
         if is_ignored_summary(summary):
             db.record_inference_audit(event_ts=event_ts, source=source, model=getattr(summarizer, "_model", "unknown"), raw_output=summary, decision="ignored")
             logger.info("Неподтверждённый звуковой пост пропущен: %s", text[:80])

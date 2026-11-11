@@ -64,7 +64,7 @@
     const dest = !stale && d && inBounds(d.lat, d.lon) ? d : null;
     return {
       id: str(String(r.id || ''), 80) || (weapon + ':' + lat.toFixed(2) + ':' + lon.toFixed(2)), weapon, kind: KINDS[weapon],
-      count: Math.max(1, Math.min(999, Math.round(num(r.count) || 1))), status, stale, lat, lon, estimated: !!(cur && cur.estimated),
+      count: Math.max(1, Math.min(999, Math.round(num(r.count) || 1))), status, stale, lat, lon, estimated: !!(cur && cur.estimated), radiusKm: cur && cur.estimated ? Math.max(3, Math.min(60, num(cur.radius_km) || 15)) : 0,
       speedKmh: speed != null ? Math.round(speed) : null, speedSource, heading, headingText: str(r.heading_text, 12),
       lastTs, ageS, points, forecast, dest, courseSigma: num(r.course_sigma), headingSource: str(r.heading_source, 12), sources: Math.max(1, Math.min(99, Math.round(num(r.sources) || 1))),
       official: r.official === true ? true : (r.official === false ? false : null),

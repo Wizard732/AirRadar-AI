@@ -104,7 +104,7 @@ class Settings:
 
     # Окно агрегации (сек): сообщения одного инцидента (регион+оружие)
     # склеиваются в один пост. Критичные/отбой публикуются мгновенно.
-    aggregate_window_sec: int = 35
+    aggregate_window_sec: int = 12
 
     # Исходные каналы мониторинга (по умолчанию пусто — проверяется в load_settings)
     source_channels: list[str] = field(default_factory=list)
@@ -211,7 +211,7 @@ def load_settings() -> Settings:
         incident_window_seconds=max(60, int(os.getenv("INCIDENT_WINDOW_SECONDS", "1200"))),
         active_threat_ttl=max(60, int(os.getenv("ACTIVE_THREAT_TTL", "1800"))),
         confirmation_sources=max(2, int(os.getenv("CONFIRMATION_SOURCES", "2"))),
-        aggregate_window_sec=max(5, int(os.getenv("AGGREGATE_WINDOW_SEC", "35"))),
+        aggregate_window_sec=max(5, int(os.getenv("AGGREGATE_WINDOW_SEC", "12"))),
         in_flight_only=os.getenv("IN_FLIGHT_ONLY", "0").strip() not in ("0", "false", "no"),
         extras_enabled=os.getenv("EXTRAS", "0").strip() in ("1", "true", "yes"),
         pre_wave_notice=os.getenv("PRE_WAVE_NOTICE", "1").strip() not in ("0", "false", "no"),
