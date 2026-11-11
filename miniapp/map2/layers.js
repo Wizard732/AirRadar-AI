@@ -317,7 +317,7 @@
     singles.forEach(t => {
       const rec = { parts: [] }, parts = rec.parts, color = colorOf(t), label = drawCourse(t, parts, color);
       const rot = t.heading == null ? 0 : t.heading;
-      const html = '<div class="tgt' + (t.stale ? ' stale' : '') + '"><span class="ico" style="transform:rotate(' + (t.kind.glyph === 'quad' ? 0 : rot) + 'deg)">' + glyphSvg(t.kind.glyph, t.stale, color) + '</span>' + (t.count > 1 ? '<b class="cnt">' + t.count + '</b>' : '') + '</div>';
+      const html = '<div class="tgt' + (t.stale ? ' stale' : '') + '"><span class="ico" style="transform:rotate(' + (t.kind.glyph === 'quad' ? 0 : rot) + 'deg)">' + glyphSvg(t.kind.glyph, t.stale, color) + '</span>' + (t.count > 1 ? '<b class="cnt">×' + t.count + '</b>' : '') + '</div>';
       const m = L.marker([t.lat, t.lon], { pane: 'targets', icon: L.divIcon({ className: 'tgt-wrap', html, iconSize: [38, 38], iconAnchor: [19, 19] }), keyboard: true, riseOnHover: true,
         title: t.kind.name + (t.count > 1 ? ' × ' + t.count : '') + (t.stale ? ' (застаріло)' : '') + (label ? ', курс: ' + label : '') }).addTo(g);
       m.on('click', e => { L.DomEvent.stopPropagation(e); if (this._tgtPick) this._tgtPick(t); });

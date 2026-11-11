@@ -9,7 +9,7 @@
   'use strict';
   const KINDS = {
     shahed: { name: 'Шахед (БпЛА-камікадзе)', short: 'Шахед', glyph: 'delta', guide: 'Шахед/Герань' },
-    uav: { name: 'Розвідувальний БпЛА', short: 'БпЛА', glyph: 'quad', guide: 'БпЛА' },
+    uav: { name: 'Розвідувальний БпЛА', short: 'БпЛА', glyph: 'delta', guide: 'БпЛА' },
     cruise_missile: { name: 'Крилата ракета', short: 'Крилата', glyph: 'dart', guide: 'Ракети' },
     ballistic: { name: 'Балістична ракета', short: 'Балістика', glyph: 'ring', guide: 'Балістика' },
   };
