@@ -807,11 +807,12 @@
     const top = list[0];
     if (off === 'alert') return { lvl: 'alert', t: '🔴 ТРИВОГА · ' + where, s: top ? line(top) + ' · ' + detail(top) + ' — в укриття' : 'В укриття негайно. Цілей із курсом на вас у даних поки немає' };
     if (top) {
+      const low = top.t.headingSource === 'wave' || (top.t.forecast[0] && top.t.forecast[0].conf === 'низька');
       const hot = top.inside || (top.eta != null && top.eta <= 10) || (top.km != null && top.km <= 10);
-      return { lvl: hot ? 'alert' : 'warn', t: line(top) + ' → ' + where, s: detail(top) + (hot ? ' — в укриття' : '') + (list.length > 1 ? ' · ще ' + (list.length - 1) : '') };
+      return { lvl: hot ? 'alert' : 'warn', t: (hot ? '🔴 ' : '🟠 УВАГА · ') + line(top) + ' → ' + where, s: detail(top) + (hot ? ' — в укриття' : '') + (low ? ' · курс орієнтовний' : '') + (list.length > 1 ? ' · ще ' + (list.length - 1) : '') };
     }
     if (off === 'warn') return { lvl: 'warn', t: '🟠 Загроза поруч · ' + where, s: 'Офіційне попередження. Цілей із курсом на вас у даних немає' };
-    return { lvl: 'ok', t: '🟢 Цілей на підльоті немає · ' + where, s: 'Це не означає, що безпечно: слухайте сирену' };
+    return { lvl: 'ok', t: '🟢 ТИХО · цілей на підльоті немає · ' + where, s: 'Це не означає, що безпечно: слухайте сирену' };
   }
   function renderVerdict() {
     const el = $('verdict'); if (!el) return;

@@ -55,7 +55,10 @@
       const flat = num(f.lat), flon = num(f.lon), eta = num(f.eta_min), km = num(f.km);
       if (!inBounds(flat, flon) || eta == null || eta < 0 || eta > MAX_ETA_MIN) return null;
       const name = str(f.name, 50); if (!name) return null;
-      return { name, lat: flat, lon: flon, km: km != null && km >= 0 ? Math.round(km) : null, etaMin: Math.round(eta), eta: etaRange(Math.round(eta), speedSource) };
+      const lo = num(f.eta_lo), hi = num(f.eta_hi), conf = f.conf === 'висока' || f.conf === 'середня' || f.conf === 'низька' ? f.conf : '';
+      // діапазон від сервера (σ швидкості); немає — рахуємо за типом швидкості
+      const eta2 = lo != null && hi != null && lo >= 1 && hi >= lo && hi <= MAX_ETA_MIN ? { lo: Math.round(lo), hi: Math.round(hi) } : etaRange(Math.round(eta), speedSource);
+      return { name, lat: flat, lon: flon, km: km != null && km >= 0 ? Math.round(km) : null, etaMin: Math.round(eta), eta: eta2, conf };
     }).filter(Boolean).slice(0, MAX_FORECAST);
     const d = r.dest && typeof r.dest === 'object' ? { lat: num(r.dest.lat), lon: num(r.dest.lon), name: str(r.dest.name, 50) } : null;
     const dest = !stale && d && inBounds(d.lat, d.lon) ? d : null;
@@ -63,7 +66,7 @@
       id: str(String(r.id || ''), 80) || (weapon + ':' + lat.toFixed(2) + ':' + lon.toFixed(2)), weapon, kind: KINDS[weapon],
       count: Math.max(1, Math.min(999, Math.round(num(r.count) || 1))), status, stale, lat, lon, estimated: !!(cur && cur.estimated),
       speedKmh: speed != null ? Math.round(speed) : null, speedSource, heading, headingText: str(r.heading_text, 12),
-      lastTs, ageS, points, forecast, dest, sources: Math.max(1, Math.min(99, Math.round(num(r.sources) || 1))),
+      lastTs, ageS, points, forecast, dest, courseSigma: num(r.course_sigma), headingSource: str(r.heading_source, 12), sources: Math.max(1, Math.min(99, Math.round(num(r.sources) || 1))),
       official: r.official === true ? true : (r.official === false ? false : null),
     };
   }

@@ -95,6 +95,9 @@ class Track:
     dest: tuple | None = None          # (lat, lon, name) — «курсом на X», если последнее сообщение так говорит
     course_to: str = ""                # цель из текста («курсом на Обухів»)
     sources: set = field(default_factory=set)   # незалежні джерела, що бачили цю ціль (довіра)
+    sigma: float = 25.0                # невизначеність курсу, ° (1σ): розкрив конуса прогнозу
+    heading_source: str = ""           # fit | segments | aim | dest | wave | '' — звідки курс
+    anchor: "Point | None" = None      # остання ТОЧНА позиція (для курсу «на X», де сама точка X — не положення цілі)
 
     @property
     def last(self) -> Point:
@@ -239,6 +242,7 @@ def build_tracks(rows: list[dict], now_ts: int, window_s: int = 6 * 3600) -> lis
             open_tracks.append(t)
     for t in tracks:
         _finalize(t, now_ts)
+    _apply_wave_course(tracks, now_ts)
     return tracks
 
 
@@ -251,6 +255,84 @@ def _append(t: Track, n: dict) -> None:
     t.sources |= n.get("sources", set())
 
 
+def _anchor_toward_dest(t: Track) -> bool:
+    """Є точна позиція (не «→ X») і названий пункт призначення ≥5 км від неї → курс на нього (σ≈14°)."""
+    dlat, dlon = t.dest[0], t.dest[1]
+    for p in reversed(t.points):
+        if p.precision == "place" and haversine_km((p.lat, p.lon), (dlat, dlon)) >= 5.0:
+            t.anchor, t.heading = p, bearing_deg((p.lat, p.lon), (dlat, dlon))
+            t.sigma, t.heading_source = 14.0, "dest"
+            return True
+    return False
+
+
+WAVE_RADIUS_KM, WAVE_MIN_NEIGHBORS, WAVE_MAX_SPREAD_DEG, WAVE_SIGMA = 180.0, 2, 35.0, 30.0
+
+
+def _apply_wave_course(tracks: list[Track], now_ts: int) -> None:
+    """Ціль без курсу (одна точка) у хвилі однотипних цілей: беремо спільний курс сусідів, якщо вони летять купно.
+
+    Хвиля шахедів/ракет зазвичай має спільний напрям. Умови: ≥2 сусідів того ж типу в радіусі, їхній курс згуртований
+    (розкид ≤35°), цілі свіжі. Позначається heading_source='wave', σ=30° — прогноз є, але впевненість низька."""
+    donors = [t for t in tracks if t.heading is not None and t.status == "active" and t.heading_source in ("fit", "segments", "aim", "dest")]
+    for t in tracks:
+        if t.heading is not None or t.status != "active" or now_ts - t.last.ts > 15 * 60:
+            continue
+        near = [d for d in donors if d.weapon == t.weapon and haversine_km((d.last.lat, d.last.lon), (t.last.lat, t.last.lon)) <= WAVE_RADIUS_KM
+                and abs(d.last.ts - t.last.ts) <= 20 * 60]
+        if len(near) < WAVE_MIN_NEIGHBORS:
+            continue
+        sx = sum(math.sin(math.radians(d.heading)) for d in near)
+        cy = sum(math.cos(math.radians(d.heading)) for d in near)
+        r = math.hypot(sx, cy) / len(near)                      # довжина середнього вектора: 1 — усі в один бік
+        mean = (math.degrees(math.atan2(sx, cy)) + 360) % 360
+        spread = max(angle_diff(mean, d.heading) for d in near)
+        if r < 0.85 or spread > WAVE_MAX_SPREAD_DEG:
+            continue
+        t.heading, t.sigma, t.heading_source = mean, WAVE_SIGMA, "wave"
+
+
+FIT_MIN_POINTS, FIT_MIN_SPAN_S, FIT_MIN_DISP_KM, FIT_WINDOW_S, FIT_TAU_S = 3, 360, 6.0, 40 * 60, 900.0
+
+
+def _fit_velocity(pts: list[Point]) -> tuple[float, float, float] | None:
+    """Швидкість і курс за регресією по останніх точках (зважено: свіжіші важливіші) → (км/год, курс°, σ°).
+
+    Усереднення двох сусідніх сегментів хитається від шуму геокодингу: одна неточна точка міняє курс на десятки
+    градусів. Лінійна підгонка x(t), y(t) по 3–6 точках стабільніша, а розкид залишків дає чесну оцінку невизначеності."""
+    place = [p for p in pts if p.precision == "place"]
+    if len(place) < FIT_MIN_POINTS:
+        return None
+    last = place[-1]
+    use = [p for p in place if last.ts - p.ts <= FIT_WINDOW_S][-6:]
+    if len(use) < FIT_MIN_POINTS or use[-1].ts - use[0].ts < FIT_MIN_SPAN_S:
+        return None
+    kx, ky = 111.32 * math.cos(math.radians(last.lat)), 110.57
+    xs = [(p.lon - last.lon) * kx for p in use]
+    ys = [(p.lat - last.lat) * ky for p in use]
+    ts = [(p.ts - last.ts) / 3600.0 for p in use]                 # години відносно останньої точки (≤ 0)
+    ws = [math.exp(-(last.ts - p.ts) / FIT_TAU_S) for p in use]
+    sw = sum(ws)
+    mt = sum(w * t for w, t in zip(ws, ts)) / sw
+    var = sum(w * (t - mt) ** 2 for w, t in zip(ws, ts))
+    if var <= 1e-9:
+        return None
+    vx = sum(w * (t - mt) * (x - sum(w2 * x2 for w2, x2 in zip(ws, xs)) / sw) for w, t, x in zip(ws, ts, xs)) / var
+    vy = sum(w * (t - mt) * (y - sum(w2 * y2 for w2, y2 in zip(ws, ys)) / sw) for w, t, y in zip(ws, ts, ys)) / var
+    speed = math.hypot(vx, vy)
+    disp = math.hypot(xs[-1] - xs[0], ys[-1] - ys[0])
+    if disp < FIT_MIN_DISP_KM or speed < 1.0:
+        return None
+    mx = sum(w * x for w, x in zip(ws, xs)) / sw
+    my = sum(w * y for w, y in zip(ws, ys)) / sw
+    mt2 = mt
+    res = [math.hypot(x - (mx + vx * (t - mt2)), y - (my + vy * (t - mt2))) for x, y, t in zip(xs, ys, ts)]
+    rms = math.sqrt(sum(w * r * r for w, r in zip(ws, res)) / sw)
+    heading = (math.degrees(math.atan2(vx, vy)) + 360) % 360
+    sigma = min(35.0, max(4.0, math.degrees(math.atan2(rms, max(disp, 1.0))) * 1.5 + 4.0))
+    return speed, heading, sigma
+
+
 def _finalize(t: Track, now_ts: int) -> None:
     """Скорость/курс по смещению. Сглаживаем по последним сегментам, а не по паре точек."""
     segs = []
@@ -261,7 +343,12 @@ def _finalize(t: Track, now_ts: int) -> None:
         if dt >= MIN_SEGMENT_S and km >= MIN_SEGMENT_KM and a.precision == "place" and b.precision == "place":
             segs.append((km, dt, bearing_deg((a.lat, a.lon), (b.lat, b.lon))))
     lo, hi = SPEED_BOUNDS.get(t.profile, SPEED_BOUNDS[""])
-    if segs:
+    fit = _fit_velocity(pts)
+    if fit is not None and lo <= fit[0] <= hi:
+        # ≥3 точок: курс і швидкість за регресією (стабільніше за пару сегментів), σ — з розкиду залишків
+        t.speed_kmh, t.speed_source = round(fit[0], 0), "measured"
+        t.heading, t.sigma, t.heading_source = fit[1], fit[2], "fit"
+    elif segs:
         recent = segs[-3:]
         km = sum(s[0] for s in recent)
         dt = sum(s[1] for s in recent)
@@ -270,6 +357,7 @@ def _finalize(t: Track, now_ts: int) -> None:
         sx = sum(math.sin(math.radians(s[2])) * s[0] for s in recent)
         cy = sum(math.cos(math.radians(s[2])) * s[0] for s in recent)
         t.heading = (math.degrees(math.atan2(sx, cy)) + 360) % 360
+        t.sigma, t.heading_source = (14.0 if len(segs) == 1 else 10.0), "segments"
         if lo <= speed <= hi:
             t.speed_kmh, t.speed_source = round(speed, 0), "measured"
         else:
@@ -279,6 +367,9 @@ def _finalize(t: Track, now_ts: int) -> None:
         t.speed_kmh, t.speed_source = _speed_for(t.weapon, t.profile), "typical"
         if t.aim is not None:
             t.heading = t.aim
+            t.sigma, t.heading_source = 12.0, "aim"
+        elif t.dest is not None and _anchor_toward_dest(t):
+            pass                                   # курс від останньої точної позиції до названого пункту
         elif len(pts) >= 2:
             t.status = "loitering"
     if now_ts - t.last.ts > STALE_AFTER_S:
@@ -300,6 +391,12 @@ def position_at(t: Track, ts: int) -> tuple[float, float, bool]:
     last = pts[-1]
     if t.heading is None or t.status != "active":
         return last.lat, last.lon, False
+    if t.heading_source == "dest" and t.anchor is not None and t.dest is not None:
+        # остання точка = сам пункт призначення, а не положення цілі: летимо від останньої ТОЧНОЇ позиції і не далі пункту
+        km = t.speed_kmh * max(0, ts - t.anchor.ts) / 3600
+        cap = haversine_km((t.anchor.lat, t.anchor.lon), (t.dest[0], t.dest[1])) * 0.95
+        lat, lon = destination((t.anchor.lat, t.anchor.lon), t.heading, min(km, cap))
+        return lat, lon, True
     dt = min(ts - last.ts, 20 * 60)
     lat, lon = destination((last.lat, last.lon), t.heading, t.speed_kmh * dt / 3600)
     return lat, lon, True
@@ -312,16 +409,29 @@ class PathPlace:
     lon: float
     eta_min: int
     km: float
+    eta_lo: int = 0
+    eta_hi: int = 0
+    conf: str = ""      # висока | середня | низька — наскільки місто близько до осі курсу (без відсотків)
+
+
+HORIZON_BY_WEAPON = {"ballistic": 15, "cruise_missile": 45}
 
 
 def forecast_places(t: Track, now_ts: int, horizon_min: int = 60, corridor_km: float = 12.0,
                     min_population: int = 5000, limit: int = 4) -> list[PathPlace]:
-    """Города в коридоре по курсу, с оценкой времени. Только для активных треков с курсом."""
+    """Міста в конусі за курсом: коридор розширюється з відстанню (σ курсу), ETA — діапазоном (σ швидкості).
+
+    Тільки для активних треків із курсом. Чим менш певний курс (мало точок, шум), тим ширший конус, але й
+    нижча «впевненість»: далеке місто на краю конуса не видається за певну ціль."""
     if t.heading is None or t.status != "active":
         return []
     lat0, lon0, _ = position_at(t, now_ts)
     here = (lat0, lon0)
+    horizon_min = min(horizon_min, HORIZON_BY_WEAPON.get(t.weapon, horizon_min))
     reach = t.speed_kmh * horizon_min / 60
+    sigma = max(4.0, t.sigma)
+    tan_s = math.tan(math.radians(min(sigma, 45.0)))
+    spd_unc = 0.2 if t.speed_source == "measured" else 0.4
     out: list[PathPlace] = []
     for town in gazetteer.towns(min_population):
         p = (town.lat, town.lon)
@@ -329,14 +439,18 @@ def forecast_places(t: Track, now_ts: int, horizon_min: int = 60, corridor_km: f
         if dist < 1 or dist > reach:
             continue
         off = angle_diff(t.heading, bearing_deg(here, p))
-        if off > 60:
+        if off > max(60.0, sigma * 2):
             continue
         cross = dist * math.sin(math.radians(off))
-        if cross > corridor_km:
-            continue
         along = dist * math.cos(math.radians(off))
-        out.append(PathPlace(town.name, town.lat, town.lon, max(1, round(along / t.speed_kmh * 60)), round(dist, 1)))
-    out.sort(key=lambda p: p.eta_min)
+        if cross > corridor_km + max(0.0, along) * tan_s:
+            continue
+        eta = max(1, round(along / t.speed_kmh * 60))
+        ratio = cross / (corridor_km + max(0.0, along) * tan_s)
+        conf = "висока" if ratio <= 0.35 else ("середня" if ratio <= 0.7 else "низька")
+        out.append(PathPlace(town.name, town.lat, town.lon, eta, round(dist, 1),
+                             max(1, math.floor(eta * (1 - spd_unc))), max(1, math.ceil(eta * (1 + spd_unc))), conf))
+    out.sort(key=lambda p: (p.eta_min, p.km))
     return out[:limit]
 
 

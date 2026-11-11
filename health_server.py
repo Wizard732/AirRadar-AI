@@ -178,7 +178,9 @@ def _track_json(t, now: int, official: set | None = None) -> dict:
         "now": {"lat": round(lat, 4), "lon": round(lon, 4), "estimated": est},
         "points": [{"ts": p.ts, "lat": round(p.lat, 4), "lon": round(p.lon, 4), "count": p.count,
                     "place": p.place, "precision": p.precision} for p in t.points],
-        "forecast": [{"name": p.name, "lat": p.lat, "lon": p.lon, "eta_min": p.eta_min, "km": p.km}
+        "course_sigma": round(t.sigma), "heading_source": t.heading_source,
+        "forecast": [{"name": p.name, "lat": p.lat, "lon": p.lon, "eta_min": p.eta_min, "km": p.km,
+                      "eta_lo": p.eta_lo, "eta_hi": p.eta_hi, "conf": p.conf}
                      for p in forecast_places(t, now)],
         "dest": None if t.dest is None else {"lat": round(t.dest[0], 4), "lon": round(t.dest[1], 4), "name": t.dest[2]},
     }
