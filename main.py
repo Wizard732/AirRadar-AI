@@ -408,7 +408,10 @@ async def run() -> None:
         from ai_analyzer import analyzer_loop, make_llm
         global _analyzer_ref
         _analyzer_ref = make_llm(summarizer, http_session)
-        analyzer_task = asyncio.create_task(analyzer_loop(db, bot_client, _analyzer_ref, settings.admin_id), name="ai-analyzer")
+        if os.getenv("AI_ANALYZER", "0").strip() in ("1", "true", "yes"):
+            analyzer_task = asyncio.create_task(analyzer_loop(db, bot_client, _analyzer_ref, settings.admin_id), name="ai-analyzer")
+        else:
+            analyzer_task = None   # авто-звіт «ІІ-аналіз системи» вимкнено (шум); ручна команда /analyze лишається
         from airradar.monitoring.alert_loop import alert_loop
         alert_task = asyncio.create_task(alert_loop(db, bot_client, settings.admin_id), name="admin-alerts")
         from airradar.delivery.tg_delivery import retry_worker
