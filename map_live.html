@@ -1,0 +1,1610 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b0e14">
+<title>AirRadar AI — Карта загроз</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; background: #0b0e14; font-family: -apple-system, 'Segoe UI', sans-serif; color: #fff; overflow: hidden; }
+  #map { width: 100%; height: 100vh; z-index: 1; background: #0b0e14; }
+
+  /* Еле заметная тактическая сетка поверх тайлов (МГРС-стиль) */
+  #tactical-grid {
+    position: absolute; inset: 0; z-index: 2; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(90,200,250,0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(90,200,250,0.05) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+
+  /* Красная вспышка рамки при угрозе в личном радиусе */
+  #alert-flash {
+    position: absolute; inset: 0; z-index: 3000; pointer-events: none;
+    box-shadow: inset 0 0 0 3px rgba(255,59,48,0);
+    opacity: 0;
+  }
+  #alert-flash.on { animation: alertflash 1.1s ease-out 2; }
+  @keyframes alertflash {
+    0%   { opacity: 0; box-shadow: inset 0 0 0 3px rgba(255,59,48,0); }
+    30%  { opacity: 1; box-shadow: inset 0 0 70px 10px rgba(255,59,48,0.5); }
+    100% { opacity: 0; box-shadow: inset 0 0 0 3px rgba(255,59,48,0); }
+  }
+
+  #header {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 1100;
+    background: rgba(11,14,20,0.94); padding: 10px 16px; backdrop-filter: blur(10px);
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid rgba(90,200,250,0.15);
+  }
+  #header h1 { font-size: 15px; font-weight: 700; letter-spacing: .4px; }
+  #header .count { font-size: 12px; color: #ff9f0a; text-align: right; }
+
+  /* Лента событий (тикер) */
+  #ticker {
+    position: absolute; top: 44px; left: 0; right: 0; z-index: 1090;
+    background: rgba(11,14,20,0.9); border-bottom: 1px solid rgba(90,200,250,0.12);
+    font-size: 12px; color: #9fd0e8; white-space: nowrap; overflow: hidden;
+    max-height: 30px; cursor: pointer; transition: max-height .25s ease;
+    backdrop-filter: blur(8px);
+  }
+  #ticker .scroll { display: inline-block; padding: 7px 0 7px 100vw; animation: tickerscroll 45s linear infinite; }
+  @keyframes tickerscroll { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+  #ticker.expanded { max-height: 46vh; overflow-y: auto; white-space: normal; }
+  #ticker.expanded .scroll { animation: none; padding: 4px 12px 8px; display: block; white-space: normal; }
+  .tick-line { padding: 6px 0; border-bottom: 1px solid rgba(90,200,250,0.08); }
+  .tick-line b { color: #cfe9f5; }
+
+  #legend {
+    position: absolute; bottom: calc(100% + 8px); left: 8px; right: 8px; z-index: 1150;
+    background: rgba(11,14,20,0.96); border: 1px solid rgba(90,200,250,0.25);
+    border-radius: 12px; padding: 9px 12px; font-size: 11.5px;
+    display: flex; gap: 10px 14px; justify-content: center; flex-wrap: wrap;
+    box-shadow: 0 -6px 24px rgba(0,0,0,0.5);
+  }
+  #legend[hidden] { display: none; }
+  .leg-item { display: flex; align-items: center; gap: 5px; color: #c8c8d0; }
+  .leg-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .pulse { animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%{opacity:1} 50%{opacity:0.35} 100%{opacity:1} }
+
+  /* Кнопка «Слої»: сворачивает колонку фильтров в один контрол (мобильный фикс:
+     10 чипов вертикально вылетали за край экрана). */
+  #layersBtn {
+    position: absolute; top: 82px; right: 8px; z-index: 1160;
+    background: rgba(11,14,20,0.92); border: 1px solid rgba(90,200,250,0.35); color: #fff;
+    padding: 8px 13px; border-radius: 18px; font-size: 12.5px; cursor: pointer;
+    backdrop-filter: blur(8px);
+  }
+  #layersBtn:active { transform: scale(0.96); border-color: #5ac8fa; }
+  #layersPanel {
+    position: absolute; top: 124px; right: 8px; z-index: 1155;
+    background: rgba(11,14,20,0.96); border: 1px solid rgba(90,200,250,0.3);
+    border-radius: 14px; padding: 10px; backdrop-filter: blur(12px);
+    display: none; grid-template-columns: 1fr 1fr; gap: 6px;
+    max-width: min(230px, 62vw); max-height: calc(100vh - 280px); overflow-y: auto;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+  }
+  #layersPanel.open { display: grid; }
+
+  .chip {
+    background: rgba(11,14,20,0.92); border: 1px solid rgba(90,200,250,0.25); color: #fff;
+    padding: 6px 9px; border-radius: 13px; font-size: 11.5px; cursor: pointer;
+    user-select: none; backdrop-filter: blur(8px); text-align: left; white-space: nowrap;
+    transition: opacity .2s, border-color .2s, transform .1s;
+  }
+  .chip:active { transform: scale(0.96); border-color: #5ac8fa; }
+  .chip.off { opacity: 0.35; text-decoration: line-through; }
+
+  /* Нижняя панель: таймлайн + действия. Кнопки «Укриття/Розташування/
+     Поділитися» больше не плавают поверх карты — живут в одной панели. */
+  #bottomBar {
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 1100;
+    background: rgba(11,14,20,0.94); border-top: 1px solid rgba(90,200,250,0.15);
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); backdrop-filter: blur(10px);
+    display: flex; flex-direction: column; gap: 7px;
+  }
+  #timeline {
+    position: static; display: flex; align-items: center; gap: 8px;
+    background: rgba(90,200,250,0.06); padding: 5px 10px; border-radius: 12px;
+    font-size: 11.5px; border: 1px solid rgba(90,200,250,0.15);
+  }
+  #timeline input[type=range] { flex: 1; accent-color: #ff9500; min-width: 60px; }
+  #playBtn {
+    background: rgba(90,200,250,0.12); border: 1px solid rgba(90,200,250,0.3); color: #5ac8fa;
+    font-size: 14px; cursor: pointer; padding: 3px 10px; border-radius: 10px; line-height: 1.2;
+  }
+  #actions { display: flex; gap: 7px; }
+  #actions button {
+    flex: 1; background: rgba(90,200,250,0.10); border: 1px solid rgba(90,200,250,0.3);
+    color: #fff; padding: 9px 4px; border-radius: 12px; font-size: 12.5px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #actions button:active { transform: scale(0.96); border-color: #5ac8fa; }
+  #legendBtn {
+    background: rgba(90,200,250,0.12); border: 1px solid rgba(90,200,250,0.3); color: #5ac8fa;
+    font-size: 13px; cursor: pointer; padding: 2px 9px; border-radius: 10px; line-height: 1.4;
+    margin-left: 8px; flex: none;
+  }
+
+  /* Bottom Sheet — карточка объекта */
+  #sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2000;
+    background: rgba(15,19,28,0.97); border-top: 1px solid rgba(90,200,250,0.3);
+    border-radius: 16px 16px 0 0; padding: 10px 16px calc(14px + env(safe-area-inset-bottom));
+    transform: translateY(110%); transition: transform .25s ease;
+    backdrop-filter: blur(14px); box-shadow: 0 -8px 32px rgba(0,0,0,0.55);
+  }
+  #sheet.open { transform: translateY(0); }
+  #sheet .grab { width: 36px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.25); margin: 0 auto 10px; }
+  #sheet .close {
+    position: absolute; top: 10px; right: 14px; background: none; border: none;
+    color: #8e8e93; font-size: 17px; cursor: pointer;
+  }
+  #sheet h3 { font-size: 15px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; padding-right: 26px; }
+  #sheet .lvl { font-size: 10px; padding: 2px 8px; border-radius: 8px; font-weight: 700; letter-spacing: .5px; }
+  #sheet .meta { font-size: 12px; color: #9fd0e8; margin-bottom: 8px; }
+  #sheet .body {
+    font-size: 13px; color: #e5e5ea; line-height: 1.45; white-space: pre-wrap;
+    max-height: 32vh; overflow-y: auto;
+  }
+  #sheet .body .ev { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  #sheet .body .ev:last-child { border-bottom: none; }
+  #sheet .body .ev .t { color: #9fd0e8; font-size: 11px; }
+  #sheet .note { font-size: 10.5px; color: #667; margin-top: 8px; }
+  #sheet .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  #sheet .actions a {
+    flex: 1; min-width: 130px; text-align: center; text-decoration: none;
+    font-size: 13px; padding: 9px 12px; border-radius: 10px;
+    background: rgba(90,200,250,0.12); border: 1px solid rgba(90,200,250,0.3); color: #fff;
+  }
+
+  #toast {
+    position: absolute; bottom: calc(132px + env(safe-area-inset-bottom)); left: 50%;
+    transform: translateX(-50%);
+    z-index: 2500; background: rgba(15,19,28,0.95); border: 1px solid rgba(90,200,250,0.3);
+    padding: 8px 16px; border-radius: 20px; font-size: 12.5px; color: #cfe9f5;
+    opacity: 0; pointer-events: none; transition: opacity .25s; max-width: 86vw; text-align: center;
+  }
+  #toast.show { opacity: 1; }
+
+  .leaflet-control-attribution { background: rgba(11,14,20,0.7) !important; color: #666 !important; font-size: 9px !important; }
+  .leaflet-control-attribution a { color: #888 !important; }
+  .leaflet-bar a { background: #161b26 !important; color: #cfe9f5 !important; border-color: rgba(90,200,250,0.2) !important; }
+  .leaflet-tooltip { background: #161b26 !important; border: 1px solid rgba(90,200,250,0.3) !important; color: #cfe9f5 !important; }
+  /* Зум-контрол под хедером (44px) и тикером (30px): иначе он перекрыт
+     хедером и некликабелен. */
+  .leaflet-top { top: 84px; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>🛡 AirRadar AI</h1>
+  <div class="count" id="counter">— загроз</div>
+</div>
+
+<div id="ticker" title="Останні події"><div class="scroll" id="tickerInner">⏳ Завантаження подій…</div></div>
+
+<div id="map"></div>
+<div id="tactical-grid"></div>
+<div id="alert-flash"></div>
+
+<button id="layersBtn" type="button">🗂 Слої</button>
+<div id="layersPanel" role="group" aria-label="Шарі карти">
+  <div class="chip" data-layer="rockets">🔴 Ракети</div>
+  <div class="chip" data-layer="uav">🟡 БПЛА</div>
+  <div class="chip" data-layer="alerts">🟢 Тривоги</div>
+  <div class="chip" data-layer="impacts">💥 Наслідки</div>
+  <div class="chip" data-layer="zones">🌀 Зони</div>
+  <div class="chip" data-layer="vectors">➤ Вектори</div>
+  <div class="chip" data-layer="reports">👤 Повідомл.</div>
+  <div class="chip" data-layer="green">✅ Відбої</div>
+  <div class="chip off" data-layer="shields">🛡 Укриття</div>
+  <div class="chip" data-layer="sound">🔊</div>
+</div>
+
+<div id="bottomBar">
+  <div id="legend" hidden>
+    <div class="leg-item">🛸 Шахед/БПЛА</div>
+    <div class="leg-item pulse">🚀 Ракета/балістика</div>
+    <div class="leg-item">✈️ КАБ/авіація</div>
+    <div class="leg-item">💥 Приліт</div>
+    <div class="leg-item">👁 Розвідка</div>
+    <div class="leg-item">🛡 ППО</div>
+    <div class="leg-item pulse">👤 Повідомлення</div>
+    <div class="leg-item">➤ напрямок · ⏳/🔁 прогноз</div>
+  </div>
+  <div id="timeline">
+    <button id="playBtn" type="button" title="Плейбэк за 2 години">▶</button>
+    <input id="tlRange" type="range" min="0" max="120" step="5" value="0">
+    <span id="tlLabel">зараз</span>
+    <button id="legendBtn" type="button" title="Легенда позначок" aria-label="Легенда">ⓘ</button>
+  </div>
+  <div id="actions">
+    <button id="geoBtn" type="button">📍 Я тут</button>
+    <button id="shelterBtn" type="button">🛡 Укриття</button>
+    <button id="shareBtn" type="button">📤 Поділитися</button>
+  </div>
+</div>
+
+<!-- Bottom Sheet -->
+<div id="sheet">
+  <div class="grab" id="sheetGrab"></div>
+  <button class="close" id="sheetClose" type="button">✕</button>
+  <h3 id="sheetTitle">—</h3>
+  <div class="meta" id="sheetMeta"></div>
+  <div class="body" id="sheetBody"></div>
+  <div class="note" id="sheetNote"></div>
+  <div class="actions" id="sheetActions"></div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+// === Берега Киева: точки пинов + те же ключи, что в regions.detect_kyiv_zone
+// (бот и карта размечают берег одинаково). ОБЪЯВЛЕНО ДО REGION_COORDS,
+// который ссылается на координаты берегов.
+const KYIV_BANK = {
+  kyiv_left: {
+    coords: [50.4668, 30.6380], // Дарниця / Лівобережна
+    keys: ['лівий берег', 'левый берег', 'левый', 'лівобереж', 'лівобережж', 'дарниц',
+      'позняк', 'осокорк', 'харківськ', 'деснянськ', 'троєщин', 'русанів', 'бортнич', 'дніпровськ',
+      // Лівобережні райцентри Київщини
+      'бровар', 'переяслав', 'яготин', 'баришівк', 'згурівк', 'кагарлик', 'славутич'],
+  },
+  kyiv_right: {
+    coords: [50.4440, 30.5150], // правобережный центр
+    keys: ['правий берег', 'правый берег', 'правый', 'правобереж', 'правобережж',
+      'оболон', 'печерськ', 'голосіїв', 'теремки', 'святошин', "солом'янск", 'соломянск',
+      'шулявк', 'подол', 'борщагівк', 'жуляни', 'видубичі',
+      // Правобережні райцентри Київщини: «курсом на Ржищів» — не «весь Киев»
+      'ржищів', 'миронівк', 'васильк', 'біла церкв', 'белая церков',
+      'фастів', 'фастов', 'обухів', 'вишгород', 'буч', 'ірпін', 'ирпен',
+      'гостомел', 'боярк', 'вишнев', 'сквир', 'тетіїв', 'димер'],
+  },
+};
+
+// === Координаты центров регионов Украины ===
+const REGION_COORDS = {
+  kyivska: [50.45, 30.52], sumska: [50.91, 34.80], kharkivska: [49.99, 36.23],
+  chernigivska: [51.49, 31.29], odeska: [46.48, 30.73], dnipropetrovska: [48.46, 35.05],
+  zhytomyrska: [50.25, 28.66], vinnytska: [49.23, 28.48], lvivska: [49.84, 24.03],
+  poltavska: [49.59, 34.55], cherkaska: [49.44, 32.06], rivnenska: [50.62, 26.25],
+  volynska: [50.75, 25.33], khmelnytska: [49.42, 27.00], ternopilska: [49.55, 25.59],
+  ivano_frankivska: [48.92, 24.71], zakarpatska: [48.62, 22.29], mykolaivska: [46.97, 32.00],
+  khersonska: [46.64, 32.62], zaporizka: [47.84, 35.14], kirovohradska: [48.51, 32.26],
+  donetska: [48.00, 37.80], luhanska: [48.57, 39.31], crimea: [44.95, 34.10],
+  chernivetska: [48.29, 25.94],
+  kyiv_left: KYIV_BANK.kyiv_left.coords, kyiv_right: KYIV_BANK.kyiv_right.coords,
+};
+
+const REGION_NAMES = {
+  kyivska: 'Київщина', sumska: 'Сумщина', kharkivska: 'Харківщина',
+  chernigivska: 'Чернігівщина', odeska: 'Одещина', dnipropetrovska: 'Дніпропетровщина',
+  zhytomyrska: 'Житомирщина', vinnytska: 'Вінничина', lvivska: 'Львівщина',
+  poltavska: 'Полтавщина', cherkaska: 'Черкащина', rivnenska: 'Рівненщина',
+  volynska: 'Волинь', khmelnytska: 'Хмельниччина', ternopilska: 'Тернопільщина',
+  ivano_frankivska: 'Прикарпаття', zakarpatska: 'Закарпаття', mykolaivska: 'Миколаївщина',
+  khersonska: 'Херсонщина', zaporizka: 'Запоріжжя', kirovohradska: 'Кіровоградщина',
+  donetska: 'Донеччина', luhanska: 'Луганщина', crimea: 'Крим',
+  chernivetska: 'Буковина',
+  kyiv_left: 'Київ — лівий берег', kyiv_right: 'Київ — правий берег',
+  // Служебные slug-и инцидентов — человекочитаемо, не сырым «multi:».
+  multi: 'Кілька областей', unknown: 'Регіон уточнюється',
+};
+
+// === Города/посёлки: точечный пин по упоминанию в тексте ===
+// Зеркало city_coords.py (карта работает автономно). Ключи — основы слов:
+// «над Гостомелем», «у Бучі», «на Ірпінь» матчатся подстрокой.
+const CITY_COORDS = {
+  hostomel: { name: 'Гостомель', region: 'kyivska', c: [50.530, 30.262], keys: ['гостомел', 'гостоміл', 'hostomel'] },
+  irpin: { name: 'Ірпінь', region: 'kyivska', c: [50.523, 30.241], keys: ['ірпін', 'ірпен', 'ирпен', 'ирпин', 'irpin'] },
+  bucha: { name: 'Буча', region: 'kyivska', c: [50.547, 30.223], keys: ['буч', 'bucha'] },
+  vyshhorod: { name: 'Вишгород', region: 'kyivska', c: [50.588, 30.489], keys: ['вишгород', 'вышгород'] },
+  brovary: { name: 'Бровари', region: 'kyivska', c: [50.511, 30.790], keys: ['бровар'] },
+  boryspil: { name: 'Бориспіль', region: 'kyivska', c: [50.353, 30.955], keys: ['бориспіл', 'бориспол'] },
+  vasylkiv: { name: 'Васильків', region: 'kyivska', c: [50.180, 30.318], keys: ['васильк'] },
+  fastiv: { name: 'Фастів', region: 'kyivska', c: [50.077, 29.917], keys: ['фастів', 'фастов'] },
+  bila_tserkva: { name: 'Біла Церква', region: 'kyivska', c: [49.798, 30.115], keys: ['біла церкв', 'белая церков', 'білоцерків', 'белоцерков'] },
+  vyshneve: { name: 'Вишневе', region: 'kyivska', c: [50.389, 30.363], keys: ['вишнев'] },
+  slavutych: { name: 'Славутич', region: 'kyivska', c: [51.518, 30.755], keys: ['славутич'] },
+  obolon: { name: 'Київ — Оболонь', region: 'kyivska', c: [50.508, 30.495], keys: ['оболон'] },
+  pechersk: { name: 'Київ — Печерськ', region: 'kyivska', c: [50.433, 30.537], keys: ['печерськ', 'печерск'] },
+  podil: { name: 'Київ — Поділ', region: 'kyivska', c: [50.463, 30.516], keys: ['подол', 'поділ'] },
+  darnytsia: { name: 'Київ — Дарниця', region: 'kyivska', c: [50.466, 30.638], keys: ['дарниц'] },
+  pozniaiaky: { name: 'Київ — Позняки', region: 'kyivska', c: [50.415, 30.635], keys: ['позняк'] },
+  troieshchyna: { name: 'Київ — Троєщина', region: 'kyivska', c: [50.525, 30.584], keys: ['троєщин', 'троещин'] },
+  sviatoshyn: { name: 'Київ — Святошин', region: 'kyivska', c: [50.455, 30.375], keys: ['святошин'] },
+  solomianka: { name: "Київ — Солом'янка", region: 'kyivska', c: [50.429, 30.478], keys: ["солом'янск", 'соломянск'] },
+  holosiiv: { name: 'Київ — Голосіїв', region: 'kyivska', c: [50.403, 30.513], keys: ['голосіїв', 'голосеев'] },
+  osokorky: { name: 'Київ — Осокорки', region: 'kyivska', c: [50.396, 30.642], keys: ['осокорк'] },
+  borshchahivka: { name: 'Київ — Борщагівка', region: 'kyivska', c: [50.432, 30.396], keys: ['борщагівк', 'борщаговк'] },
+  zhuliany: { name: 'Київ — Жуляни', region: 'kyivska', c: [50.406, 30.450], keys: ['жуляни', 'жулення'] },
+  teremky: { name: 'Київ — Теремки', region: 'kyivska', c: [50.376, 30.475], keys: ['теремки'] },
+  // Райони/місцевості Києва: пін у конкретній місцевості, а не «центр міста і все».
+  desna: { name: 'Київ — Деснянський', region: 'kyivska', c: [50.548, 30.610], keys: ['деснян'] },
+  vyhuriv: { name: 'Київ — Вигурівщина', region: 'kyivska', c: [50.541, 30.556], keys: ['вигурів', 'выгурів', 'ватутінк', 'ватутинк'] },
+  nivky: { name: 'Київ — Нивки', region: 'kyivska', c: [50.470, 30.411], keys: ['нивк'] },
+  syrets: { name: 'Київ — Сирець', region: 'kyivska', c: [50.478, 30.435], keys: ['сирець', 'сырец'] },
+  kurenivka: { name: 'Київ — Куренівка', region: 'kyivska', c: [50.481, 30.490], keys: ['куренів', 'куренов'] },
+  priorka: { name: 'Київ — Пріорка', region: 'kyivska', c: [50.490, 30.449], keys: ['пріорк', 'приорк', 'пріорц', 'приорц'] },
+  vinohradar: { name: 'Київ — Виноградар', region: 'kyivska', c: [50.500, 30.452], keys: ['виноградар'] },
+  shuliavka: { name: 'Київ — Шулявка', region: 'kyivska', c: [50.455, 30.445], keys: ['шулявк', 'шулявц'] },
+  trukhaniv: { name: 'Київ — Труханів', region: 'kyivska', c: [50.490, 30.545], keys: ['труханів', 'труханов'] },
+  lynky: { name: 'Київ — Липки', region: 'kyivska', c: [50.443, 30.531], keys: ['липки'] },
+  klovy: { name: 'Київ — Клов', region: 'kyivska', c: [50.438, 30.537], keys: ['клов'] },
+  zvirynets: { name: 'Київ — Звіринець', region: 'kyivska', c: [50.423, 30.551], keys: ['звіринец', 'зверинец', 'звіринц', 'зверинц'] },
+  navodnytsia: { name: 'Київ — Наводниця', region: 'kyivska', c: [50.417, 30.536], keys: ['наводниц'] },
+  lybid: { name: 'Київ — Либідська', region: 'kyivska', c: [50.418, 30.520], keys: ['либідсь', 'либидск'] },
+  chokolivka: { name: 'Київ — Чоколівка', region: 'kyivska', c: [50.443, 30.402], keys: ['чоколів', 'чоколов'] },
+  vidradnyi: { name: 'Київ — Відрадний', region: 'kyivska', c: [50.427, 30.408], keys: ['відрадн', 'отрадн'] },
+  bahrynova: { name: 'Київ — Багринова гора', region: 'kyivska', c: [50.396, 30.459], keys: ['багринов'] },
+  mysholivka: { name: 'Київ — Мишолівка', region: 'kyivska', c: [50.414, 30.502], keys: ['мишолів', 'мышолов', 'мишолівц', 'мышоловц'] },
+  korchuvate: { name: 'Київ — Корчувате', region: 'kyivska', c: [50.393, 30.489], keys: ['корчуват'] },
+  chapaivka: { name: 'Київ — Чапаївка', region: 'kyivska', c: [50.389, 30.553], keys: ['чапаєвк', 'чапаевк', 'чапаєвц', 'чапаевц'] },
+  hodosivka: { name: 'Київ — Ходосівка', region: 'kyivska', c: [50.354, 30.557], keys: ['ходосів', 'ходосов', 'ходосівц', 'ходосовц'] },
+  bortnychi: { name: 'Київ — Бортничі', region: 'kyivska', c: [50.377, 30.640], keys: ['бортнич'] },
+  rusanivka: { name: 'Київ — Русанівка', region: 'kyivska', c: [50.435, 30.601], keys: ['русанів', 'русанов'] },
+  dvrz: { name: 'Київ — ДВРЗ', region: 'kyivska', c: [50.478, 30.657], keys: ['дврз'] },
+  bykivnia: { name: 'Київ — Биківня', region: 'kyivska', c: [50.442, 30.715], keys: ['биківн', 'быковн'] },
+  dniprovska: { name: 'Київ — Дніпровський', region: 'kyivska', c: [50.475, 30.595], keys: ['дніпровськ', 'днепровск'] },
+  shevchenkivska: { name: 'Київ — Шевченківський', region: 'kyivska', c: [50.477, 30.470], keys: ['шевченківський район', 'шевченковский район'] },
+  sumy: { name: 'Суми', region: 'sumska', c: [50.907, 34.798], keys: ['суми', 'сумы', 'сумськ'] },
+  konotop: { name: 'Конотоп', region: 'sumska', c: [51.243, 33.207], keys: ['конотоп'] },
+  shostka: { name: 'Шостка', region: 'sumska', c: [51.866, 33.472], keys: ['шостка'] },
+  okhtyrka: { name: 'Охтирка', region: 'sumska', c: [50.307, 34.897], keys: ['охтир', 'ахтырк'] },
+  trostianets_s: { name: 'Тростянець', region: 'sumska', c: [50.483, 34.616], keys: ['тростянец', 'тростянець'] },
+  lebedyn: { name: 'Лебедин', region: 'sumska', c: [50.574, 34.484], keys: ['лебедин'] },
+  romny: { name: 'Ромни', region: 'sumska', c: [50.745, 33.478], keys: ['ромн'] },
+  khimmistechko: { name: 'Суми — Хіммістечко', region: 'sumska', c: [50.932, 34.832], keys: ['хіммістеч', 'химмистеч'] },
+  chernihiv: { name: 'Чернігів', region: 'chernigivska', c: [51.498, 31.289], keys: ['чернігів', 'чернигов'] },
+  nizhyn: { name: 'Ніжин', region: 'chernigivska', c: [51.046, 31.037], keys: ['ніжин', 'нежин'] },
+  pryluky: { name: 'Прилуки', region: 'chernigivska', c: [50.593, 32.388], keys: ['прилук'] },
+  kharkiv: { name: 'Харків', region: 'kharkivska', c: [49.994, 36.231], keys: ['харків', 'харьков', 'харков'] },
+  izium: { name: 'Ізюм', region: 'kharkivska', c: [49.208, 37.249], keys: ['ізюм', 'изюм'] },
+  kupiansk: { name: "Куп'янськ", region: 'kharkivska', c: [49.707, 37.617], keys: ["куп'янськ", 'купянск'] },
+  chuhuiv: { name: 'Чугуїв', region: 'kharkivska', c: [49.838, 36.687], keys: ['чугуїв', 'чугуев'] },
+  // Райони Харкова: «Салтівка» має давати пін на Салтівці, а не в центрі.
+  saltivka: { name: 'Харків — Салтівка', region: 'kharkivska', c: [50.025, 36.266], keys: ['салтівк', 'салтовк', 'салтівц', 'салтовц', 'салтівськ', 'салтовск'] },
+  kholodna_hora: { name: 'Харків — Холодна Гора', region: 'kharkivska', c: [49.980, 36.190], keys: ['холодногор', 'холодна гор'] },
+  nova_bavariia: { name: 'Харків — Нова Баварія', region: 'kharkivska', c: [49.961, 36.190], keys: ['бавар'] },
+  oleksiivka: { name: 'Харків — Олексіївка', region: 'kharkivska', c: [49.968, 36.278], keys: ['олексіївк', 'алексеевк', 'олексіївц', 'алексеевц', 'олексіївськ', 'алексеевск'] },
+  piatykhatky: { name: "Харків — П'ятихатки", region: 'kharkivska', c: [49.953, 36.304], keys: ["п'ятихатк", 'пятихатк'] },
+  rohan: { name: 'Харків — Рогань', region: 'kharkivska', c: [50.020, 36.377], keys: ['роган'] },
+  nemyshlia: { name: 'Харків — Немишля', region: 'kharkivska', c: [49.972, 36.311], keys: ['немишл'] },
+  osnovianskyi: { name: "Харків — Основ'янський", region: 'kharkivska', c: [49.972, 36.245], keys: ["основ'янск", 'основянск'] },
+  industrialyi_kh: { name: 'Харків — Індустріальний', region: 'kharkivska', c: [49.993, 36.324], keys: ['індустріал', 'индустриал'] },
+  poltava: { name: 'Полтава', region: 'poltavska', c: [49.589, 34.551], keys: ['полтав'] },
+  kremenchuk: { name: 'Кременчук', region: 'poltavska', c: [49.068, 33.422], keys: ['кременчук', 'кременчуг'] },
+  myrhorod: { name: 'Миргород', region: 'poltavska', c: [49.965, 33.607], keys: ['миргород'] },
+  lubny: { name: 'Лубни', region: 'poltavska', c: [50.018, 32.996], keys: ['лубн'] },
+  hlobyne: { name: 'Глобине', region: 'poltavska', c: [49.288, 33.366], keys: ['глобине'] },
+  dnipro: { name: 'Дніпро', region: 'dnipropetrovska', c: [48.465, 35.046], keys: ['дніпр', 'днепр'] },
+  kryvyi_rih: { name: 'Кривий Ріг', region: 'dnipropetrovska', c: [47.910, 33.392], keys: ['кривий ріг', 'кривой рог', 'криворіж', 'криворож'] },
+  nikopol: { name: 'Нікополь', region: 'dnipropetrovska', c: [47.571, 34.400], keys: ['нікопіл', 'никопол'] },
+  pavlohrad: { name: 'Павлоград', region: 'dnipropetrovska', c: [48.531, 35.869], keys: ['павлоград'] },
+  kamianske: { name: "Кам'янське", region: 'dnipropetrovska', c: [48.514, 34.614], keys: ["кам'янськ", 'каменск'] },
+  // Районы Днепра и Кривого Рога: упомянутый квартал/завод = свой пин.
+  amur: { name: 'Дніпро — Амур-Нижньодніпровськ', region: 'dnipropetrovska', c: [48.484, 35.079], keys: ['амур-ниж', 'амур ниж', 'амурниж', 'нижньодніпровськ', 'нижнеднепровск'] },
+  chechelivka: { name: 'Дніпро — Чечелівка', region: 'dnipropetrovska', c: [48.449, 35.014], keys: ['чечелівк', 'чечеловк', 'чечелівц', 'чечеловц'] },
+  samarskyi: { name: 'Дніпро — Самарський', region: 'dnipropetrovska', c: [48.542, 35.182], keys: ['самарськ', 'самарск'] },
+  slobozhanske: { name: 'Дніпро — Слобожанське', region: 'dnipropetrovska', c: [48.566, 35.024], keys: ['слобожанськ', 'слобожанск'] },
+  kr_rih_pgzk: { name: 'Кривий Ріг — ПівдГЗК', region: 'dnipropetrovska', c: [47.878, 33.373], keys: ['пгзк', 'півдгзк'] },
+  kr_rih_gvtk: { name: 'Кривий Ріг — ГВТК', region: 'dnipropetrovska', c: [47.911, 33.437], keys: ['гвтк'] },
+  kr_rih_inhulets: { name: 'Кривий Ріг — Інгулець', region: 'dnipropetrovska', c: [47.838, 33.144], keys: ['інгулец', 'ингулец', 'інгульц', 'ингульц'] },
+  kr_rih_saksahan: { name: 'Кривий Ріг — Саксагань', region: 'dnipropetrovska', c: [47.919, 33.356], keys: ['саксаган'] },
+  zaporizhzhia: { name: 'Запоріжжя', region: 'zaporizka', c: [47.838, 35.140], keys: ['запоріж', 'запорож'] },
+  melitopol: { name: 'Мелітополь', region: 'zaporizka', c: [46.848, 35.368], keys: ['мелітопол', 'мелитопол'] },
+  berdiansk: { name: 'Бердянськ', region: 'zaporizka', c: [46.755, 36.799], keys: ['бердянськ', 'бердянск'] },
+  odesa: { name: 'Одеса', region: 'odeska', c: [46.482, 30.723], keys: ['одес'] },
+  izmail: { name: 'Ізмаїл', region: 'odeska', c: [45.350, 28.838], keys: ['ізмаїл', 'измайл', 'измаил'] },
+  bilhorod_dnistr: { name: 'Білгород-Дністровський', region: 'odeska', c: [46.188, 30.352], keys: ['білгород-дністров', 'белгород-днестров'] },
+  // Районы Одессы: Таирова, Котовского и др. — частые цели, нужен свой пин.
+  tairova: { name: 'Одеса — Таїрова', region: 'odeska', c: [46.418, 30.698], keys: ['таїров', 'таиров'] },
+  kotovskoho: { name: 'Одеса — Котовського', region: 'odeska', c: [46.408, 30.746], keys: ['котовськ'] },
+  cheremushky: { name: 'Одеса — Черемушки', region: 'odeska', c: [46.427, 30.672], keys: ['черемушк'] },
+  peresyp: { name: 'Одеса — Пересип', region: 'odeska', c: [46.500, 30.715], keys: ['пересип'] },
+  moldavanka: { name: 'Одеса — Молдаванка', region: 'odeska', c: [46.459, 30.708], keys: ['молдаванк', 'молдаванц'] },
+  slobidka_o: { name: 'Одеса — Слобідка', region: 'odeska', c: [46.451, 30.750], keys: ['слобідк', 'слобідц'] },
+  mykolaiv: { name: 'Миколаїв', region: 'mykolaivska', c: [46.975, 31.996], keys: ['миколаїв', 'николаев'] },
+  pervomaisk_m: { name: 'Первомайськ', region: 'mykolaivska', c: [48.025, 30.839], keys: ['первомайськ', 'первомайск'] },
+  voznesensk: { name: 'Вознесенськ', region: 'mykolaivska', c: [47.570, 31.222], keys: ['вознесенськ', 'вознесенск'] },
+  // Районы Николаева.
+  korabelnyi: { name: 'Миколаїв — Корабельний', region: 'mykolaivska', c: [46.942, 31.970], keys: ['корабельний', 'корабельному', 'корабельного район'] },
+  ingulskyi: { name: 'Миколаїв — Інгульський', region: 'mykolaivska', c: [46.986, 32.006], keys: ['інгульськ'] },
+  kulbakyne: { name: 'Миколаїв — Кульбакине', region: 'mykolaivska', c: [46.999, 32.037], keys: ['кульбакин'] },
+  kherson: { name: 'Херсон', region: 'khersonska', c: [46.635, 32.616], keys: ['херсон'] },
+  nova_kakhovka: { name: 'Нова Каховка', region: 'khersonska', c: [46.751, 33.370], keys: ['каховк'] },
+  vinnytsia: { name: 'Вінниця', region: 'vinnytska', c: [49.233, 28.468], keys: ['вінниц', 'винниц'] },
+  zhmerynka: { name: 'Жмеринка', region: 'vinnytska', c: [49.036, 28.100], keys: ['жмеринк'] },
+  pirohove: { name: 'Вінниця — Пирогове', region: 'vinnytska', c: [49.208, 28.433], keys: ['пирогів', 'пирогов'] },
+  zhytomyr: { name: 'Житомир', region: 'zhytomyrska', c: [50.255, 28.658], keys: ['житомир'] },
+  berdychiv: { name: 'Бердичів', region: 'zhytomyrska', c: [49.895, 28.575], keys: ['бердичів', 'бердичев'] },
+  korosten: { name: 'Коростень', region: 'zhytomyrska', c: [51.317, 28.648], keys: ['коростен'] },
+  ovruch: { name: 'Овруч', region: 'zhytomyrska', c: [51.323, 28.783], keys: ['овруч'] },
+  lviv: { name: 'Львів', region: 'lvivska', c: [49.840, 24.030], keys: ['львів', 'львов'] },
+  drohobych: { name: 'Дрогобич', region: 'lvivska', c: [49.354, 23.512], keys: ['дрогобич'] },
+  // Районы Львова.
+  sykhiv: { name: 'Львів — Сихів', region: 'lvivska', c: [49.805, 24.051], keys: ['сихів', 'сихов'] },
+  levandivka: { name: 'Львів — Левандівка', region: 'lvivska', c: [49.846, 23.992], keys: ['левандівк', 'левандівц'] },
+  vynnyky: { name: 'Львів — Винники', region: 'lvivska', c: [49.838, 24.110], keys: ['винник'] },
+  lutsk: { name: 'Луцьк', region: 'volynska', c: [50.747, 25.325], keys: ['луцьк', 'луцк'] },
+  kovel: { name: 'Ковель', region: 'volynska', c: [51.215, 24.712], keys: ['ковел'] },
+  rivne: { name: 'Рівне', region: 'rivnenska', c: [50.619, 26.251], keys: ['рівне', 'ровно', 'рівненськ', 'ровенск'] },
+  dubno: { name: 'Дубно', region: 'rivnenska', c: [50.417, 25.742], keys: ['дубно'] },
+  uzhhorod: { name: 'Ужгород', region: 'zakarpatska', c: [48.621, 22.288], keys: ['ужгород'] },
+  mukachevo: { name: 'Мукачево', region: 'zakarpatska', c: [48.442, 22.718], keys: ['мукачів', 'мукачев'] },
+  ivano_frankivsk: { name: 'Івано-Франківськ', region: 'ivano_frankivska', c: [48.923, 24.711], keys: ['івано-франк', 'ивано-франк', 'франківськ'] },
+  ternopil: { name: 'Тернопіль', region: 'ternopilska', c: [49.553, 25.595], keys: ['тернопіль', 'тернопол'] },
+  khmelnytskyi: { name: 'Хмельницький', region: 'khmelnytska', c: [49.423, 26.987], keys: ['хмельницьк', 'хмельницк', 'хмельницкий'] },
+  cherkasy: { name: 'Черкаси', region: 'cherkaska', c: [49.444, 32.059], keys: ['черкас'] },
+  uman: { name: 'Умань', region: 'cherkaska', c: [48.753, 30.221], keys: ['уман'] },
+  kropyvnytskyi: { name: 'Кропивницький', region: 'kirovohradska', c: [48.508, 32.262], keys: ['кропивницьк', 'кропивницк', 'кіровоград', 'кировоград'] },
+  kramatorsk: { name: 'Краматорськ', region: 'donetska', c: [48.734, 37.586], keys: ['краматорськ', 'краматорск'] },
+  mariupol: { name: 'Маріуполь', region: 'donetska', c: [47.097, 37.543], keys: ['маріупол', 'мариупол'] },
+  bakhmut: { name: 'Бахмут', region: 'donetska', c: [48.596, 38.002], keys: ['бахмут'] },
+  sievierodonetsk: { name: 'Сіверськодонецьк', region: 'luhanska', c: [48.946, 38.493], keys: ['сіверодонецьк', 'северодонецк'] },
+  lysychansk: { name: 'Лисичанськ', region: 'luhanska', c: [48.910, 38.436], keys: ['лисичанськ'] },
+  simferopol: { name: 'Сімферополь', region: 'crimea', c: [44.952, 34.102], keys: ['сімферопол', 'симферопол'] },
+  yalta: { name: 'Ялта', region: 'crimea', c: [44.499, 34.166], keys: ['ялт'] },
+  kerch: { name: 'Керч', region: 'crimea', c: [45.356, 36.469], keys: ['керч'] },
+  sevastopol: { name: 'Севастополь', region: 'crimea', c: [44.617, 33.525], keys: ['севастопол'] },
+};
+
+// Все города/районы, упомянутые в тексте (до 3, самый конкретный первым).
+// Конкретность = длина совпавшего ключа: «Харків, Салтівка» даёт Салтівку
+// (ключ 'салтівк' длиннее 'харків'), «Оболонь і Поділ» — два пина сразу.
+function citySlugsOf(text, max = 3) {
+  const lower = (text || '').toLowerCase();
+  const best = new Map(); // slug -> длина самого длинного совпавшего ключа
+  for (const [slug, city] of Object.entries(CITY_COORDS)) {
+    let len = 0;
+    for (const k of city.keys) {
+      if (lower.includes(k) && k.length > len) len = k.length;
+    }
+    if (len) best.set(slug, len);
+  }
+  return [...best.entries()]
+    .sort((a, b) => b[1] - a[1]) // стабильная сортировка: при равенстве — порядок таблицы
+    .slice(0, max)
+    .map(e => e[0]);
+}
+
+// Київские события вешаем на конкретный берег, если источник его назвал.
+function pinSlugOf(t) {
+  // Публічна карта: пін — центр області, без прив'язки до міста чи берега (точні позиції не публікуються).
+  return t.region;
+}
+
+// Пины события: упомянутые в тексте города/районы (до 3) → берег Киева → центр области.
+function pinsOf(t) {
+  const slugs = [];   // міста з тексту більше не дають піни: лише область (узагальнене положення)
+  if (slugs.length) {
+    return slugs
+      .filter(s => CITY_COORDS[s])
+      .map(s => ({
+        key: 'city:' + s, coord: CITY_COORDS[s].c,
+        label: CITY_COORDS[s].name, region: CITY_COORDS[s].region, isCity: true,
+      }));
+  }
+  const slug = pinSlugOf(t);
+  const pin = {
+    key: slug,
+    coord: REGION_COORDS[slug] || null,
+    label: REGION_NAMES[slug] || slug,
+    region: t.region,
+    isCity: false,
+  };
+  return pin.coord ? [pin] : [];
+}
+
+// Город-цель: упомянут в тексте и принадлежит региону-цели (уточняет луч
+// до конкретного города, а не центра области).
+function cityTargetOf(text, regionSlug) {
+  const lower = (text || '').toLowerCase();
+  for (const city of Object.values(CITY_COORDS)) {
+    if (city.region === regionSlug && city.keys.some(k => lower.includes(k))) return city;
+  }
+  return null;
+}
+
+// Маршрут вектора: см. комментарий внутри routeOf.
+function routeOf(t, pin) {
+  // Приоритет — измеренный трек (track_speed из БД): реальные засечки
+  // «город → город» с фактической скоростью и курсом. Фолбэк — данные
+  // фьюжена из БД («з X на Y» сохранено в incidents.origin/destination),
+  // затем keyword-угадыватель. Если цель неясна, но origin явный — рисуем
+  // входящий луч origin → пин.
+  if (t.track && t.track.from && t.track.to) {
+    return {
+      from: t.track.from, to: t.track.to,
+      fromName: t.track.from_name || '—', toName: t.track.to_name || '—',
+      isTrack: true, track: t.track,
+    };
+  }
+  const sourceRegion = pin.isCity ? pin.region : pinSlugOf(t);
+  const originKnown = t.origin && t.origin !== sourceRegion && t.origin !== t.region
+    && REGION_COORDS[t.origin];
+  let targetSlug = '';
+  if (t.destination && t.destination !== 'multi' && t.destination !== 'unknown'
+    && REGION_COORDS[t.destination] && t.destination !== sourceRegion) {
+    targetSlug = t.destination;
+  }
+  if (!targetSlug) targetSlug = guessTargetRegion(t.text, sourceRegion) || '';
+
+  if (!targetSlug) {
+    if (originKnown) {
+      return { from: REGION_COORDS[t.origin], to: pin.coord,
+        fromName: REGION_NAMES[t.origin] || t.origin, toName: pin.label };
+    }
+    return null;
+  }
+  const targetCity = cityTargetOf(t.text, targetSlug);
+  const to = targetCity ? targetCity.c : REGION_COORDS[targetSlug];
+  const toName = targetCity ? targetCity.name : (REGION_NAMES[targetSlug] || targetSlug);
+  let from = pin.coord, fromName = pin.label;
+  if (originKnown) {
+    from = REGION_COORDS[t.origin];
+    fromName = REGION_NAMES[t.origin] || t.origin;
+  }
+  if (from[0] === to[0] && from[1] === to[1]) return null;
+  return { from, to, fromName, toName };
+}
+
+const TYPE_COLORS = {
+  ballistic: '#ff3b30', cruise_missile: '#ff3b30', missile: '#ff3b30',   // ракети — червоні
+  shahed: '#ffd60a', uav: '#ffd60a', fpv: '#ffd60a',   // дрони — жовті
+  kab: '#ff9f0a', aviation: '#5ac8fa',
+  explosion: '#ff2d55',
+  alert: '#ffcc00', stand_down: '#34c759',
+  mlrs: '#ff3b30', artillery: '#ff3b30',
+  air_defense: '#5ac8fa', recon_drone: '#8e8e93',
+  other: '#8e8e93',
+};
+
+const TYPE_LABELS = {
+  ballistic: '🚀 Балістика', cruise_missile: '🚀 Крилаті', missile: '🚀 Ракета',
+  shahed: '🛸 Shahed', uav: '🛸 БПЛА', fpv: '🛸 ФПВ',
+  kab: '✈️ КАБ', aviation: '✈️ Авіація',
+  explosion: '💥 Вибух', alert: '🟡 Тривога', stand_down: '🟢 Відбій',
+  mlrs: '🔴 РСЗО', artillery: '🔴 Арта', air_defense: '🛡 ППО',
+  recon_drone: '👁 Розвідка', other: '🚨 Інше',
+};
+
+// Уровень угрозы — классификация по типу события, не прогноз.
+const TYPE_LEVEL = {
+  ballistic: 'critical', cruise_missile: 'critical', missile: 'critical',
+  mlrs: 'critical', artillery: 'critical', explosion: 'critical',
+  shahed: 'high', uav: 'high', fpv: 'high',
+  kab: 'elevated', aviation: 'elevated', alert: 'elevated',
+  air_defense: 'info', recon_drone: 'info', other: 'info',
+  stand_down: 'clear',
+};
+const LEVELS = {
+  critical: { color: '#ff3b30', label: 'КРИТИЧНИЙ', bg: 'rgba(255,59,48,0.18)' },
+  high:     { color: '#ff9500', label: 'ВИСОКИЙ',   bg: 'rgba(255,149,0,0.18)' },
+  elevated: { color: '#ffcc00', label: 'ПІДВИЩЕНИЙ', bg: 'rgba(255,204,0,0.15)' },
+  info:     { color: '#8e8e93', label: 'ІНФО',      bg: 'rgba(142,142,147,0.18)' },
+  clear:    { color: '#34c759', label: 'ВІДБОЙ',    bg: 'rgba(52,199,89,0.15)' },
+};
+const SEVERITY_ORDER = { critical: 5, high: 4, elevated: 3, info: 2, clear: 1 };
+
+// === Реалистичные силуэты оружия вместо кружков: у шахеда — дельтакрыло,
+// у ракеты — корпус с оперением, у КАБ — самолёт, у прилёта — вспышка.
+// Формы смотрят «вверх»; маркер вращается по направлению вектора. ===
+const WEAPON_SVG = {
+  // Шахед/БпЛА: дельтакрыло с килем (силуэт Shahed-136)
+  drone: '<path fill="{c}" stroke="{s}" stroke-width="0.8" d="M12 1.5 L22.5 19.5 L16.4 17.4 L16.4 20.6 L13.1 18.9 L13.1 22.5 L10.9 22.5 L10.9 18.9 L7.6 20.6 L7.6 17.4 L1.5 19.5 Z"/>',
+  // Ракета: корпус, боеголовка, стабилизаторы
+  missile: '<path fill="{c}" stroke="{s}" stroke-width="0.8" d="M12 0.8 C14.2 2.9 15.2 5.9 15.2 9 L15.2 13.4 L17.8 17 L14.2 16.2 L14.2 19.6 L12 23.2 L9.8 19.6 L9.8 16.2 L6.2 17 L8.8 13.4 L8.8 9 C8.8 5.9 9.8 2.9 12 0.8 Z"/>',
+  // Авиация/КАБ: самолёт с крыльями
+  plane: '<path fill="{c}" stroke="{s}" stroke-width="0.8" d="M12 1.4 C12.7 1.4 13.2 2.7 13.2 4.6 L13.2 7 L22.2 14.7 C22.7 15.2 22.4 16.1 21.5 15.9 L13.2 13.7 L13.2 17.5 L15.9 19.8 L15.9 21.4 L12 20.2 L8.1 21.4 L8.1 19.8 L10.8 17.5 L10.8 13.7 L2.5 15.9 C1.6 16.1 1.3 15.2 1.8 14.7 L10.8 7 L10.8 4.6 C10.8 2.7 11.3 1.4 12 1.4 Z"/>',
+  // РСЗО/артиллерия: снаряд
+  bomb: '<path fill="{c}" stroke="{s}" stroke-width="0.8" d="M12 1 L14.6 3.4 L14.6 7.2 L16.8 7.2 L16.8 9.6 L14.8 9.6 C17.4 10.8 19.2 13.4 19.2 16.2 C19.2 19.9 15.9 22.8 12 22.8 C8.1 22.8 4.8 19.9 4.8 16.2 C4.8 13.4 6.6 10.8 9.2 9.6 L7.2 9.6 L7.2 7.2 L9.4 7.2 L9.4 3.4 Z"/>',
+  // Прилёт/взрыв: вспышка
+  explosion: '<path fill="{c}" stroke="{s}" stroke-width="0.7" d="M12 0.6 L14 7.4 L20.4 4.3 L16.5 10.3 L23.4 12.2 L16.3 13.7 L19 20.4 L13 15.9 L12 23.4 L11 15.9 L5 20.4 L7.7 13.7 L0.6 12.2 L7.5 10.3 L3.6 4.3 L10 7.4 Z"/>',
+  // ППО: щит
+  shield: '<path fill="{c}" stroke="{s}" stroke-width="0.8" d="M12 1.6 L20.4 4.7 L20.4 11 C20.4 17 16.7 20.7 12 22.4 C7.3 20.7 3.6 17 3.6 11 L3.6 4.7 Z"/>',
+  // Разведка: глаз
+  eye: '<path fill="{c}" stroke="{s}" stroke-width="0.7" d="M1.6 12 C4.7 6.1 8.6 4 12 4 C15.4 4 19.3 6.1 22.4 12 C19.3 17.9 15.4 20 12 20 C8.6 20 4.7 17.9 1.6 12 Z"/><circle cx="12" cy="12" r="3.4" fill="#0b0e14"/>',
+  // Тревога: колокол
+  bell: '<path fill="{c}" stroke="{s}" stroke-width="0.7" d="M12 1.6 C14.9 1.6 17.2 4.2 17.2 7.6 L17.2 12.8 L19.7 16.5 L4.3 16.5 L6.8 12.8 L6.8 7.6 C6.8 4.2 9.1 1.6 12 1.6 Z M9.3 18.3 L14.7 18.3 C14.7 20 13.5 21.5 12 21.5 C10.5 21.5 9.3 20 9.3 18.3 Z"/>',
+  // Отбой: галочка
+  check: '<path fill="{c}" stroke="none" d="M3.4 12.9 L9.4 18.9 L20.6 6.1 L18.5 4.2 L9.4 14 L5.5 10.1 Z"/>',
+  // Прочее: треугольник внимания
+  warn: '<path fill="{c}" stroke="{s}" stroke-width="0.8" d="M12 1.8 L22.8 20.8 L1.2 20.8 Z"/><rect x="10.9" y="8.4" width="2.2" height="6.4" fill="#0b0e14"/><rect x="10.9" y="16.4" width="2.2" height="2.2" fill="#0b0e14"/>',
+};
+
+const TYPE_ICON_SHAPE = {
+  shahed: 'drone', uav: 'drone', fpv: 'drone',
+  recon_drone: 'eye',
+  ballistic: 'missile', cruise_missile: 'missile', missile: 'missile',
+  air_missile: 'missile', coastal_missile: 'missile',
+  kab: 'plane', aviation: 'plane', tac_aviation: 'plane', strat_aviation: 'plane',
+  mlrs: 'bomb', artillery: 'bomb',
+  explosion: 'explosion',
+  air_defense: 'shield',
+  alert: 'bell', stand_down: 'check',
+  other: 'warn',
+};
+
+const ICON_SIZES = {
+  drone: 30, missile: 30, plane: 28, bomb: 26, explosion: 27,
+  shield: 24, eye: 23, bell: 23, check: 20, warn: 24,
+};
+
+// Силуэт типа оружия с цветным свечением; confirmed — белая обводка
+// («підтверджено кількома джерелами»), angle — разворот по вектору.
+function weaponIconHtml(t, color, fresh, confirmed, angle) {
+  const shape = TYPE_ICON_SHAPE[t.type] || 'warn';
+  const size = ICON_SIZES[shape] || 24;
+  const box = size + 8;
+  const glow = confirmed ? `drop-shadow(0 0 7px ${color})` : (fresh ? `drop-shadow(0 0 5px ${color})` : `drop-shadow(0 0 2px ${color}aa)`);
+  const rot = angle ? `transform:rotate(${angle}deg);` : '';
+  // Обводка тёмная у всех: модель остаётся цветной (жовта/червона), підтвердження — сильніше світіння, не біла заливка.
+  const stroke = '#0b0e14';
+  const svg = (WEAPON_SVG[shape] || WEAPON_SVG.warn)
+    .replaceAll('{c}', color)
+    .replaceAll('{s}', stroke);
+  return `<div style="width:${box}px;height:${box}px;display:flex;align-items:center;` +
+    `justify-content:center;filter:${glow};${rot}">` +
+    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" style="display:block">${svg}</svg></div>`;
+}
+
+// Данные встроены генератором (без API — автономная карта).
+const API_URL = null;
+const EMBEDDED_THREATS = [{"type": "uav", "region": "multi", "text": "Рівненщина 1 реактивний БпЛА на Сарни Вінниччина 1 реактивний БпЛА на Бершадь Кіровоградщина 1 реактивний БпЛА на Новомиргород", "sources": 4, "origin": "", "destination": "multi", "track": null, "age_min": 2}, {"type": "uav", "region": "vinnytska", "text": "Вінниця: Реактивний БпЛА курсом на аеропорт", "sources": 2, "origin": "", "destination": "vinnytska", "track": {"from": [50.619, 26.251], "to": [50.483, 34.616], "from_name": "Рівне", "to_name": "Тростянець", "speed_kmh": 636.5, "course_deg": 88, "minutes": 54, "points": 6}, "age_min": 4}, {"type": "shahed", "region": "unknown", "text": "Реактивний шах курсом на Угроїди", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 5}, {"type": "uav", "region": "kirovohradska", "text": "🏍 Кіровоградщина: Реактивний БпЛА курсом на Олександрійське.", "sources": 1, "origin": "", "destination": "kirovohradska", "track": null, "age_min": 6}, {"type": "uav", "region": "rivnenska", "text": "🏍 Рівненщина: Реактивний БпЛА курсом на Сарни.", "sources": 1, "origin": "", "destination": "rivnenska", "track": {"from": [51.498, 31.289], "to": [47.91, 33.392], "from_name": "Чернігів", "to_name": "Кривий Ріг", "speed_kmh": 308.2, "course_deg": 158, "minutes": null, "points": 4}, "age_min": 6}, {"type": "uav", "region": "sumska", "text": "🛵 Сумщина: БпЛА курсом на Конотоп.", "sources": 2, "origin": "", "destination": "sumska", "track": {"from": [51.498, 31.289], "to": [51.243, 33.207], "from_name": "Чернігів", "to_name": "Конотоп", "speed_kmh": 74.1, "course_deg": 101, "minutes": null, "points": 3}, "age_min": 7}, {"type": "shahed", "region": "sumska", "text": "Конотоп будьте обережні поруч 2 Шахеди ⚠️", "sources": 1, "origin": "", "destination": "sumska", "track": {"from": [51.866, 33.472], "to": [51.243, 33.207], "from_name": "Шостка", "to_name": "Конотоп", "speed_kmh": 37.3, "course_deg": 195, "minutes": null, "points": 3}, "age_min": 10}, {"type": "stand_down", "region": "unknown", "text": "✅ Відбій тривоги шановні.", "sources": 1, "origin": "", "destination": "unknown", "track": null, "age_min": 16}, {"type": "stand_down", "region": "sumska", "text": "🟢 Сумський район — відбій повітряної тривоги", "sources": 1, "origin": "", "destination": "sumska", "track": null, "age_min": 17}, {"type": "uav", "region": "dnipropetrovska", "text": "🏍 Дніпропетровщина: Реактивний БпЛА курсом на Самар/Дніпро.", "sources": 1, "origin": "", "destination": "dnipropetrovska", "track": {"from": [48.465, 35.046], "to": [49.233, 28.468], "from_name": "Дніпро", "to_name": "Вінниця", "speed_kmh": 462.7, "course_deg": 283, "minutes": 79, "points": 6}, "age_min": 26}];
+const EMBEDDED_REPORTS = [];
+const EMBEDDED_FORECAST = {"sumska": {"standdown_min": 3, "standdown_live": true, "next_wave_min": 53, "standdown_hits": 5, "standdown_total": 10}, "kirovohradska": {"standdown_min": 24, "standdown_live": true, "next_wave_min": 152, "standdown_hits": 4, "standdown_total": 8}, "vinnytska": {"standdown_min": 55, "standdown_live": true, "next_wave_min": 246, "standdown_hits": 5, "standdown_total": 10}, "dnipropetrovska": {"standdown_min": 0, "standdown_live": true, "next_wave_min": 40, "standdown_hits": 5, "standdown_total": 10}, "rivnenska": {"standdown_min": 80, "standdown_live": true, "standdown_hits": 3, "standdown_total": 6}};
+const CHANNEL_URL = 'https://t.me/AirRadarAI';
+
+// === Микро-звуки + хаптика (тактический фидбек) ===
+let soundOn = localStorage.getItem('ar_sound') !== '0';
+let audioCtx = null;
+function beep(freq, dur, vol) {
+  if (!soundOn) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + dur);
+  } catch (e) { /* звук не критичен */ }
+}
+function haptic(style) {
+  try {
+    const hf = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.HapticFeedback;
+    if (hf) { hf.impactOccurred(style || 'light'); }
+    else if (navigator.vibrate) { navigator.vibrate(10); }
+  } catch (e) { /* не критично */ }
+}
+function tapFeedback() { haptic('light'); beep(880, 0.045, 0.025); }
+function alertFeedback() {
+  haptic('heavy'); haptic('rigid');
+  if (navigator.vibrate) { try { navigator.vibrate([60, 60, 60]); } catch (e) {} }
+  beep(240, 0.28, 0.05);
+}
+
+// === Слои-фильтры ===
+const layerOf = t => {
+  if (['ballistic','cruise_missile','missile','mlrs','artillery'].includes(t.type)) return 'rockets';
+  if (['shahed','uav','fpv','recon_drone'].includes(t.type)) return 'uav';
+  if (t.type === 'explosion') return 'impacts';
+  return 'alerts';
+};
+const enabled = { rockets: true, uav: true, alerts: true, impacts: true };
+
+// Панель слоёв: свёрнута в кнопку «Слої» (мобильный фикс — колонка чипов
+// не влезала в экран). Закрывается повторным тапом и тапом по карте.
+const layersBtn = document.getElementById('layersBtn');
+const layersPanel = document.getElementById('layersPanel');
+function toggleLayers(force) {
+  layersPanel.classList.toggle('open', force);
+}
+layersBtn.addEventListener('click', () => {
+  tapFeedback();
+  toggleLayers(!layersPanel.classList.contains('open'));
+});
+
+// Легенда скрыта по умолчанию: «ⓘ» в панели времени показывает её попапом.
+document.getElementById('legendBtn').addEventListener('click', () => {
+  tapFeedback();
+  const legend = document.getElementById('legend');
+  legend.hidden = !legend.hidden;
+});
+
+document.querySelectorAll('#layersPanel .chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    tapFeedback();
+    const layer = chip.dataset.layer;
+    if (layer === 'sound') {
+      soundOn = !soundOn;
+      localStorage.setItem('ar_sound', soundOn ? '1' : '0');
+      chip.textContent = soundOn ? '🔊' : '🔇';
+      return;
+    }
+    if (layer === 'shields') {
+      chip.classList.toggle('off');
+      if (chip.classList.contains('off')) { sheltersLayer.clearLayers(); return; }
+      if (userPos) loadShelters(); else requestGeo(true);
+      return;
+    }
+    if (layer === 'zones') {
+      chip.classList.toggle('off');
+      if (chip.classList.contains('off')) map.removeLayer(zoneLayer); else zoneLayer.addTo(map);
+      return;
+    }
+    if (layer === 'vectors') {
+      chip.classList.toggle('off');
+      if (chip.classList.contains('off')) map.removeLayer(vectorLayer); else vectorLayer.addTo(map);
+      return;
+    }
+    if (layer === 'reports') {
+      chip.classList.toggle('off');
+      if (chip.classList.contains('off')) map.removeLayer(reportsLayer); else reportsLayer.addTo(map);
+      return;
+    }
+    if (layer === 'green') {
+      chip.classList.toggle('off');
+      if (chip.classList.contains('off')) map.removeLayer(greenLayer); else greenLayer.addTo(map);
+      return;
+    }
+    // Слои типов угроз — фильтруют маркеры.
+    enabled[layer] = !enabled[layer];
+    chip.classList.toggle('off', !enabled[layer]);
+    renderAll();
+  });
+});
+
+// === Таймлайн-плейбэк «Машина времени» (0 = сейчас, 120 = 2 часа назад) ===
+let minutesAgo = 0;
+let playTimer = null;
+const tlRange = document.getElementById('tlRange');
+const tlLabel = document.getElementById('tlLabel');
+const playBtn = document.getElementById('playBtn');
+
+function applyScrub() {
+  minutesAgo = parseInt(tlRange.value, 10);
+  tlLabel.textContent = minutesAgo === 0 ? 'зараз' : `−${minutesAgo} хв`;
+  renderAll();
+}
+tlRange.addEventListener('input', () => { stopPlay(); tapFeedback(); applyScrub(); });
+
+function stopPlay() {
+  if (playTimer) { clearInterval(playTimer); playTimer = null; playBtn.textContent = '▶'; }
+}
+function startPlay() {
+  if (playTimer) return;
+  if (minutesAgo === 0) { minutesAgo = 120; tlRange.value = 120; }
+  playBtn.textContent = '⏸';
+  playTimer = setInterval(() => {
+    minutesAgo = Math.max(0, minutesAgo - 10); // 10 мин за тик → ~8.5 сек на 2 часа
+    tlRange.value = minutesAgo;
+    applyScrub();
+    haptic('light');
+    if (minutesAgo === 0) stopPlay();
+  }, 700);
+}
+playBtn.addEventListener('click', () => {
+  tapFeedback();
+  if (playTimer) { stopPlay(); applyScrub(); } else { startPlay(); }
+});
+
+// === Инициализация карты ===
+const map = L.map('map', { zoomControl: false }).setView([48.5, 32.0], 6);
+L.control.zoom({ position: 'topleft' }).addTo(map);
+// Тап по карте закрывает открытую панель слоёв (не мешает читаемости).
+map.on('click', () => toggleLayers(false));
+// Esri World Dark Gray — тёмная подложка без API-ключей (CartoDB с 2025
+// требует ключ и отдаёт заглушку «api key required»).
+L.tileLayer(
+  'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+  { attribution: 'Esri, HERE, Garmin | AirRadar AI', maxZoom: 16 },
+).addTo(map);
+
+const zoneLayer = L.layerGroup().addTo(map);      // Слой 1: пульсирующие зоны угрозы
+const vectorLayer = L.layerGroup().addTo(map);    // Слой 2: векторные лучи
+const greenLayer = L.layerGroup().addTo(map);     // Слой 4: зелёные зоны отбоев
+const markersLayer = L.layerGroup().addTo(map);   // кластерные маркеры регионов
+const reportsLayer = L.layerGroup().addTo(map);   // Слой 5: репорты от пользователей
+const sheltersLayer = L.layerGroup();             // Слой 3: укрытия (вкл. по кнопке)
+
+let geoCircle = null;
+let userPos = null;
+let sheltersLoadedFor = null;
+
+function escapeHtml(value) {
+  const node = document.createElement('span');
+  node.textContent = value == null ? '' : String(value);
+  return node.innerHTML;
+}
+
+function fmtClock(ageMin) {
+  const d = new Date(Date.now() - ageMin * 60000);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function distanceKm(a, b) {
+  const R = 6371;
+  const dLat = (b[0] - a[0]) * Math.PI / 180;
+  const dLon = (b[1] - a[1]) * Math.PI / 180;
+  const s = Math.sin(dLat / 2) ** 2 +
+    Math.cos(a[0] * Math.PI / 180) * Math.cos(b[0] * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+// === Ориентировочные направления транзита (география запусков) ===
+const TRANSIT_TARGETS = {
+  sumska: 'kyivska', chernigivska: 'kyivska', zhytomyrska: 'kyivska',
+  kharkivska: 'poltavska', luhanska: 'kharkivska', donetska: 'dnipropetrovska',
+  zaporizka: 'dnipropetrovska', khersonska: 'mykolaivska', crimea: 'odeska',
+  odeska: 'vinnytska',
+};
+// Упомянутые в тексте города → регион-цель (уточняет вектор)
+const CITY_HINTS = {
+  kyivska: ['київ', 'киев', 'бровар', 'боярк', 'ірпінь', 'ирпень', 'буч', 'васильк', 'фастів', 'бориспіл', 'біла церкв', 'дарниц', 'оболон', 'поділ', 'деснян', 'святошин', 'вишгород'],
+  poltavska: ['полтав', 'кременчук', 'миргород', 'глобине'],
+  dnipropetrovska: ['дніпро', 'днепр', 'кривий ріг', 'кривор', 'нікопіл', 'павлоград', 'кам\'янськ'],
+  kharkivska: ['харк', 'ізюм', 'куп\'янськ'],
+  odeska: ['одес', 'білгород-дністров', 'сергіїв'],
+  mykolaivska: ['микола', 'никола'],
+  vinnytska: ['вінниц', 'винниц'],
+  zaporizka: ['запоріж', 'запорож'],
+  khersonska: ['херсон'],
+  cherkaska: ['черкас'],
+  zhytomyrska: ['житом', 'коростен'],
+};
+
+// === Ориентировочный ETA подлёта (скорость типа, км/ч) ===
+// Помечается «орієнтовно»: это оценка по прямой, а не прогноз.
+const ETA_KMH = {
+  shahed: 170, uav: 170, fpv: 130, recon_drone: 130,
+  cruise_missile: 870, missile: 870, ballistic: 3000,
+};
+function etaMinutes(from, to, type, kmh) {
+  const km = distanceKm(from, to);
+  // Приоритет — фактическая скорость трека (track_speed), фолбэк — типовая.
+  const v = kmh || ETA_KMH[type] || 170;
+  return Math.max(1, Math.round(km / v * 60));
+}
+
+function guessTargetRegion(text, sourceSlug) {
+  const lower = (text || '').toLowerCase();
+  for (const [slug, hints] of Object.entries(CITY_HINTS)) {
+    if (slug !== sourceSlug && hints.some(h => lower.includes(h))) return slug;
+  }
+  return TRANSIT_TARGETS[sourceSlug] || null;
+}
+
+// === Данные: кэш + рендер без «телепортов» ===
+let threatsCache = [];
+let reportsCache = [];
+let forecastCache = {};   // регион → {standdown_min, next_wave_min} (статистика волн)
+let pinGroupsCache = [];  // [{pin, items}] последнего рендера — для «что рядом»
+let lastFlashKeys = '';
+
+async function fetchData() {
+  try {
+    threatsCache = EMBEDDED_THREATS || [];
+    reportsCache = EMBEDDED_REPORTS || [];
+    forecastCache = EMBEDDED_FORECAST || {};
+    renderAll();
+    renderTicker();
+  } catch (e) {
+    const counter = document.getElementById('counter');
+    counter.textContent = '⚠ Помилка з\'єднання';
+    counter.style.color = '#ff3b30';
+  }
+}
+
+function threatsAtScrub() {
+  return threatsCache.filter(t => {
+    if (minutesAgo === 0) return t.age_min <= 30; // «зараз» — живое окно 30 мин
+    return Math.abs(t.age_min - minutesAgo) <= 5; // плейбэк: окно вокруг позиции
+  });
+}
+
+// Отбой закрывает инцидент: угрозы региона, СТАРШЕЕ отбоя, скрываем сразу,
+// не ждём 30 минут. Свежее угрозы после отбоя продолжают показываться.
+function standDownAgeByRegion(cache) {
+  const m = new Map();
+  cache.forEach(t => {
+    if (t.type !== 'stand_down') return;
+    const prev = m.get(t.region);
+    if (prev === undefined || t.age_min < prev) m.set(t.region, t.age_min);
+  });
+  return m;
+}
+
+// === Анимация активных векторов: точка летит вдоль луча со шлейфом ===
+let animDots = [];
+let animRaf = null;
+let animLastTs = null;
+const REDUCED_MOTION = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function resetAnim() { animDots = []; }
+
+// Мини-силуэт летящего аппарата для ведущей точки вектора: та же форма,
+// что у пина (WEAPON_SVG), нос повёрнут по курсу (0° = север).
+function flyingIconHtml(type, color, angle) {
+  const shape = TYPE_ICON_SHAPE[type] || 'drone';
+  const svg = (WEAPON_SVG[shape] || WEAPON_SVG.drone)
+    .replaceAll('{c}', color)
+    .replaceAll('{s}', 'rgba(0,0,0,0.55)');
+  return `<div style="transform:rotate(${angle}deg);filter:drop-shadow(0 0 4px ${color});display:flex">` +
+    `<svg width="20" height="20" viewBox="0 0 24 24" style="display:block">${svg}</svg></div>`;
+}
+
+function spawnAnimDots(from, to, color, type, kmh) {
+  if (REDUCED_MOTION) return;
+  const angle = Math.round(Math.atan2(to[1] - from[1], to[0] - from[0]) * 180 / Math.PI);
+  // Ведущий элемент вектора — сам летящий аппарат: мини-силуэт типа,
+  // развёрнутый носом по курсу. Позади — тающий шлейф точек.
+  const lead = L.marker(from, {
+    icon: L.divIcon({
+      className: '', html: flyingIconHtml(type, color, angle),
+      iconSize: [20, 20], iconAnchor: [10, 10],
+    }),
+    interactive: false,
+  }).addTo(vectorLayer);
+  const dots = [lead];
+  for (let i = 1; i < 4; i++) {
+    dots.push(L.circleMarker(from, {
+      radius: Math.max(1.5, 3 - i * 0.5),
+      color: color, weight: 0,
+      fillColor: color, fillOpacity: 0.38 - i * 0.09,
+      interactive: false,
+    }).addTo(vectorLayer));
+  }
+  animDots.push({ dots, from, to, t: Math.random(), step: (kmh || ETA_KMH[type] || 170) >= 800 ? 1 / 1400 : 1 / 2600 });
+  ensureAnim();
+}
+
+function animLoop(ts) {
+  if (!animDots.length) { animRaf = null; animLastTs = null; return; }
+  if (animLastTs == null) animLastTs = ts;
+  const dt = Math.min(60, ts - animLastTs);
+  animLastTs = ts;
+  for (const d of animDots) {
+    d.t += dt * d.step;
+    if (d.t > 1) d.t -= 1;
+    for (let i = 0; i < d.dots.length; i++) {
+      let tt = d.t - i * 0.045;
+      if (tt < 0) tt += 1;
+      d.dots[i].setLatLng([d.from[0] + (d.to[0] - d.from[0]) * tt, d.from[1] + (d.to[1] - d.from[1]) * tt]);
+    }
+  }
+  animRaf = requestAnimationFrame(animLoop);
+}
+
+function ensureAnim() {
+  if (animRaf == null && animDots.length) { animLastTs = null; animRaf = requestAnimationFrame(animLoop); }
+}
+
+function renderAll() {
+  const scrubbed = threatsAtScrub();
+  const sdAge = standDownAgeByRegion(minutesAgo === 0 ? threatsCache : scrubbed);
+  const closedByRegion = slug => {
+    const age = sdAge.get(slug);
+    return age !== undefined && age <= 40;
+  };
+  // Угроза старше отбоя = инцидент закрыт: не показываем её ни в пинах, ни в зонах.
+  const active = scrubbed.filter(t =>
+    t.type !== 'stand_down' &&
+    !(minutesAgo === 0 && closedByRegion(t.region) && t.age_min > sdAge.get(t.region))
+  );
+  const visible = active.filter(t => enabled[layerOf(t)]);
+  const groups = new Map();
+  visible.forEach(t => {
+    // «БпЛА на Оболоні та Подолі» → два пина; «Харків, Салтівка» → Салтівка
+    // первым (самый конкретный) + Харків вторым.
+    for (const pin of pinsOf(t)) {
+      if (!groups.has(pin.key)) groups.set(pin.key, { pin, items: [] });
+      groups.get(pin.key).items.push(t);
+    }
+  });
+  // Кэш групп для тостов «что рядом со мной»: рендер — единственный
+  // источник правды, requestGeo/toasts читают кэш, а не DOM.
+  pinGroupsCache = Array.from(groups.values());
+
+  // Слой 4: зелёные зоны отбоев (последние 40 минут)
+  greenLayer.clearLayers();
+  if (minutesAgo === 0) {
+    const clearRegions = new Set(
+      threatsCache.filter(t => t.type === 'stand_down' && t.age_min <= 40).map(t => t.region)
+    );
+    clearRegions.forEach(slug => {
+      const c = REGION_COORDS[slug];
+      if (!c || groups.has(slug)) return; // активная угроза важнее отбоя
+      L.circle(c, {
+        radius: 42000, color: '#34c759', weight: 1, opacity: 0.5,
+        fillColor: '#34c759', fillOpacity: 0.10,
+      }).addTo(greenLayer)
+        .bindTooltip(`🟢 ${REGION_NAMES[slug] || slug}: відбій`, { direction: 'top' });
+      L.marker(c, {
+        icon: L.divIcon({ className: '', html: '✅', iconSize: [18, 18], iconAnchor: [9, 9] }),
+        interactive: false,
+      }).addTo(greenLayer);
+    });
+  }
+
+  // Слои 1-2: зоны и векторы
+  zoneLayer.clearLayers();
+  vectorLayer.clearLayers();
+  markersLayer.clearLayers();
+  resetAnim();
+
+  let criticalCount = 0;
+  // Трек из БД (track_speed) уникален по паре «город → город»: одна и та же
+  // цель часто даёт несколько пинов/событий, рисуем её луч один раз.
+  const trackSeen = new Set();
+  const trackSigOf = t => (t.track && t.track.from && t.track.to)
+    ? `${t.track.from[0].toFixed(2)},${t.track.from[1].toFixed(2)}>${t.track.to[0].toFixed(2)},${t.track.to[1].toFixed(2)}`
+    : '';
+  groups.forEach(({ pin, items }) => {
+    const slug = pin.region;
+    const coords = pin.coord;
+    let top = items[0];
+    items.forEach(t => {
+      if (SEVERITY_ORDER[TYPE_LEVEL[t.type]] > SEVERITY_ORDER[TYPE_LEVEL[top.type]]) top = t;
+    });
+    if (TYPE_LEVEL[top.type] === 'critical') criticalCount++;
+
+    const color = TYPE_COLORS[top.type] || '#8e8e93';
+    const fresh = items.some(t => t.age_min < 10);
+    const confirmed = items.some(t => Number(t.sources || 1) >= 2);
+
+    // Слой 1: мягкая пульсирующая зона — только там, где она честна.
+    // Район/город — компактные 8 км. Берег Киева — тоже компактный,
+    // иначе снова «угроза на весь Киев». Голая «kyivska» (район в тексте
+    // не назван) зону не получает вовсе: силуэт и вектор показывают
+    // конкретный полёт, а не «весь Киев под угрозой».
+    const zoneR = (pin.isCity || pin.key === 'kyiv_left' || pin.key === 'kyiv_right')
+      ? 8000
+      : (pin.key === 'kyivska' ? 0 : (confirmed ? 34000 : 24000));
+    if (fresh && zoneR > 0) {
+      L.circle(coords, {
+        radius: zoneR,
+        color: color, weight: 1, opacity: 0.35,
+        fillColor: color, fillOpacity: 0.07,
+        className: 'pulse',
+      }).addTo(zoneLayer).on('click', () => { tapFeedback(); openThreatSheet(pin, items); });
+    }
+
+    // Вектор считаем один раз: он нужен и для разворота силуэта, и для луча.
+    let route = (fresh && ['uav', 'rockets'].includes(layerOf(top)))
+      ? routeOf(top, pin) : null;
+    // Дедуп трека: один измеренный луч на пару городов, остальные пины без луча.
+    if (route && route.isTrack && trackSigOf(top)) {
+      if (trackSeen.has(trackSigOf(top))) route = null;
+      else trackSeen.add(trackSigOf(top));
+    }
+    // Направление полёта: разворачиваем силуэт носом по курсу (0° = север).
+    // Для измеренного трека — курс из БД (course_deg), иначе — по геометрии луча.
+    const angle = route
+      ? (route.isTrack && Number.isFinite(route.track.course_deg)
+          ? Math.round(route.track.course_deg)
+          : Math.round(Math.atan2(route.to[1] - route.from[1], route.to[0] - route.from[0]) * 180 / Math.PI))
+      : (top.track && Number.isFinite(top.track.course_deg) ? Math.round(top.track.course_deg) : 0);
+
+    // Пин: силуэт типа оружия (шахед-дельтакрыло / ракета / самолёт / вспышка)
+    // с цветным свечением. Белая обводка = подтверждено несколькими источниками.
+    const approach = items.some(t => approachOf(t.text));
+    const marker = L.marker(coords, {
+      icon: L.divIcon({
+        className: '',
+        // Силует нейтральний: колір загрози — у зоні/векторі (color), не в самій моделі.
+        html: weaponIconHtml(top, '#e9edf3', fresh, confirmed, angle) +
+          (approach ? `<span style="position:absolute;left:26px;top:-8px;background:#ff3b30;` +
+            `color:#fff;font-size:9.5px;font-weight:700;padding:1px 5px;border-radius:8px;` +
+            `border:1px solid rgba(255,255,255,0.75);text-shadow:0 0 3px #000;white-space:nowrap">` +
+            `🎯 на підході</span>` : ''),
+        iconSize: [38, 38], iconAnchor: [19, 19],
+      }),
+    }).addTo(markersLayer).bindTooltip(regionTooltip(pin, items) + (approach ? ' · 🎯 курс на ціль' : ''), { direction: 'top' });
+    marker.on('click', () => { tapFeedback(); openThreatSheet(pin, items); });
+
+    if (items.length > 1) {
+      L.marker(coords, {
+        icon: L.divIcon({
+          className: '',
+          html: `<span style="position:absolute;left:14px;top:-10px;background:#ff3b30;` +
+            `color:#fff;font-size:10px;font-weight:700;padding:1px 5px;` +
+            `border-radius:9px;border:1px solid rgba(255,255,255,0.7);` +
+            `text-shadow:0 0 3px #000">${items.length}</span>`,
+          iconSize: [20, 20], iconAnchor: [0, 0],
+        }),
+        interactive: false,
+      }).addTo(markersLayer);
+    }
+
+    // Слой 2: векторный луч для свежих БПЛА/ракет. Маршрут — из данных
+    // фьюжена (origin/destination поста «з X на Y»), фолбэк — эвристика.
+    // Работает и для киевских берегов/городов: «шахед мимо Гостомеля» даёт
+    // пин в Гостомеле и луч по маршруту, а не безликую точку «Київщина».
+    if (route) {
+      const confirmedVec = confirmed;
+        const wMain = confirmedVec ? 2 : 1.5;
+        const oMain = confirmedVec ? 0.55 : 0.28;
+        const oTip = confirmedVec ? 0.8 : 0.45;
+        const dx = route.to[0] - route.from[0], dy = route.to[1] - route.from[1];
+        const len = Math.hypot(dx, dy) || 1;
+        const ux = dx / len, uy = dy / len;
+        const end = [route.from[0] + dx * 0.6, route.from[1] + dy * 0.6];
+        // Фактическая скорость измеренного трека: её используют и ETA, и анимация.
+        const trkKmh = route.isTrack && Number.isFinite(route.track.speed_kmh)
+          ? route.track.speed_kmh : null;
+        const eta = etaMinutes(route.from, route.to, top.type, trkKmh);
+        L.polyline([route.from, end], {
+          color: color, weight: wMain, opacity: oMain, dashArray: '2 7', lineCap: 'round',
+        }).addTo(vectorLayer)
+          .bindTooltip(`➤ ${route.fromName} → ${route.toName} · ≈${eta} хв (орієнтовно${trkKmh ? ` · ~${Math.round(trkKmh)} км/год` : ''})`, { direction: 'top' });
+        // наконечник стрелки
+        const w = 0.05, d = 0.09;
+        const left = [end[0] - ux * d - uy * w, end[1] - uy * d + ux * w];
+        const right = [end[0] - ux * d + uy * w, end[1] - uy * d - ux * w];
+        L.polyline([left, end, right], { color: color, weight: wMain, opacity: oTip }).addTo(vectorLayer);
+        // анимированная точка со шлейфом вдоль луча
+        spawnAnimDots(route.from, end, color, top.type, trkKmh);
+    }
+  });
+
+  const counter = document.getElementById('counter');
+  counter.style.color = criticalCount > 0 ? '#ff3b30' : '#ff9f0a';
+  counter.textContent = minutesAgo === 0
+    ? `${visible.length} актив. · ${scrubbed.length} подій (30 хв)`
+    : `${scrubbed.length} подій · −${minutesAgo} хв`;
+
+  if (minutesAgo === 0) {
+    checkPersonalRadius(groups);
+    renderReports();
+  }
+}
+
+// === Тикер событий (бегущая строка + раскрытие) ===
+// Текст события приходит уже публичным от /api/threats (правило №6), но
+// автономная карта и старые данные могут содержать сырой markdown и
+// служебные слова. JS-зеркало fast_filter.public_text: страховка на
+// клиенте — ссылки/имена каналов/префиксы в тикер не попадают никогда.
+const _SERVICE_PREFIX_JS = /^\s*(?:multi|unknown)\s*:\s*/i;
+const _MD_LINK_JS = /\[([^\]\n]{0,120})\]\([^)\n]{0,300}\)/g;
+const _URL_JS = /\b(?:https?:)?\/\/[^\s]{2,120}|\bwww\.[^\s]{2,120}/g;
+const _SIG_DECOR_JS = '✙✠✞✜❖◆◇◈★☆✦✧†✝';
+const _DECORATED_SIG_JS = new RegExp(`\\s*[${_SIG_DECOR_JS}]\\s*[^\\n]{0,60}?\\s*[${_SIG_DECOR_JS}]\\s*`, 'g');
+const _TME_MD_JS = /\s*\[[^\]\n]{0,80}\]\(\s*(?:https?:)?\/\/t\.me\/[^\)\s]+\s*\)/g;
+const _TME_URL_JS = /\s*(?:https?:)?\/\/t\.me\/\S+/g;
+
+function publicTextJS(text, max = 60) {
+  let s = String(text || '');
+  // Подписи каналов: t.me-ссылки (markdown и голые) и декоративные вставки.
+  s = s.replace(_TME_MD_JS, ' ').replace(_TME_URL_JS, ' ');
+  for (let i = 0; i < 2; i++) s = s.replace(_DECORATED_SIG_JS, ' ');
+  // Markdown-ссылки: имя оставляем, URL вырезаем; голые URL — прочь.
+  s = s.replace(_MD_LINK_JS, '$1').replace(_URL_JS, ' ');
+  // Служебные префиксы агрегатора и markdown жирного.
+  s = s.replace(_SERVICE_PREFIX_JS, '').replaceAll('**', '');
+  // Одна строка: переносы/двойные пробелы после вырезанных блоков,
+  // ведущие «: » после срезанной атрибуции.
+  s = s.replace(/\s+/g, ' ').replace(/^[\s:;,.\-–—]+/, '').trim();
+  if (s.length <= max) return s;
+  const cut = s.slice(0, max);
+  const trimmed = cut.lastIndexOf(' ') > max * 0.5 ? cut.slice(0, cut.lastIndexOf(' ')) : cut;
+  return trimmed.trimEnd().replace(/[ ,;:.!«»()[\]-]+$/, '') + '…';
+}
+
+function renderTicker() {
+  const el = document.getElementById('tickerInner');
+  const ticker = document.getElementById('ticker');
+  const events = threatsCache.slice().sort((a, b) => a.age_min - b.age_min).slice(0, 8);
+  if (!events.length) {
+    el.innerHTML = ' тихо — активних повідомлень немає ';
+    return;
+  }
+  const line = t =>
+    `<b>${fmtClock(t.age_min)}</b> — ${escapeHtml(TYPE_LABELS[t.type] || '🚨')} · ${escapeHtml(REGION_NAMES[t.region] || t.region)}: ${escapeHtml(publicTextJS(t.text, 60))}`;
+  if (ticker.classList.contains('expanded')) {
+    el.innerHTML = events.map(t => `<div class="tick-line">${line(t)}</div>`).join('');
+  } else {
+    el.innerHTML = events.map(line).join(' &nbsp;·&nbsp; ');
+  }
+}
+document.getElementById('ticker').addEventListener('click', () => {
+  tapFeedback();
+  document.getElementById('ticker').classList.toggle('expanded');
+  renderTicker();
+});
+
+// === Bottom Sheet ===
+const sheet = document.getElementById('sheet');
+function closeSheet() { sheet.classList.remove('open'); }
+document.getElementById('sheetClose').addEventListener('click', () => { tapFeedback(); closeSheet(); });
+(function () {
+  let startY = null;
+  const grab = document.getElementById('sheetGrab');
+  grab.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, { passive: true });
+  grab.addEventListener('touchmove', e => {
+    if (startY != null && e.touches[0].clientY - startY > 48) { closeSheet(); startY = null; }
+  }, { passive: true });
+  grab.addEventListener('touchend', () => { startY = null; }, { passive: true });
+})();
+
+function forecastHtml(regionSlug) {
+  // Статистика волн региона: «коли відбій» и «коли наступна хвиля».
+  // Значения приходят числами из БД проекта; всё равно приводим к int.
+  const fc = forecastCache && forecastCache[regionSlug];
+  if (!fc) return '';
+  const sd = parseInt(fc.standdown_min, 10);
+  const nw = parseInt(fc.next_wave_min, 10);
+  const parts = [];
+  if (Number.isFinite(sd) && sd >= 0) {
+    if (sd === 0) {
+      parts.push('⏳ відбій очікується будь-якої хвилини');
+    } else if (fc.standdown_live) {
+      // Живой countdown: цель в воздухе, медиана не исчерпана.
+      parts.push(`⏳ відбій орієнтовно за <b>~${sd} хв</b>`);
+    } else {
+      parts.push(`⏳ типовий час «остання ціль → відбій» <b>~${sd} хв</b>`);
+    }
+  }
+  if (Number.isFinite(nw) && nw > 0) {
+    parts.push(`🔁 наступна хвиля імовірна через <b>~${nw} хв</b>`);
+  }
+  // Честная метрика точности прогноза (leave-one-out по истории региона).
+  const hits = parseInt(fc.standdown_hits, 10), total = parseInt(fc.standdown_total, 10);
+  if (Number.isFinite(hits) && Number.isFinite(total) && total > 0) {
+    parts.push(`🎯 відбій у межах медіани: ${hits}/${total} епізодів`);
+  }
+  // Профиль «часы волн»: когда тревоги начинаются чаще всего (Київ).
+  const wh = fc.wave_hours;
+  if (wh && Number.isFinite(parseInt(wh.from, 10)) && Number.isFinite(parseInt(wh.to, 10))) {
+    const f = String(parseInt(wh.from, 10)).padStart(2, '0');
+    const t = String(parseInt(wh.to, 10)).padStart(2, '0');
+    parts.push(`🌙 хвилі зазвичай ~${f}:00–${t}:00`);
+  }
+  if (!parts.length) return '';
+  return `<div style="margin-top:6px;font-size:11.5px;color:#9fd0e8">` +
+    `${parts.join(' · ')} <span style="color:#667">(статистика регіону)</span></div>`;
+}
+
+function regionTooltip(pin, items) {
+  // Тултип пина региона: название + метка свежести «N хв тому»
+  // + живой countdown отбоя, если он есть.
+  let label = `📍 ${pin.label}`;
+  if (items && items.length) {
+    const fresh = Math.min(...items.map(t => Number(t.age_min) || 0));
+    label += ` · ${fresh} хв тому`;
+  }
+  // Измеренный трек региона: курс и фактическая скорость в тултипе пина.
+  const trk = (items || []).find(t => t.track && Number.isFinite(t.track.speed_kmh));
+  if (trk) label += ` · ➤ ${Math.round(trk.track.course_deg)}° · ${Math.round(trk.track.speed_kmh)} км/год (орієнтовно)`;
+  const fc = forecastCache && forecastCache[pin.region];
+  if (fc && fc.standdown_live) {
+    const sd = parseInt(fc.standdown_min, 10);
+    label += Number.isFinite(sd) && sd > 0
+      ? ` · 🟢 відбій ~${sd} хв`
+      : ' · 🟢 відбій будь-якої хвилини';
+  }
+  return label;
+}
+
+// Маркеры «цель уже назначена / летит НА объект»: шахед «на Дарницю» —
+// это направление атаки, показываем бейдж, а не безликую точку.
+const APPROACH_MARKERS = [
+  'курсом на', 'курсом у', 'на підході', 'на подходе', 'летить на', 'летят на',
+  'летять на', 'летит в', 'летят в', 'рухається на', 'движется на', 'в напрямку',
+  'в сторону', 'на направлении', 'зашли на', 'заходять на', 'цель —', 'цель -',
+  'ціль —', 'ціль -', 'на дарниц', 'маршрут на',
+];
+function approachOf(text) {
+  const lower = (text || '').toLowerCase();
+  return APPROACH_MARKERS.some(m => lower.includes(m));
+}
+
+function openThreatSheet(pin, items) {
+  let top = items[0];
+  items.forEach(t => {
+    if (SEVERITY_ORDER[TYPE_LEVEL[t.type]] > SEVERITY_ORDER[TYPE_LEVEL[top.type]]) top = t;
+  });
+  const lvl = LEVELS[TYPE_LEVEL[top.type]] || LEVELS.info;
+  const confirmed = items.some(t => Number(t.sources || 1) >= 2);
+  document.getElementById('sheetTitle').innerHTML =
+    `${escapeHtml(pin.label)} <span class="lvl" style="color:${lvl.color};background:${lvl.bg}">${lvl.label}</span>`;
+  const eta = pin.isCity ? null : routeOf(top, pin);
+  let etaLine = '';
+  if (['uav', 'rockets'].includes(layerOf(top)) && eta) {
+    // С измеренным треком показываем фактическую скорость и ETA по ней.
+    const trkKmh = eta.isTrack && Number.isFinite(eta.track.speed_kmh)
+      ? eta.track.speed_kmh : null;
+    const kmhPart = trkKmh ? ` · ~${Math.round(trkKmh)} км/год` : '';
+    etaLine = ` · ≈${etaMinutes(eta.from, eta.to, top.type, trkKmh)} хв до ${eta.toName} (орієнтовно${kmhPart})`;
+  }
+  // Одиночный источник не помечаем: «одне джерело» в каждой карточке — шум.
+  // Подтверждение несколькими источниками по-прежнему показываем.
+  document.getElementById('sheetMeta').textContent =
+    `${items.length} подія(й)${confirmed ? ' · підтверджено кількома джерелами' : ''}${etaLine}`;
+  document.getElementById('sheetBody').innerHTML = items.slice(0, 6).map(t =>
+    `<div class="ev"><div class="t">${fmtClock(t.age_min)} · ${t.age_min} хв тому · джерел: ${escapeHtml(t.sources)}</div>` +
+    `${escapeHtml(TYPE_LABELS[t.type] || t.type)}<br>${escapeHtml((t.text || '').replaceAll('**', ''))}</div>`
+  ).join('') + forecastHtml(pin.region);
+  document.getElementById('sheetNote').textContent = pin.isCity
+    ? 'Позначка — місто/район із тексту джерела (орієнтовно). Дані — повідомлення відкритих джерел.'
+    : 'Позначка — центр регіону, не точні координати. Дані — повідомлення відкритих джерел.';
+  document.getElementById('sheetActions').innerHTML =
+    `<a href="${CHANNEL_URL}" target="_blank" rel="noopener">📡 Канал AirRadar AI</a>`;
+  sheet.classList.add('open');
+}
+
+// === Репорты пользователей: слой «👤 Повідомлення» ===
+function renderReports() {
+  reportsLayer.clearLayers();
+  if (minutesAgo !== 0) return; // плейбэк показывает только источники
+  reportsCache.forEach(r => {
+    const marker = L.circleMarker([r.lat, r.lon], {
+      color: '#ff2d55', fillColor: '#ff2d55', fillOpacity: 0.5,
+      opacity: 0.9, radius: 6, weight: 2, className: 'pulse',
+    }).addTo(reportsLayer)
+      .bindTooltip(`👤 Повідомлення користувача · ${r.age_min} хв тому${r.region ? ` · ${escapeHtml(r.region)}` : ''}`, { direction: 'top' });
+    marker.on('click', () => { tapFeedback(); openReportSheet(r); });
+  });
+}
+
+function openReportSheet(r) {
+  const where = r.region || `${r.lat.toFixed(3)}, ${r.lon.toFixed(3)}`;
+  document.getElementById('sheetTitle').innerHTML =
+    `👤 Повідомлення користувача <span class="lvl" style="color:#ff2d55;background:rgba(255,45,85,0.18)">НЕПІДТВЕРДЖЕНО</span>`;
+  document.getElementById('sheetMeta').textContent =
+    `${where} · ${r.age_min} хв тому · координати округлено`;
+  document.getElementById('sheetBody').innerHTML =
+    `<div class="ev">${escapeHtml(r.text || 'Користувач надіслав геопозицію без опису.')}</div>` +
+    `<div class="ev">Це сигнал від людини, а не від джерел: може бути помилкою. ` +
+    `Перевіряй офіційні канали та сигнал повітряної тривоги.</div>`;
+  document.getElementById('sheetNote').textContent =
+    'Репорти збираються через бота @AirRadar_AI_bot (/report). Публікуються лише округлені координати.';
+  document.getElementById('sheetActions').innerHTML =
+    `<a href="https://t.me/AirRadar_AI_bot" target="_blank" rel="noopener">🤖 Повідомити в бота</a>`;
+  sheet.classList.add('open');
+}
+
+// === Личный радиус безопасности: 15 км + красная вспышка ===
+const PERSONAL_RADIUS_KM = 15;
+document.getElementById('geoBtn').addEventListener('click', () => { tapFeedback(); requestGeo(false); });
+
+function requestGeo(forShelters) {
+  if (!navigator.geolocation) { useMapCenter(forShelters); return; }
+  toast('⏳ Визначаю розташування…');
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude: lat, longitude: lon } = pos.coords;
+    userPos = [lat, lon];
+    map.setView([lat, lon], 9);
+    drawGeoCircle();
+    if (forShelters) loadShelters();
+    toastNearestThreats();
+  }, () => useMapCenter(forShelters), { enableHighAccuracy: false, timeout: 8000 });
+}
+
+// «Що поруч зі мною»: топ-3 активні загрози з відстанню до геопозиції.
+// Источник данных — pinGroupsCache, заполненный последним renderAll().
+// При плейбэке (minutesAgo > 0) группы не рендерятся для тостов — берём
+// кэш последнего «живого» рендера.
+function toastNearestThreats() {
+  if (!userPos) return;
+  const near = [];
+  pinGroupsCache.forEach(({ pin }) => {
+    const d = distanceKm(userPos, pin.coord);
+    if (d <= 120) near.push({ label: pin.label, d });
+  });
+  reportsCache.forEach(r => {
+    const d = distanceKm(userPos, [r.lat, r.lon]);
+    if (d <= 120) near.push({ label: '👤 репорт', d });
+  });
+  if (!near.length) { toast('✅ У радіусі 120 км активних загроз не видно'); return; }
+  near.sort((a, b) => a.d - b.d);
+  const top = near.slice(0, 3)
+    .map(n => `${n.label} — ${n.d.toFixed(0)} км`)
+    .join(' · ');
+  toast(`📍 Найближчі: ${top}`);
+}
+
+// Геолокация часто недоступна внутри Telegram WebApp — fallback: центр карты.
+function useMapCenter(forShelters) {
+  const c = map.getCenter();
+  userPos = [c.lat, c.lng];
+  drawGeoCircle();
+  toast('Геолокацію не надано — шукаю біля центру карти');
+  if (forShelters) loadShelters();
+}
+
+function drawGeoCircle() {
+  if (geoCircle) map.removeLayer(geoCircle);
+  geoCircle = L.circle(userPos, {
+    radius: PERSONAL_RADIUS_KM * 1000, color: '#5ac8fa', weight: 1.5,
+    dashArray: '4 6', fillOpacity: 0.04,
+  }).addTo(map);
+}
+
+function checkPersonalRadius(groups) {
+  if (!userPos) return;
+  const near = [];
+  groups.forEach(({ pin }) => {
+    if (distanceKm(userPos, pin.coord) <= PERSONAL_RADIUS_KM) near.push(pin.label);
+  });
+  // Репорты пользователей тоже считаем: точка ближе центров регионов.
+  let reportNear = 0;
+  if (minutesAgo === 0) {
+    reportsCache.forEach(r => {
+      if (distanceKm(userPos, [r.lat, r.lon]) <= PERSONAL_RADIUS_KM) reportNear++;
+    });
+  }
+  const keys = near.slice();
+  if (reportNear) keys.push(`👤 ×${reportNear}`);
+  const sig = keys.slice().sort().join(',');
+  if (keys.length && sig !== lastFlashKeys) {
+    const flash = document.getElementById('alert-flash');
+    flash.classList.remove('on');
+    void flash.offsetWidth; // restart animation
+    flash.classList.add('on');
+    alertFeedback();
+    let msg = `⚠ Загроза в радіусі ${PERSONAL_RADIUS_KM} км: ${near.join(', ')}`;
+    if (reportNear) msg += ` · повідомлень користувачів поруч: ${reportNear}`;
+    toast(msg, 5000);
+  }
+  lastFlashKeys = sig;
+}
+
+// === Слой 3: укрытия рядом (Overpass API — открытый, без ключей) ===
+document.getElementById('shelterBtn').addEventListener('click', () => {
+  tapFeedback();
+  if (userPos) loadShelters(); else requestGeo(true);
+});
+
+function toast(msg, ms) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove('show'), ms || 3500);
+}
+
+async function overpassQuery(query) {
+  const endpoints = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+  ];
+  for (const url of endpoints) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20000);
+      const resp = await fetch(url, {
+        method: 'POST',
+        body: 'data=' + encodeURIComponent(query),
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (resp.ok) return await resp.json();
+    } catch (e) { /* пробуем зеркало */ }
+  }
+  return null;
+}
+
+async function loadShelters() {
+  if (!userPos) return;
+  const key = userPos.map(v => v.toFixed(2)).join(',');
+  if (sheltersLoadedFor === key && sheltersLayer.getLayers().length) {
+    if (!map.hasLayer(sheltersLayer)) sheltersLayer.addTo(map);
+    toast(`🛡 Укриття: ${sheltersLayer.getLayers().length} точок поруч`);
+    return;
+  }
+  toast('⏳ Шукаю укриття в радіусі 2 км…', 6000);
+  const [lat, lon] = userPos;
+  const data = await overpassQuery(
+    `[out:json][timeout:15];(` +
+    `nwr["amenity"="shelter"](around:2000,${lat},${lon});` +
+    `nwr["railway"="station"]["station"="subway"](around:2000,${lat},${lon});` +
+    `);out center 40;`
+  );
+  sheltersLayer.clearLayers();
+  sheltersLoadedFor = null;
+  if (!data || !data.elements || !data.elements.length) {
+    toast(data ? 'Укриття в радіусі 2 км не знайдено на OpenStreetMap' : 'Сервіс укриттів недоступний, спробуйте пізніше');
+    return;
+  }
+  const seen = new Set();
+  const spots = data.elements
+    .map(el => {
+      const p = el.type === 'node' ? [el.lat, el.lon] : (el.center ? [el.center.lat, el.center.lon] : null);
+      if (!p) return null;
+      const name = (el.tags && (el.tags.name || el.tags.operator)) || 'Укриття';
+      const isMetro = el.tags && el.tags.station === 'subway';
+      return { p, name, isMetro, dist: distanceKm(userPos, p) };
+    })
+    .filter(Boolean)
+    .filter(s => {
+      const k = s.p[0].toFixed(4) + ',' + s.p[1].toFixed(4);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, 15);
+
+  spots.forEach(s => {
+    const marker = L.marker(s.p, {
+      icon: L.divIcon({
+        className: '',
+        html: `<div style="font-size:16px;filter:drop-shadow(0 0 3px rgba(90,200,250,0.8))">${s.isMetro ? '🚇' : '🛡'}</div>`,
+        iconSize: [20, 20], iconAnchor: [10, 10],
+      }),
+    }).addTo(sheltersLayer);
+    marker.on('click', () => { tapFeedback(); openShelterSheet(s); });
+  });
+  sheltersLayer.addTo(map);
+  sheltersLoadedFor = key;
+  map.setView(userPos, 13);
+  toast(`🛡 Знайдено укриттів: ${spots.length} (радіус 2 км)`);
+}
+
+function openShelterSheet(s) {
+  const dest = `${s.p[0]},${s.p[1]}`;
+  document.getElementById('sheetTitle').innerHTML =
+    `${s.isMetro ? '🚇' : '🛡'} ${escapeHtml(s.name)}`;
+  document.getElementById('sheetMeta').textContent =
+    `≈ ${s.dist < 1 ? Math.round(s.dist * 1000) + ' м' : s.dist.toFixed(1) + ' км'} від вас · дані OpenStreetMap`;
+  document.getElementById('sheetBody').innerHTML =
+    'Наведіть, щоб побудувати пішохідний маршрут. У метро Києва станції використовуються як укриття.';
+  document.getElementById('sheetNote').textContent =
+    'Перевіряйте офіційні вказівки місцевої влади щодо найближчих укриттів.';
+  document.getElementById('sheetActions').innerHTML =
+    `<a href="https://www.google.com/maps/dir/?api=1&destination=${dest}&travelmode=walking" target="_blank" rel="noopener">🚶 Google Maps</a>` +
+    `<a href="https://maps.apple.com/?daddr=${dest}&dirflg=w" target="_blank" rel="noopener">🍎 Apple Maps</a>`;
+  sheet.classList.add('open');
+}
+
+// === Поделиться картой ===
+document.getElementById('shareBtn').addEventListener('click', async () => {
+  tapFeedback();
+  const shareData = {
+    title: 'AirRadar AI',
+    text: '🗺 Жива карта загроз України — AirRadar AI',
+    url: location.href.split('#')[0],
+  };
+  try {
+    if (navigator.share) { await navigator.share(shareData); return; }
+    await navigator.clipboard.writeText(shareData.url);
+    toast('🔗 Посилання на карту скопійовано');
+  } catch (e) { /* пользователь отменил */ }
+});
+
+// === Старт ===
+try {
+  if (window.Telegram && window.Telegram.WebApp) {
+    window.Telegram.WebApp.ready();
+    window.Telegram.WebApp.expand();
+  }
+} catch (e) { /* браузер вне Telegram */ }
+const soundChip = document.querySelector('#layersPanel .chip[data-layer="sound"]');
+if (soundChip && !soundOn) soundChip.textContent = '🔇';
+
+fetchData();
+// Нет API — обновление через перезапуск generate_map.py
+// Возврат на вкладку/в Telegram — мгновенное обновление, не ждём таймер.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') fetchData();
+});
+</script>
+</body>
+</html>
