@@ -322,6 +322,24 @@ class SummarizerProtocol:
         pass
 
 
+class NullSummarizer(SummarizerProtocol):
+    """ІІ вимкнено (LLM_BACKEND=off): жодних мережевих викликів і моделі. Те саме, що штатний fallback при збої:
+    summarize повертає оригінал, classify — порожній рядок (виклики вже вміють з цим жити)."""
+    _model = "off"
+
+    async def summarize(self, text: str) -> str:
+        return text
+
+    async def classify(self, text: str, system_prompt: str, max_tokens: int = 30) -> str:
+        return ""
+
+    async def healthcheck(self) -> bool:
+        return True
+
+    async def aclose(self) -> None:
+        return None
+
+
 def _thinking_budget() -> int:
     """Запас токенів для моделей з «роздумами» (MiniMax тощо): без нього відповідь порожня, бо ліміт з'їдає reasoning.
     AI_THINKING_BUDGET=0 (за замовчуванням) — поведінка не змінюється; для reasoning-моделей ставте 400–600."""
@@ -766,9 +784,11 @@ def _build_inner(backend: str, settings: Any, session: aiohttp.ClientSession) ->
             session=session,
             strong_model="",
         )
+    elif backend in ("off", "none", "disabled"):
+        inner = NullSummarizer()
     else:
         raise RuntimeError(
-            f"Неизвестный LLM_BACKEND={backend!r}. Допустимо: 'cvc', 'ollama' или 'groq'."
+            f"Неизвестный LLM_BACKEND={backend!r}. Допустимо: 'off', 'cvc', 'ollama' или 'groq'."
         )
     return inner
 
